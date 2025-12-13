@@ -1,0 +1,23 @@
+{
+  "window": {
+    "width": 800,
+    "height": 600,
+    "title": "Isometrisches Test-Spiel"
+  },
+  "map": {
+    "width": 128,
+    "height": 128,
+    "tile_size": 64
+  },
+  "player": {
+    "color": [0, 255, 0],
+    "size": 1,
+    "height": 1,
+    "speed": 0.1
+  },
+  "isometric": {
+    "tile_width": 64,
+    "tile_height": 64
+  }
+}
+
