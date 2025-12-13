@@ -30,9 +30,10 @@ class Button:
         """Prüft ob Button geklickt wurde"""
         if event.type == pygame.MOUSEMOTION:
             self.is_hovered = self.rect.collidepoint(event.pos)
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            if self.is_hovered:
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+            if self.rect.collidepoint(event.pos):
                 return True
+        return True
         return False
 
 
