@@ -28,9 +28,8 @@ class Button:
 
     def handle_event(self, event):
         """Prüft ob Button geklickt wurde"""
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            if self.rect.collidepoint(event.pos):
-                self.is_hovered = self.rect.collidepoint(event.pos)
+        if event.type == pygame.MOUSEMOTION:
+            self.is_hovered = self.rect.collidepoint(event.pos)
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if self.is_hovered:
                 return True
@@ -60,12 +59,13 @@ class PauseMenu:
         button_names = ["Continue", "Settings", "Save", "Quit"]
         for i, name in enumerate(button_names):
             y_pos = start_y + i * (button_height + button_spacing)
-            self.buttons[name] = settings_manager.scale_rect(pygame.Rect(
+            self.buttons[name] = Button(
                 settings.SCREEN_WIDTH // 2 - button_width // 2,
                 y_pos,
                 button_width,
-                button_height
-            ))
+                button_height,
+                name
+            )
 
         # Save menu reference
         self.save_menu = None
