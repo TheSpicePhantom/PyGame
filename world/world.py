@@ -23,8 +23,8 @@ class World:
             y = random.randint(3, 15) * settings.TILE_SIZE
             ResourceNode(
                 (x, y),
-                resource_type="core:iron_ore",
-                amount=9999,
+                "core:iron_ore",
+                9999,
                 self.all_sprites,
                 self.resource_sprites
             )
@@ -35,8 +35,8 @@ class World:
             y = random.randint(10, 20) * settings.TILE_SIZE
             ResourceNode(
                 (x, y),
-                resource_type="core:copper_ore",
-                amount=9999,
+                "core:copper_ore",
+                9999,
                 self.all_sprites,
                 self.resource_sprites
             )
@@ -47,8 +47,8 @@ class World:
             y = random.randint(5, 15) * settings.TILE_SIZE
             ResourceNode(
                 (x, y),
-                resource_type="core:coal",
-                amount=9999,
+                "core:coal",
+                9999,
                 self.all_sprites,
                 self.resource_sprites
             )
