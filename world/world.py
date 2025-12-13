@@ -63,8 +63,28 @@ class World:
                 )
                 pygame.draw.rect(surface, tile["color"], rect)
         
-        # Draw grid lines (optional, für besser Übersicht)
-        for x in range(0, settings.SCREEN_WIDTH, settings.TILE_SIZE):
-            pygame.draw.line(surface, settings.COLOR_GRID, (x, 0), (x, settings.SCREEN_HEIGHT))
-        for y in range(0, settings.SCREEN_HEIGHT, settings.TILE_SIZE):
-            pygame.draw.line(surface, settings.COLOR_GRID, (0, y), (settings.SCREEN_WIDTH, y))
+                # Draw grid lines - Grid bewegt sich mit der Welt!
+        num_tiles_x = len(self.tiles[0]) if self.tiles else 0
+        num_tiles_y = len(self.tiles)
+        
+        # Vertikale Linien (trennt Tiles in X-Richtung)
+        for x in range(num_tiles_x + 1):
+            world_x = x * settings.TILE_SIZE
+            start_world = (world_x, 0)
+            end_world = (world_x, num_tiles_y * settings.TILE_SIZE)
+            
+            start_screen = camera.world_to_screen(*start_world)
+            end_screen = camera.world_to_screen(*end_world)
+            
+            pygame.draw.line(surface, settings.COLOR_GRID, start_screen, end_screen, 1)
+        
+        # Horizontale Linien (trennt Tiles in Y-Richtung)
+        for y in range(num_tiles_y + 1):
+            world_y = y * settings.TILE_SIZE
+            start_world = (0, world_y)
+            end_world = (num_tiles_x * settings.TILE_SIZE, world_y)
+            
+            start_screen = camera.world_to_screen(*start_world)
+            end_screen = camera.world_to_screen(*end_world)
+            
+            pygame.draw.line(surface, settings.COLOR_GRID, start_screen, end_screen, 1) (0, y), (settings.SCREEN_WIDTH, y))
