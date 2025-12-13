@@ -41,8 +41,16 @@ class PauseMenu:
 
     def __init__(self):
         self.active = False
-        self.font_title = pygame.font.Font(None, 72)
-        self.font_button = pygame.font.Font(None, 48)
+        # Fonts initialisieren (muss nach pygame.init() aufgerufen werden)
+        # Verwende SysFont als Fallback, falls Standard-Font nicht verfügbar
+        try:
+            self.font_title = pygame.font.Font(None, 72)
+            self.font_button = pygame.font.Font(None, 48)
+        except Exception as e:
+            print(f"[PauseMenu] Fehler beim Laden der Standard-Fonts: {e}")
+            # Fallback falls Fonts nicht verfügbar sind
+            self.font_title = pygame.font.SysFont('arial', 72, bold=True)
+            self.font_button = pygame.font.SysFont('arial', 48)
 
         # Buttons erstellen (zentriert)
         button_width = 300
@@ -112,17 +120,23 @@ class PauseMenu:
         if not self.active:
             return
 
-        # Halbtransparenter Overlay
+        # Halbtransparenter Overlay (dunkler Hintergrund)
         overlay = pygame.Surface((settings.SCREEN_WIDTH, settings.SCREEN_HEIGHT))
-        overlay.set_alpha(180)
+        overlay.set_alpha(200)
         overlay.fill((0, 0, 0))
         surface.blit(overlay, (0, 0))
 
         # Titel
-        title_text = self.font_title.render("PAUSED", True, (255, 255, 255))
-        title_rect = title_text.get_rect(center=(settings.SCREEN_WIDTH // 2, 150))
-        surface.blit(title_text, title_rect)
+        try:
+            title_text = self.font_title.render("PAUSED", True, (255, 255, 255))
+            title_rect = title_text.get_rect(center=(settings.SCREEN_WIDTH // 2, 150))
+            surface.blit(title_text, title_rect)
+        except Exception as e:
+            print(f"[PauseMenu] Fehler beim Rendern des Titels: {e}")
 
         # Buttons
         for button in self.buttons.values():
-            button.draw(surface, self.font_button)
+            try:
+                button.draw(surface, self.font_button)
+            except Exception as e:
+                print(f"[PauseMenu] Fehler beim Rendern eines Buttons: {e}")

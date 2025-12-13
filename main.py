@@ -8,6 +8,7 @@ from world.world import World
 from combat.player import Player
 from factory.recipes import load_recipes
 from core.camera import Camera
+from ui.pause_menu import PauseMenu
 
 
 def main():
@@ -49,6 +50,9 @@ def main():
     camera.x = player.rect.centerx
     camera.y = player.rect.centery
     
+    # Pause-Menü
+    pause_menu = PauseMenu()
+    
     # Game loop
     running = True
     while running:
@@ -58,13 +62,32 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            input_handler.handle_event(event)
+                continue
+            
+            # ESC-Handling (hat Priorität)
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pause_menu.toggle()
+                    #print(f"[Main] ESC gedrückt - Pause-Menü: {'geöffnet' if pause_menu.active else 'geschlossen'}")
+                    continue  # Überspringe weitere Event-Verarbeitung für ESC
+            
+            # Pause-Menü Events (nur wenn aktiv)
+            if pause_menu.active:
+                result = pause_menu.handle_event(event)
+                if result == "quit":
+                    running = False
+                elif result == "continue":
+                    pass  # Menü wird bereits durch handle_event geschlossen
+            else:
+                # Normale Input-Events nur wenn nicht pausiert
+                input_handler.handle_event(event)
         
-        # Update
-        input_handler.update()
-        all_sprites.update(dt)
-        camera.update(dt)
-        world.update(player.rect.center)
+        # Update (nur wenn nicht pausiert)
+        if not pause_menu.active:
+            input_handler.update()
+            all_sprites.update(dt)
+            camera.update(dt)
+            world.update(player.rect.center)
         
         # Render
         screen.fill(settings.COLOR_BG)
@@ -72,12 +95,17 @@ def main():
         for sprite in all_sprites:
             screen.blit(sprite.image, camera.apply(sprite))
         
-        # Debug info
-        font = pygame.font.Font(None, 24)
-        fps_text = font.render(f"FPS: {int(clock.get_fps())}", True, (255, 255, 255))
-        pos_text = font.render(f"Pos: ({player.rect.x}, {player.rect.y})", True, (255, 255, 255))
-        screen.blit(fps_text, (10, 10))
-        screen.blit(pos_text, (10, 35))
+        # Debug info (nur wenn nicht pausiert)
+        if not pause_menu.active:
+            font = pygame.font.Font(None, 24)
+            fps_text = font.render(f"FPS: {int(clock.get_fps())}", True, (255, 255, 255))
+            pos_text = font.render(f"Pos: ({player.rect.x}, {player.rect.y})", True, (255, 255, 255))
+            screen.blit(fps_text, (10, 10))
+            screen.blit(pos_text, (10, 35))
+        
+        # Pause-Menü zeichnen (wenn aktiv) - muss als letztes gezeichnet werden
+        if pause_menu.active:
+            pause_menu.draw(screen)
         
         pygame.display.flip()
     
