@@ -1,7 +1,7 @@
 import pygame
 import json
 import os
-from config.settings import SCREEN_WIDTH, SCREEN_HEIGHT
+from core import settings
 
 class GraphicsSettings:
     """Graphics Settings submenu"""
@@ -21,11 +21,17 @@ class GraphicsSettings:
         self.menu_size_options = [75, 100, 125]
         
         # Slider settings
-        self.brightness_slider = self._create_slider(150, 0, 200)
-        self.menu_size_slider_x = SCREEN_WIDTH // 2 - 150
+        self.brightness_slider = self._create_slider(300, 0, 200)
         
         # Buttons
-        self.back_button = pygame.Rect(SCREEN_WIDTH // 2 - 100, 550, 200, 50)
+        button_width = 200
+        button_height = 50
+        self.back_button = pygame.Rect(
+            settings.SCREEN_WIDTH // 2 - button_width // 2,
+            550,
+            button_width,
+            button_height
+        )
     
     def load_settings(self):
         try:
@@ -55,7 +61,7 @@ class GraphicsSettings:
     
     def _create_slider(self, width, min_val, max_val):
         return {
-            'x': SCREEN_WIDTH // 2 - width // 2,
+            'x': settings.SCREEN_WIDTH // 2 - width // 2,
             'width': width,
             'min': min_val,
             'max': max_val
@@ -69,12 +75,7 @@ class GraphicsSettings:
         if not self.active:
             return None
         
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
-                self.save_settings()
-                self.toggle()
-                return 'back'
-        
+        # ESC wird in main.py behandelt
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mouse_pos = event.pos
             
@@ -85,16 +86,18 @@ class GraphicsSettings:
                 return 'back'
             
             # Quality cycle
-            quality_rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, 250, 200, 40)
+            quality_rect = pygame.Rect(settings.SCREEN_WIDTH // 2 - 100, 250, 200, 40)
             if quality_rect.collidepoint(mouse_pos):
                 idx = self.quality_options.index(self.quality)
                 self.quality = self.quality_options[(idx + 1) % len(self.quality_options)]
+                self.save_settings()
             
             # Menu size cycle
-            size_rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, 350, 200, 40)
+            size_rect = pygame.Rect(settings.SCREEN_WIDTH // 2 - 100, 350, 200, 40)
             if size_rect.collidepoint(mouse_pos):
                 idx = self.menu_size_options.index(self.menu_size)
                 self.menu_size = self.menu_size_options[(idx + 1) % len(self.menu_size_options)]
+                self.save_settings()
         
         # Brightness slider drag
         if pygame.mouse.get_pressed()[0]:
@@ -114,20 +117,22 @@ class GraphicsSettings:
             return
         
         # Semi-transparent overlay
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay = pygame.Surface((settings.SCREEN_WIDTH, settings.SCREEN_HEIGHT))
         overlay.set_alpha(180)
         overlay.fill((0, 0, 0))
         surface.blit(overlay, (0, 0))
         
         # Title
         title_text = self.font.render('GRAFIK-EINSTELLUNGEN', True, (255, 255, 255))
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 60))
+        title_rect = title_text.get_rect(center=(settings.SCREEN_WIDTH // 2, 60))
         surface.blit(title_text, title_rect)
+        
+        mouse_pos = pygame.mouse.get_pos()
         
         # Brightness slider
         y_pos = 150
         label = self.label_font.render(f'Helligkeit: {self.brightness}%', True, (255, 255, 255))
-        surface.blit(label, (SCREEN_WIDTH // 2 - 150, y_pos - 30))
+        surface.blit(label, (settings.SCREEN_WIDTH // 2 - 150, y_pos - 30))
         
         slider = self.brightness_slider
         pygame.draw.rect(surface, (100, 100, 100), (slider['x'], y_pos - 5, slider['width'], 10))
@@ -137,10 +142,9 @@ class GraphicsSettings:
         # Quality selector
         y_pos = 250
         label = self.label_font.render('Qualität:', True, (255, 255, 255))
-        surface.blit(label, (SCREEN_WIDTH // 2 - 150, y_pos - 30))
+        surface.blit(label, (settings.SCREEN_WIDTH // 2 - 150, y_pos - 30))
         
-        quality_rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, y_pos, 200, 40)
-        mouse_pos = pygame.mouse.get_pos()
+        quality_rect = pygame.Rect(settings.SCREEN_WIDTH // 2 - 100, y_pos, 200, 40)
         color = (100, 100, 100) if quality_rect.collidepoint(mouse_pos) else (50, 50, 50)
         pygame.draw.rect(surface, color, quality_rect)
         pygame.draw.rect(surface, (200, 200, 200), quality_rect, 2)
@@ -152,9 +156,9 @@ class GraphicsSettings:
         # Menu size selector
         y_pos = 350
         label = self.label_font.render('Menügröße:', True, (255, 255, 255))
-        surface.blit(label, (SCREEN_WIDTH // 2 - 150, y_pos - 30))
+        surface.blit(label, (settings.SCREEN_WIDTH // 2 - 150, y_pos - 30))
         
-        size_rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, y_pos, 200, 40)
+        size_rect = pygame.Rect(settings.SCREEN_WIDTH // 2 - 100, y_pos, 200, 40)
         color = (100, 100, 100) if size_rect.collidepoint(mouse_pos) else (50, 50, 50)
         pygame.draw.rect(surface, color, size_rect)
         pygame.draw.rect(surface, (200, 200, 200), size_rect, 2)

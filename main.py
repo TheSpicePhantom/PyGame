@@ -9,6 +9,10 @@ from combat.player import Player
 from factory.recipes import load_recipes
 from core.camera import Camera
 from ui.pause_menu import PauseMenu
+from ui.settings_menu import SettingsMenu
+from ui.audio_settings import AudioSettings
+from ui.graphics_settings import GraphicsSettings
+from ui.controls_settings import ControlsSettings
 
 
 def main():
@@ -50,8 +54,12 @@ def main():
     camera.x = player.rect.centerx
     camera.y = player.rect.centery
     
-    # Pause-Menü
+    # Pause-Menü und Settings-Menüs
     pause_menu = PauseMenu()
+    settings_menu = SettingsMenu()
+    audio_settings = AudioSettings()
+    graphics_settings = GraphicsSettings()
+    controls_settings = ControlsSettings()
     
     # Game loop
     running = True
@@ -67,23 +75,72 @@ def main():
             # ESC-Handling (hat Priorität)
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    pause_menu.toggle()
-                    #print(f"[Main] ESC gedrückt - Pause-Menü: {'geöffnet' if pause_menu.active else 'geschlossen'}")
+                    # Wenn Sub-Menü aktiv ist, zurück zum Settings-Menü
+                    if audio_settings.active:
+                        audio_settings.active = False
+                        settings_menu.active = True
+                    elif graphics_settings.active:
+                        graphics_settings.active = False
+                        settings_menu.active = True
+                    elif controls_settings.active:
+                        controls_settings.active = False
+                        settings_menu.active = True
+                    # Wenn Settings-Menü aktiv ist, zurück zum Pause-Menü
+                    elif settings_menu.active:
+                        settings_menu.active = False
+                        pause_menu.active = True
+                    # Sonst Pause-Menü togglen
+                    else:
+                        pause_menu.toggle()
                     continue  # Überspringe weitere Event-Verarbeitung für ESC
             
-            # Pause-Menü Events (nur wenn aktiv)
-            if pause_menu.active:
+            # Sub-Menü Events (höchste Priorität)
+            if audio_settings.active:
+                result = audio_settings.handle_event(event)
+                if result == "back":
+                    audio_settings.active = False
+                    settings_menu.active = True
+            elif graphics_settings.active:
+                result = graphics_settings.handle_event(event)
+                if result == "back":
+                    graphics_settings.active = False
+                    settings_menu.active = True
+            elif controls_settings.active:
+                result = controls_settings.handle_event(event)
+                if result == "back":
+                    controls_settings.active = False
+                    settings_menu.active = True
+            # Settings-Menü Events
+            elif settings_menu.active:
+                result = settings_menu.handle_event(event)
+                if result == "back":
+                    settings_menu.toggle()
+                    pause_menu.active = True  # Zurück zum Pause-Menü
+                elif result == "audio":
+                    settings_menu.active = False
+                    audio_settings.active = True
+                elif result == "graphics":
+                    settings_menu.active = False
+                    graphics_settings.active = True
+                elif result == "controls":
+                    settings_menu.active = False
+                    controls_settings.active = True
+            # Pause-Menü Events (nur wenn aktiv und Settings nicht aktiv)
+            elif pause_menu.active:
                 result = pause_menu.handle_event(event)
                 if result == "quit":
                     running = False
                 elif result == "continue":
                     pass  # Menü wird bereits durch handle_event geschlossen
+                elif result == "settings":
+                    pause_menu.active = False  # Pause-Menü schließen
+                    settings_menu.active = True  # Settings-Menü öffnen
             else:
                 # Normale Input-Events nur wenn nicht pausiert
                 input_handler.handle_event(event)
         
-        # Update (nur wenn nicht pausiert)
-        if not pause_menu.active:
+        # Update (nur wenn nicht pausiert und Settings nicht aktiv)
+        if not pause_menu.active and not settings_menu.active:
             input_handler.update()
             all_sprites.update(dt)
             camera.update(dt)
@@ -95,16 +152,19 @@ def main():
         for sprite in all_sprites:
             screen.blit(sprite.image, camera.apply(sprite))
         
-        # Debug info (nur wenn nicht pausiert)
-        if not pause_menu.active:
+        # Debug info (nur wenn nicht pausiert und Settings nicht aktiv)
+        if not pause_menu.active and not settings_menu.active:
             font = pygame.font.Font(None, 24)
             fps_text = font.render(f"FPS: {int(clock.get_fps())}", True, (255, 255, 255))
             pos_text = font.render(f"Pos: ({player.rect.x}, {player.rect.y})", True, (255, 255, 255))
             screen.blit(fps_text, (10, 10))
             screen.blit(pos_text, (10, 35))
         
-        # Pause-Menü zeichnen (wenn aktiv) - muss als letztes gezeichnet werden
-        if pause_menu.active:
+        # Settings-Menü zeichnen (wenn aktiv) - hat Priorität
+        if settings_menu.active:
+            settings_menu.draw(screen)
+        # Pause-Menü zeichnen (wenn aktiv und Settings nicht aktiv)
+        elif pause_menu.active:
             pause_menu.draw(screen)
         
         pygame.display.flip()

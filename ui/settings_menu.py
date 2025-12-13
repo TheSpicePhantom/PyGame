@@ -1,5 +1,5 @@
 import pygame
-from config.settings import SCREEN_WIDTH, SCREEN_HEIGHT
+from core import settings
 
 class SettingsMenu:
     """Settings Menu with placeholders for various options"""
@@ -14,7 +14,7 @@ class SettingsMenu:
         button_height = 60
         button_spacing = 20
         start_y = 200
-        center_x = SCREEN_WIDTH // 2
+        center_x = settings.SCREEN_WIDTH // 2
         
         self.buttons = {
             "Audio": pygame.Rect(
@@ -53,11 +53,8 @@ class SettingsMenu:
         if not self.active:
             return None
         
-        # ESC key to close Settings Menu
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
-                self.toggle()
-                return "back"
+        # ESC key to close Settings Menu (wird in main.py behandelt)
+        # Keine Behandlung hier, damit main.py die Kontrolle hat
         
         # Button click events
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:  # Left click
@@ -75,14 +72,14 @@ class SettingsMenu:
             return
         
         # Semi-transparent overlay
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay = pygame.Surface((settings.SCREEN_WIDTH, settings.SCREEN_HEIGHT))
         overlay.set_alpha(180)
         overlay.fill((0, 0, 0))
         surface.blit(overlay, (0, 0))
         
         # Title
         title_text = self.font.render("SETTINGS", True, (255, 255, 255))
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 100))
+        title_rect = title_text.get_rect(center=(settings.SCREEN_WIDTH // 2, 100))
         surface.blit(title_text, title_rect)
         
         # Buttons
