@@ -25,7 +25,8 @@ class Player(pygame.sprite.Sprite):
         move = self.input_handler.move_dir * self.speed * dt
         self.rect.x += move.x
         self.rect.y += move.y
-        
+    
+    def add_item(self, item_id, amount=1):
         """Fügt Items zum Inventar hinzu"""
         if item_id in self.inventory:
             self.inventory[item_id] += amount

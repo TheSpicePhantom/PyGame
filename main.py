@@ -31,12 +31,23 @@ def main():
     
     # Input & Player
     input_handler = InputHandler()
+    
+    # Player startet in der Mitte der Welt (nicht oben links)
+    # Berechne Startposition in der Mitte der Welt
+    start_world_x = settings.WORLD_SIZE_TILES * settings.TILE_SIZE // 2
+    start_world_y = settings.WORLD_SIZE_TILES * settings.TILE_SIZE // 2
+    
     player = Player(
-        pos=(settings.SCREEN_WIDTH // 2, settings.SCREEN_HEIGHT // 2),
+        pos=(start_world_x, start_world_y),
         input_handler=input_handler,
     )
     all_sprites.add(player, layer=settings.LAYER_PLAYER)
+    
+    # Kamera initialisieren und sofort auf Spielerposition setzen
     camera = Camera(target=player, lerp_speed=settings.CAMERA_LERP_SPEED)
+    # Kamera sofort auf Spielerposition setzen (ohne Lerp beim Start)
+    camera.x = player.rect.centerx
+    camera.y = player.rect.centery
     
     # Game loop
     running = True
@@ -53,7 +64,7 @@ def main():
         input_handler.update()
         all_sprites.update(dt)
         camera.update(dt)
-                world.update(player.rect.center)
+        world.update(player.rect.center)
         
         # Render
         screen.fill(settings.COLOR_BG)
