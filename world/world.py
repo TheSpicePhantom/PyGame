@@ -1,71 +1,65 @@
 """
-World: Spiel-Welt mit Grid und Ressourcen
+World: Spielwelt mit Grid und Ressourcen (mit TerrainGenerator)
 """
 import pygame
-import random
 from core import settings
 from world.entities import ResourceNode
+from world.terrain_generator import TerrainGenerator
 
 
 class World:
-    """Verwaltet die Spielwelt mit Grid und Ressourcen"""
-    
-    def __init__(self, all_sprites, resource_sprites):
+    """Verwaltet die Spielwelt mit Grid, Ressourcen und prozeduralem Terrain"""
+
+    def __init__(self, all_sprites, resource_sprites, seed=None):
         self.all_sprites = all_sprites
         self.resource_sprites = resource_sprites
-        self.generate_resources()
+        
+        # Initialize terrain generator
+        self.terrain_gen = TerrainGenerator(seed=seed)
+        print(f"[World] Terrain generator initialized with seed: {self.terrain_gen.seed}")
+        
+        # Generate initial world (viewport-sized chunk)
+        self.tiles = self.terrain_gen.generate_chunk(0, 0, chunk_size=40)
+        print(f"[World] Generated {len(self.tiles)}x{len(self.tiles[0])} terrain chunk")
+        
+        # Spawn resources based on generated terrain
+        self.spawn_resources_from_terrain()
     
-    def generate_resources(self):
-        """Generiert Ressourcen-Knoten in der Welt"""
-        # Iron ore patches
-        for _ in range(5):
-            x = random.randint(3, 15) * settings.TILE_SIZE
-            y = random.randint(3, 15) * settings.TILE_SIZE
-            ResourceNode(
-                (x, y),
-                "core:iron_ore",
-                9999,
-                self.all_sprites,
-                self.resource_sprites
-            )
+    def spawn_resources_from_terrain(self):
+        """Spawn resource nodes based on terrain data"""
+        resource_count = 0
+        for y, row in enumerate(self.tiles):
+            for x, tile in enumerate(row):
+                # Check if this tile has resources
+                if tile["resources"] and tile["traversable"]:
+                    # Spawn first resource type for now
+                    resource_type = tile["resources"][0]
+                    
+                    ResourceNode(
+                        (x * settings.TILE_SIZE, y * settings.TILE_SIZE),
+                        resource_type=resource_type,
+                        amount=9999,
+                        *[self.all_sprites, self.resource_sprites]
+                    )
+                    resource_count += 1
         
-        # Copper ore patches
-        for _ in range(3):
-            x = random.randint(3, 15) * settings.TILE_SIZE
-            y = random.randint(10, 20) * settings.TILE_SIZE
-            ResourceNode(
-                (x, y),
-                "core:copper_ore",
-                9999,
-                self.all_sprites,
-                self.resource_sprites
-            )
-        
-        # Coal patches
-        for _ in range(4):
-            x = random.randint(10, 25) * settings.TILE_SIZE
-            y = random.randint(5, 15) * settings.TILE_SIZE
-            ResourceNode(
-                (x, y),
-                "core:coal",
-                9999,
-                self.all_sprites,
-                self.resource_sprites
-            )
+        print(f"[World] Spawned {resource_count} resource nodes")
     
     def draw_grid(self, surface):
-        """Zeichnet das Grid auf die Oberfläche"""
+        """Draw grid and terrain colors"""
+        # Draw terrain tiles
+        for y, row in enumerate(self.tiles):
+            for x, tile in enumerate(row):
+                rect = pygame.Rect(
+                    x * settings.TILE_SIZE,
+                    y * settings.TILE_SIZE,
+                    settings.TILE_SIZE,
+                    settings.TILE_SIZE
+                )
+                pygame.draw.rect(surface, tile["color"], rect)
+        
+        # Draw grid lines
         for x in range(0, settings.SCREEN_WIDTH, settings.TILE_SIZE):
-            pygame.draw.line(
-                surface,
-                settings.COLOR_GRID,
-                (x, 0),
-                (x, settings.SCREEN_HEIGHT)
-            )
+            pygame.draw.line(surface, settings.COLOR_GRID, (x, 0), (x, settings.SCREEN_HEIGHT))
         for y in range(0, settings.SCREEN_HEIGHT, settings.TILE_SIZE):
-            pygame.draw.line(
-                surface,
-                settings.COLOR_GRID,
-                (0, y),
-                (settings.SCREEN_WIDTH, y)
-            )
+            pygame.draw.line(surface, settings.COLOR_GRID, (0, y), (settings.SCREEN_WIDTH, y))
