@@ -1,9 +1,10 @@
-""" 
+"""
 UI: Pause-Menü mit Continue, Settings, Save, Quit Buttons
 """
 import pygame
 from core import settings
 from config.settings_manager import settings_manager
+
 
 class Button:
     """Einfacher Button für das Pause-Menü"""
@@ -92,24 +93,34 @@ class PauseMenu:
                 self.toggle()
                 return "Continue"
 
-        # Button-Events
+        # Button-Events mit differenzierter Behandlung (Option 3)
         for button_name, button in self.buttons.items():
             if button.handle_event(event):
                 
                 if button_name == "Continue":
+                    # Continue: Schließt PauseMenu komplett
+                    self.toggle()
                     return "Continue"
-                            self.toggle()
-                        
+                
                 elif button_name == "Settings":
+                    # Settings: Deaktiviert PauseMenu temporär, aktiviert Submenü
                     if self.settings_menu:
+                        self.active = False  # PauseMenu verstecken
                         self.settings_menu.active = True
                     return "Settings"
+                
                 elif button_name == "Save":
+                    # Save: Deaktiviert PauseMenu temporär, aktiviert Submenü
                     if self.save_menu:
+                        self.active = False  # PauseMenu verstecken
                         self.save_menu.active = True
                     return "Save"
+                
                 elif button_name == "Quit":
+                    # Quit: Schließt PauseMenu und beendet Spiel
+                    self.toggle()
                     return "Quit"
+
         return None
 
     def draw(self, surface):
