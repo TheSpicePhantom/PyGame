@@ -53,6 +53,7 @@ def main():
         input_handler.update()
         all_sprites.update(dt)
         camera.update(dt)
+                world.update(player.rect.center)
         
         # Render
         screen.fill(settings.COLOR_BG)
