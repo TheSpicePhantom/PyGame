@@ -96,6 +96,14 @@ class PauseMenu:
         for button_name, button in self.buttons.items():
             if button.handle_event(event):
                 if button_name == "Continue":
+                    elif button_name == "Settings":
+                        if self.settings_menu:
+                            self.settings_menu.active = True
+                    elif button_name == "Save":
+                        if self.save_menu:
+                            self.save_menu.active = True
+                    elif button_name == "Quit":
+                        return "Quit"
                     self.toggle()
                 return button_name
 
