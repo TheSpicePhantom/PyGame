@@ -21,14 +21,13 @@ class Player(pygame.sprite.Sprite):
         self.inventory = {}
     
     def update(self, dt):
-        """Aktualisiert die Spielerposition basierend auf Input"""
+        """Aktualisiert die Spielerposition basierend auf Input (in Welt-Koordinaten)"""
         move = self.input_handler.move_dir * self.speed * dt
         self.rect.x += move.x
         self.rect.y += move.y
         
-        # Begrenze Bewegung auf Bildschirm (optional - später durch Kamera ersetzen)
-        self.rect.x = max(0, min(self.rect.x, settings.SCREEN_WIDTH - self.rect.width))
-        self.rect.y = max(0, min(self.rect.y, settings.SCREEN_HEIGHT - self.rect.height))
+        # Keine Begrenzung mehr - Spieler bewegt sich frei in der Welt
+        # Die Kamera folgt dem Spieler
     
     def add_item(self, item_id, amount=1):
         """Fügt Items zum Inventar hinzu"""

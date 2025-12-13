@@ -4,6 +4,7 @@ Hauptdatei: Startet das Top-Down Factorio-Style Spiel
 import pygame
 from core import settings
 from core.input import InputHandler
+from core.camera import Camera
 from world.world import World
 from combat.player import Player
 from factory.recipes import load_recipes
@@ -29,11 +30,17 @@ def main():
     
     # Input & Player
     input_handler = InputHandler()
+    camera = Camera()
+    
+    # Player startet in der Mitte der Welt
     player = Player(
         pos=(settings.SCREEN_WIDTH // 2, settings.SCREEN_HEIGHT // 2),
         input_handler=input_handler,
     )
     all_sprites.add(player, layer=settings.LAYER_PLAYER)
+    
+    # Kamera auf Spieler ausrichten
+    camera.follow(player.rect.centerx, player.rect.centery)
     
     # Game loop
     running = True
@@ -50,15 +57,34 @@ def main():
         input_handler.update()
         all_sprites.update(dt)
         
+        # Kamera folgt Spieler
+        camera.follow(player.rect.centerx, player.rect.centery)
+        
         # Render
         screen.fill(settings.COLOR_BG)
-        world.draw_grid(screen)
-        all_sprites.draw(screen)
+        
+        # Zeichne Grid mit Kamera-Offset und 60° Neigung
+        world.draw_grid_with_camera(screen, camera)
+        
+        # Zeichne Sprites mit Kamera-Offset und 60° Neigung
+        # Sortiere nach Layer für korrektes Rendering
+        sorted_sprites = sorted(all_sprites.sprites(), key=lambda s: getattr(s, '_layer', 0))
+        
+        for sprite in sorted_sprites:
+            # Konvertiere Welt-Koordinaten zu Bildschirm-Koordinaten
+            screen_x, screen_y = camera.world_to_screen(sprite.rect.centerx, sprite.rect.centery)
+            
+            # Erstelle temporäres Rect für Rendering
+            render_rect = sprite.image.get_rect(center=(screen_x, screen_y))
+            
+            # Zeichne Sprite
+            screen.blit(sprite.image, render_rect)
         
         # Debug info
         font = pygame.font.Font(None, 24)
         fps_text = font.render(f"FPS: {int(clock.get_fps())}", True, (255, 255, 255))
-        pos_text = font.render(f"Pos: ({player.rect.x}, {player.rect.y})", True, (255, 255, 255))
+        world_pos = camera.screen_to_world(player.rect.centerx, player.rect.centery)
+        pos_text = font.render(f"World Pos: ({int(world_pos[0])}, {int(world_pos[1])})", True, (255, 255, 255))
         screen.blit(fps_text, (10, 10))
         screen.blit(pos_text, (10, 35))
         
