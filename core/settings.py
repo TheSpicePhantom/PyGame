@@ -39,3 +39,10 @@ MINER_PRODUCTION_TIME = 1.0  # seconds per item
 CAMERA_LERP_SPEED = 0.15  # 0.05-0.2 (lower = smoother)
 PERSPECTIVE_OFFSET_ENABLED = True  # Enable angled view
 PERSPECTIVE_TILE_HEIGHT_RATIO = 0.5  # For 60° view simulation
+
+# Chunk System (Minecraft-Style)
+CHUNK_SIZE = 15  # Tiles per chunk (15x15)
+WORLD_SIZE_CHUNKS = 128  # Max world size in chunks (128x128 chunks)
+WORLD_SIZE_TILES = CHUNK_SIZE * WORLD_SIZE_CHUNKS  # 1920x1920 tiles total
+CHUNK_LOAD_DISTANCE = 2  # Load chunks within N chunks of player
+CHUNK_UNLOAD_DISTANCE = 4  # Unload chunks farther than N chunks from player
