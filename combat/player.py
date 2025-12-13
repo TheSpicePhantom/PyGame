@@ -26,11 +26,6 @@ class Player(pygame.sprite.Sprite):
         self.rect.x += move.x
         self.rect.y += move.y
         
-        # Begrenze Bewegung auf Bildschirm (optional - später durch Kamera ersetzen)
-        self.rect.x = max(0, min(self.rect.x, settings.SCREEN_WIDTH - self.rect.width))
-        self.rect.y = max(0, min(self.rect.y, settings.SCREEN_HEIGHT - self.rect.height))
-    
-    def add_item(self, item_id, amount=1):
         """Fügt Items zum Inventar hinzu"""
         if item_id in self.inventory:
             self.inventory[item_id] += amount
