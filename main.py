@@ -18,6 +18,7 @@ def main():
     
     # Lade Rezepte beim Start
     load_recipes()
+        print("[Main] Loaded recipes from JSON")
     
     # Sprite-Gruppen
     all_sprites = pygame.sprite.LayeredUpdates()
@@ -25,7 +26,7 @@ def main():
     building_sprites = pygame.sprite.Group()
     
     # Welt erstellen
-    world = World(all_sprites, resource_sprites)
+    world = World(all_sprites, resource_sprites, seed=None)  # Optional: seed=12345 für reproduzierbare Welt
     
     # Input & Player
     input_handler = InputHandler()
