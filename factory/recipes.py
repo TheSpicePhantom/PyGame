@@ -1,67 +1,63 @@
 """
-Factory: Rezept-System für Produktion
+Factory: JSON-basiertes Rezept-System mit Namespace-Support
 """
-from typing import Dict
+import json
+import os
+from typing import Dict, Any
+
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "recipes")
+
+RECIPES: Dict[str, Dict[str, Any]] = {}
 
 
-class Recipe:
-    """Repräsentiert ein Produktionsrezept"""
+def load_recipes():
+    """Lädt alle JSON-Rezepte aus data/recipes und merged sie.
     
-    def __init__(self, recipe_id: str, name: str, 
-                 inputs: Dict[str, int], outputs: Dict[str, int], 
-                 production_time: float = 1.0):
-        self.recipe_id = recipe_id
-        self.name = name
-        self.inputs = inputs  # {resource_name: amount}
-        self.outputs = outputs  # {resource_name: amount}
-        self.production_time = production_time
+    Spätere Dateien können bestehende IDs bewusst überschreiben,
+    aber Kollisionen werden geloggt.
+    """
+    global RECIPES
+    RECIPES = {}
     
-    def get_efficiency(self) -> float:
-        """Berechnet die Effizienz des Rezepts (Output/Input)"""
-        total_input = sum(self.inputs.values())
-        total_output = sum(self.outputs.values())
+    if not os.path.isdir(DATA_DIR):
+        os.makedirs(DATA_DIR, exist_ok=True)
+        print(f"[recipes] Created directory: {DATA_DIR}")
+        return
+    
+    loaded_files = 0
+    for filename in sorted(os.listdir(DATA_DIR)):
+        if not filename.endswith(".json"):
+            continue
         
-        if total_input == 0:
-            return float('inf')
+        path = os.path.join(DATA_DIR, filename)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            if not isinstance(data, dict):
+                print(f"[recipes] WARN: '{filename}' does not contain a dict")
+                continue
+            
+            for recipe_id, recipe_def in data.items():
+                # Kollisionen loggen
+                if recipe_id in RECIPES:
+                    print(f"[recipes] WARN: recipe '{recipe_id}' redefined in '{filename}'")
+                RECIPES[recipe_id] = recipe_def
+            
+            loaded_files += 1
+            print(f"[recipes] Loaded {len(data)} recipes from '{filename}'")
         
-        return total_output / total_input
+        except Exception as e:
+            print(f"[recipes] ERROR loading '{filename}': {e}")
+    
+    print(f"[recipes] Total: {len(RECIPES)} recipes from {loaded_files} files")
 
 
-class RecipeManager:
-    """Verwaltet alle verfügbaren Rezepte"""
-    
-    def __init__(self):
-        self.recipes: Dict[str, Recipe] = {}
-        self.load_default_recipes()
-    
-    def load_default_recipes(self):
-        """Lädt Standard-Rezepte"""
-        # Beispiel-Rezepte
-        self.add_recipe(Recipe(
-            "iron_ore_to_iron",
-            "Eisen schmelzen",
-            {"iron_ore": 2},
-            {"iron": 1},
-            2.0
-        ))
-        
-        self.add_recipe(Recipe(
-            "iron_to_steel",
-            "Stahl herstellen",
-            {"iron": 2, "coal": 1},
-            {"steel": 1},
-            3.0
-        ))
-    
-    def add_recipe(self, recipe: Recipe):
-        """Fügt ein Rezept hinzu"""
-        self.recipes[recipe.recipe_id] = recipe
-    
-    def get_recipe(self, recipe_id: str) -> Recipe:
-        """Gibt ein Rezept zurück"""
-        return self.recipes.get(recipe_id)
-    
-    def get_all_recipes(self) -> Dict[str, Recipe]:
-        """Gibt alle Rezepte zurück"""
-        return self.recipes.copy()
+def get_recipe(recipe_id: str) -> Dict[str, Any] | None:
+    """Gibt ein Rezept zurück oder None wenn nicht gefunden"""
+    return RECIPES.get(recipe_id)
 
+
+def get_all_recipes() -> Dict[str, Dict[str, Any]]:
+    """Gibt alle geladenen Rezepte zurück"""
+    return RECIPES.copy()

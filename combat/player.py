@@ -1,67 +1,38 @@
 """
-Combat: Spieler-Logik
+Combat: Spieler-Klasse mit Bewegung und Inventar
 """
-from world.entities import MovableEntity
-from combat.weapons import Weapon
+import pygame
+from core import settings
 
 
-class Player(MovableEntity):
-    """Spieler-Entität"""
+class Player(pygame.sprite.Sprite):
+    """Spieler-Charakter mit Top-Down-Bewegung"""
     
-    def __init__(self, x: float, y: float, speed: float = 0.1):
-        super().__init__(x, y, speed, "player")
-        self.health = 100
-        self.max_health = 100
-        self.weapon: Weapon = None
-        self.inventory: dict = {}
-        self.experience = 0
-        self.level = 1
-    
-    def on_update(self, dt: float):
-        """Aktualisiert den Spieler"""
-        super().on_update(dt)
+    def __init__(self, pos, input_handler, *groups):
+        super().__init__(*groups)
+        self.image = pygame.Surface((settings.TILE_SIZE, settings.TILE_SIZE))
+        self.image.fill(settings.COLOR_PLAYER)
+        self.rect = self.image.get_rect(center=pos)
+        self.input_handler = input_handler
+        self.speed = settings.PLAYER_SPEED
+        self._layer = settings.LAYER_PLAYER
         
-        if self.weapon:
-            self.weapon.update(dt)
+        # Inventar-System (für später)
+        self.inventory = {}
     
-    def equip_weapon(self, weapon: Weapon):
-        """Rüstet eine Waffe aus"""
-        self.weapon = weapon
+    def update(self, dt):
+        """Aktualisiert die Spielerposition basierend auf Input"""
+        move = self.input_handler.move_dir * self.speed * dt
+        self.rect.x += move.x
+        self.rect.y += move.y
+        
+        # Begrenze Bewegung auf Bildschirm (optional - später durch Kamera ersetzen)
+        self.rect.x = max(0, min(self.rect.x, settings.SCREEN_WIDTH - self.rect.width))
+        self.rect.y = max(0, min(self.rect.y, settings.SCREEN_HEIGHT - self.rect.height))
     
-    def attack(self, target):
-        """Greift ein Ziel an"""
-        if self.weapon:
-            return self.weapon.attack(target)
-        return False
-    
-    def take_damage(self, amount: float):
-        """Fügt dem Spieler Schaden zu"""
-        self.health = max(0, self.health - amount)
-        if self.health <= 0:
-            self.die()
-    
-    def heal(self, amount: float):
-        """Heilt den Spieler"""
-        self.health = min(self.max_health, self.health + amount)
-    
-    def die(self):
-        """Wird aufgerufen, wenn der Spieler stirbt"""
-        self.active = False
-        # Respawn-Logik hier
-    
-    def gain_experience(self, amount: int):
-        """Gibt dem Spieler Erfahrung"""
-        self.experience += amount
-        while self.experience >= self.get_experience_for_level(self.level + 1):
-            self.level_up()
-    
-    def level_up(self):
-        """Erhöht das Level des Spielers"""
-        self.level += 1
-        self.max_health += 10
-        self.health = self.max_health
-    
-    def get_experience_for_level(self, level: int) -> int:
-        """Berechnet die benötigte Erfahrung für ein Level"""
-        return level * 100
-
+    def add_item(self, item_id, amount=1):
+        """Fügt Items zum Inventar hinzu"""
+        if item_id in self.inventory:
+            self.inventory[item_id] += amount
+        else:
+            self.inventory[item_id] = amount

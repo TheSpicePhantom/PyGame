@@ -1,0 +1,34 @@
+{
+  "weapon:ammo_basic": {
+    "inputs": {
+      "core:iron_plate": 1
+    },
+    "output": {
+      "weapon:ammo_basic": 1
+    },
+    "time": 2.0,
+    "description": "Crafts basic ammunition from iron plates"
+  },
+  "weapon:ammo_piercing": {
+    "inputs": {
+      "core:steel_plate": 1,
+      "core:copper_plate": 1
+    },
+    "output": {
+      "weapon:ammo_piercing": 1
+    },
+    "time": 3.0,
+    "description": "Crafts piercing ammunition from steel and copper"
+  },
+  "weapon:grenade": {
+    "inputs": {
+      "core:iron_plate": 2,
+      "core:coal": 5
+    },
+    "output": {
+      "weapon:grenade": 1
+    },
+    "time": 4.0,
+    "description": "Crafts grenades from iron plates and coal"
+  }
+}

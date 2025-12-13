@@ -1,74 +1,44 @@
 """
-Core: Input-Handling für Tastatur und Maus
+Core: Input-Handler für Spielersteuerung
 """
 import pygame
-from typing import Tuple, Optional
+from core import settings
 
 
 class InputHandler:
-    """Verarbeitet Tastatureingaben und Maus-Events"""
+    """Verarbeitet Tastatur- und Maus-Eingaben"""
     
     def __init__(self):
-        self.keys_pressed = {}
-        self.mouse_pos = (0, 0)
-        self.mouse_buttons = {}
+        self.move_dir = pygame.Vector2()
+        self.build_mode = False
+        self.rotate_pressed = False
     
-    def handle_event(self, event: pygame.event.Event) -> Tuple[float, float, Optional[float]]:
-        """Verarbeitet ein Event und gibt Bewegungsvektor und Zoom-Delta zurück"""
-        dx, dy = 0.0, 0.0
-        zoom = None
-        
-        if event.type == pygame.KEYDOWN:
-            self.keys_pressed[event.key] = True
-        elif event.type == pygame.KEYUP:
-            self.keys_pressed[event.key] = False
-        elif event.type == pygame.MOUSEMOTION:
-            self.mouse_pos = event.pos
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            self.mouse_buttons[event.button] = True
-        elif event.type == pygame.MOUSEBUTTONUP:
-            self.mouse_buttons[event.button] = False
-        elif event.type == pygame.MOUSEWHEEL:
-            # Mausrad für Zoom
-            zoom = event.y * 0.1
-        
-        # WASD-Steuerung
-        if self.keys_pressed.get(pygame.K_w, False):
-            dy -= 1.0
-        if self.keys_pressed.get(pygame.K_s, False):
-            dy += 1.0
-        if self.keys_pressed.get(pygame.K_a, False):
-            dx -= 1.0
-        if self.keys_pressed.get(pygame.K_d, False):
-            dx += 1.0
-        
-        return (dx, dy, zoom)
-    
-    def get_movement(self) -> Tuple[float, float]:
-        """Gibt den aktuellen Bewegungsvektor basierend auf gedrückten Tasten zurück"""
-        dx, dy = 0.0, 0.0
-        
+    def update(self):
+        """Aktualisiert den Bewegungsvektor basierend auf Tasteneingaben"""
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_w]:
-            dy -= 1.0
-        if keys[pygame.K_s]:
-            dy += 1.0
-        if keys[pygame.K_a]:
-            dx -= 1.0
-        if keys[pygame.K_d]:
-            dx += 1.0
+        self.move_dir.x = 0
+        self.move_dir.y = 0
         
-        return (dx, dy)
+        if keys[settings.KEY_MOVE_LEFT]:
+            self.move_dir.x = -1
+        if keys[settings.KEY_MOVE_RIGHT]:
+            self.move_dir.x = 1
+        if keys[settings.KEY_MOVE_UP]:
+            self.move_dir.y = -1
+        if keys[settings.KEY_MOVE_DOWN]:
+            self.move_dir.y = 1
+        
+        # Normalisiere Bewegung bei diagonaler Bewegung
+        if self.move_dir.length_squared() > 0:
+            self.move_dir = self.move_dir.normalize()
     
-    def is_key_pressed(self, key: int) -> bool:
-        """Prüft, ob eine Taste gedrückt ist"""
-        return pygame.key.get_pressed()[key]
-    
-    def get_mouse_position(self) -> Tuple[int, int]:
-        """Gibt die aktuelle Mausposition zurück"""
-        return self.mouse_pos
-    
-    def is_mouse_button_pressed(self, button: int) -> bool:
-        """Prüft, ob eine Maustaste gedrückt ist"""
-        return self.mouse_buttons.get(button, False)
-
+    def handle_event(self, event):
+        """Verarbeitet einzelne Events"""
+        if event.type == pygame.KEYDOWN:
+            if event.key == settings.KEY_BUILD_MODE:
+                self.build_mode = not self.build_mode
+            elif event.key == settings.KEY_ROTATE:
+                self.rotate_pressed = True
+        elif event.type == pygame.KEYUP:
+            if event.key == settings.KEY_ROTATE:
+                self.rotate_pressed = False

@@ -1,67 +1,71 @@
 """
-World: Welt- und Karten-Logik
+World: Spiel-Welt mit Grid und Ressourcen
 """
-from typing import List, Tuple, Optional
-from world.entities import Entity
-
-
-class Tile:
-    """Repräsentiert ein einzelnes Tile auf der Karte"""
-    
-    def __init__(self, x: int, y: int, tile_type: int = 0):
-        self.x = x
-        self.y = y
-        self.tile_type = tile_type
-        self.entity: Optional[Entity] = None
-        self.building = None
-    
-    def is_walkable(self) -> bool:
-        """Prüft, ob das Tile begehbar ist"""
-        return self.tile_type == 0 and self.entity is None and self.building is None
+import pygame
+import random
+from core import settings
+from world.entities import ResourceNode
 
 
 class World:
-    """Verwaltet die Spielwelt und Karte"""
+    """Verwaltet die Spielwelt mit Grid und Ressourcen"""
     
-    def __init__(self, width: int, height: int):
-        self.width = width
-        self.height = height
-        self.tiles: List[List[Tile]] = []
-        self.entities: List[Entity] = []
+    def __init__(self, all_sprites, resource_sprites):
+        self.all_sprites = all_sprites
+        self.resource_sprites = resource_sprites
+        self.generate_resources()
+    
+    def generate_resources(self):
+        """Generiert Ressourcen-Knoten in der Welt"""
+        # Iron ore patches
+        for _ in range(5):
+            x = random.randint(3, 15) * settings.TILE_SIZE
+            y = random.randint(3, 15) * settings.TILE_SIZE
+            ResourceNode(
+                (x, y),
+                resource_type="core:iron_ore",
+                amount=9999,
+                self.all_sprites,
+                self.resource_sprites
+            )
         
-        # Initialisiere Karte
-        for y in range(height):
-            row = []
-            for x in range(width):
-                row.append(Tile(x, y, 0))
-            self.tiles.append(row)
+        # Copper ore patches
+        for _ in range(3):
+            x = random.randint(3, 15) * settings.TILE_SIZE
+            y = random.randint(10, 20) * settings.TILE_SIZE
+            ResourceNode(
+                (x, y),
+                resource_type="core:copper_ore",
+                amount=9999,
+                self.all_sprites,
+                self.resource_sprites
+            )
+        
+        # Coal patches
+        for _ in range(4):
+            x = random.randint(10, 25) * settings.TILE_SIZE
+            y = random.randint(5, 15) * settings.TILE_SIZE
+            ResourceNode(
+                (x, y),
+                resource_type="core:coal",
+                amount=9999,
+                self.all_sprites,
+                self.resource_sprites
+            )
     
-    def get_tile(self, x: int, y: int) -> Optional[Tile]:
-        """Gibt das Tile an der Position zurück"""
-        if self.is_valid_position(x, y):
-            return self.tiles[y][x]
-        return None
-    
-    def is_valid_position(self, x: int, y: int) -> bool:
-        """Prüft, ob eine Position auf der Karte gültig ist"""
-        return 0 <= x < self.width and 0 <= y < self.height
-    
-    def add_entity(self, entity: Entity):
-        """Fügt eine Entität zur Welt hinzu"""
-        if entity not in self.entities:
-            self.entities.append(entity)
-    
-    def remove_entity(self, entity: Entity):
-        """Entfernt eine Entität aus der Welt"""
-        if entity in self.entities:
-            self.entities.remove(entity)
-    
-    def update(self, dt: float):
-        """Aktualisiert die Welt"""
-        for entity in self.entities:
-            entity.update(dt, self)
-    
-    def get_entities_at(self, x: int, y: int) -> List[Entity]:
-        """Gibt alle Entitäten an einer Position zurück"""
-        return [e for e in self.entities if int(e.x) == x and int(e.y) == y]
-
+    def draw_grid(self, surface):
+        """Zeichnet das Grid auf die Oberfläche"""
+        for x in range(0, settings.SCREEN_WIDTH, settings.TILE_SIZE):
+            pygame.draw.line(
+                surface,
+                settings.COLOR_GRID,
+                (x, 0),
+                (x, settings.SCREEN_HEIGHT)
+            )
+        for y in range(0, settings.SCREEN_HEIGHT, settings.TILE_SIZE):
+            pygame.draw.line(
+                surface,
+                settings.COLOR_GRID,
+                (0, y),
+                (settings.SCREEN_WIDTH, y)
+            )
