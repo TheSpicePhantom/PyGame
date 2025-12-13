@@ -4,12 +4,12 @@ Core: Spiel-Einstellungen und Konfiguration
 import pygame
 
 # Fenster
-SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
+SCREEN_WIDTH = 1920
+SCREEN_HEIGHT = 1080
 FPS = 60
 
 # Tiles
-TILE_SIZE = 32
+TILE_SIZE = 16
 
 # Farben
 COLOR_BG = (10, 10, 12)

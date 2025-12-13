@@ -7,6 +7,7 @@ from core.input import InputHandler
 from world.world import World
 from combat.player import Player
 from factory.recipes import load_recipes
+from core.camera import Camera
 
 
 def main():
@@ -18,7 +19,7 @@ def main():
     
     # Lade Rezepte beim Start
     load_recipes()
-        print("[Main] Loaded recipes from JSON")
+    print("[Main] Loaded recipes from JSON")
     
     # Sprite-Gruppen
     all_sprites = pygame.sprite.LayeredUpdates()
@@ -35,6 +36,7 @@ def main():
         input_handler=input_handler,
     )
     all_sprites.add(player, layer=settings.LAYER_PLAYER)
+    camera = Camera(target=player, lerp_speed=settings.CAMERA_LERP_SPEED)
     
     # Game loop
     running = True
@@ -50,11 +52,13 @@ def main():
         # Update
         input_handler.update()
         all_sprites.update(dt)
+        camera.update(dt)
         
         # Render
         screen.fill(settings.COLOR_BG)
-        world.draw_grid(screen)
-        all_sprites.draw(screen)
+        world.draw_grid(screen, camera)
+        for sprite in all_sprites:
+            screen.blit(sprite.image, camera.apply(sprite))
         
         # Debug info
         font = pygame.font.Font(None, 24)
