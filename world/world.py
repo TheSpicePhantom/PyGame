@@ -63,7 +63,7 @@ class World:
                 )
                 pygame.draw.rect(surface, tile["color"], rect)
         
-                # Draw grid lines - Grid bewegt sich mit der Welt!
+        # Draw grid lines - Grid bewegt sich mit der Welt!
         num_tiles_x = len(self.tiles[0]) if self.tiles else 0
         num_tiles_y = len(self.tiles)
         
@@ -87,4 +87,4 @@ class World:
             start_screen = camera.world_to_screen(*start_world)
             end_screen = camera.world_to_screen(*end_world)
             
-            pygame.draw.line(surface, settings.COLOR_GRID, start_screen, end_screen, 1) (0, y), (settings.SCREEN_WIDTH, y))
+            pygame.draw.line(surface, settings.COLOR_GRID, start_screen, end_screen, 1)
