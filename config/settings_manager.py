@@ -69,7 +69,24 @@ class SettingsManager:
         scaled_size = self.scale_value(base_size)
         return pygame.font.Font(None, scaled_size)
     
-    def scale_rect(self, x, y, width, height):
+    def scale_rect(self, x, y, width, height):def scale_rect(self, *args):
+        """Scale a rectangle's position and size"""
+        # Support both: scale_rect(rect) and scale_rect(x, y, width, height)
+        if len(args) == 1 and isinstance(args[0], pygame.Rect):
+            rect = args[0]
+            x, y, width, height = rect.x, rect.y, rect.width, rect.height
+        elif len(args) == 4:
+            x, y, width, height = args
+        else:
+            raise ValueError("scale_rect expects either a pygame.Rect or (x, y, width, height)")
+        
+        scale = self.get_ui_scale()
+        return pygame.Rect(
+            int(x * scale),
+            int(y * scale),
+            int(width * scale),
+            int(height * scale)
+        )
         """Scale a rectangle's position and size"""
         scale = self.get_ui_scale()
         return pygame.Rect(
