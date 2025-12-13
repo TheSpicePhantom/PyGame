@@ -1,9 +1,9 @@
-"""
+""" 
 UI: Pause-Menü mit Continue, Settings, Save, Quit Buttons
 """
 import pygame
 from core import settings
-
+from config.settings_manager import settings_manager
 
 class Button:
     """Einfacher Button für das Pause-Menü"""
@@ -28,8 +28,9 @@ class Button:
 
     def handle_event(self, event):
         """Prüft ob Button geklickt wurde"""
-        if event.type == pygame.MOUSEMOTION:
-            self.is_hovered = self.rect.collidepoint(event.pos)
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.rect.collidepoint(event.pos):
+                self.is_hovered = self.rect.collidepoint(event.pos)
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if self.is_hovered:
                 return True
@@ -42,54 +43,39 @@ class PauseMenu:
     def __init__(self):
         self.active = False
         # Fonts initialisieren (muss nach pygame.init() aufgerufen werden)
-        # Verwende SysFont als Fallback, falls Standard-Font nicht verfügbar
+        # Vermeide Systemfonts als Fallback, falls Standard-Font nicht verfügbar
         try:
-            self.font_title = pygame.font.Font(None, 72)
-            self.font_button = pygame.font.Font(None, 48)
+            self.font_title = settings_manager.scale_font_size(72)
+            self.font_button = settings_manager.scale_font_size(40)
         except Exception as e:
-            print(f"[PauseMenu] Fehler beim Laden der Standard-Fonts: {e}")
-            # Fallback falls Fonts nicht verfügbar sind
-            self.font_title = pygame.font.SysFont('arial', 72, bold=True)
-            self.font_button = pygame.font.SysFont('arial', 48)
+            print(f"[PauseMenu] Fehler beim Laden des Titels: {e}")
 
-        # Buttons erstellen (zentriert)
-        button_width = 300
-        button_height = 60
-        button_spacing = 20
-        start_y = 300
+        # Buttons
+        button_width = settings_manager.scale_value(400)
+        button_height = settings_manager.scale_value(60)
+        button_spacing = settings_manager.scale_value(20)
+        start_y = settings_manager.scale_value(200)
 
-        center_x = settings.SCREEN_WIDTH // 2
+        self.buttons = {}
+        button_names = ["Continue", "Settings", "Save", "Quit"]
+        for i, name in enumerate(button_names):
+            y_pos = start_y + i * (button_height + button_spacing)
+            self.buttons[name] = settings_manager.scale_rect(pygame.Rect(
+                settings.SCREEN_WIDTH // 2 - button_width // 2,
+                y_pos,
+                button_width,
+                button_height
+            ))
 
-        self.buttons = {
-            "continue": Button(
-                center_x - button_width // 2,
-                start_y,
-                button_width,
-                button_height,
-                "Continue"
-            ),
-            "settings": Button(
-                center_x - button_width // 2,
-                start_y + (button_height + button_spacing),
-                button_width,
-                button_height,
-                "Settings"
-            ),
-            "save": Button(
-                center_x - button_width // 2,
-                start_y + 2 * (button_height + button_spacing),
-                button_width,
-                button_height,
-                "Save"
-            ),
-            "quit": Button(
-                center_x - button_width // 2,
-                start_y + 3 * (button_height + button_spacing),
-                button_width,
-                button_height,
-                "Quit"
-            ),
-        }
+        # Save menu reference
+        self.save_menu = None
+        self.settings_menu = None
+
+    def set_settings_menu(self, settings_menu):
+        self.settings_menu = settings_menu
+
+    def set_save_menu(self, save_menu):
+        self.save_menu = save_menu
 
     def toggle(self):
         """Pause-Menü an/aus"""
@@ -104,12 +90,12 @@ class PauseMenu:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 self.toggle()
-                return "continue"
+                return "Continue"
 
         # Button-Events
         for button_name, button in self.buttons.items():
             if button.handle_event(event):
-                if button_name == "continue":
+                if button_name == "Continue":
                     self.toggle()
                 return button_name
 
@@ -129,7 +115,7 @@ class PauseMenu:
         # Titel
         try:
             title_text = self.font_title.render("PAUSED", True, (255, 255, 255))
-            title_rect = title_text.get_rect(center=(settings.SCREEN_WIDTH // 2, 150))
+            title_rect = title_text.get_rect(center=(settings.SCREEN_WIDTH // 2, settings_manager.scale_value(100)))
             surface.blit(title_text, title_rect)
         except Exception as e:
             print(f"[PauseMenu] Fehler beim Rendern des Titels: {e}")
