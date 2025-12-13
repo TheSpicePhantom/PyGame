@@ -34,3 +34,8 @@ KEY_ROTATE = pygame.K_r
 # Gameplay
 PLAYER_SPEED = 200  # pixels per second
 MINER_PRODUCTION_TIME = 1.0  # seconds per item
+
+# Camera / Perspective
+CAMERA_LERP_SPEED = 0.15  # 0.05-0.2 (lower = smoother)
+PERSPECTIVE_OFFSET_ENABLED = True  # Enable angled view
+PERSPECTIVE_TILE_HEIGHT_RATIO = 0.5  # For 60° view simulation
