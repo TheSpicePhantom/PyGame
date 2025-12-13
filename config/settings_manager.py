@@ -69,7 +69,7 @@ class SettingsManager:
         scaled_size = self.scale_value(base_size)
         return pygame.font.Font(None, scaled_size)
     
-    def scale_rect(self, x, y, width, height):def scale_rect(self, *args):
+                def scale_rect(self, *args):
         """Scale a rectangle's position and size"""
         # Support both: scale_rect(rect) and scale_rect(x, y, width, height)
         if len(args) == 1 and isinstance(args[0], pygame.Rect):
@@ -87,15 +87,8 @@ class SettingsManager:
             int(width * scale),
             int(height * scale)
         )
-        """Scale a rectangle's position and size"""
-        scale = self.get_ui_scale()
-        return pygame.Rect(
-            int(x * scale),
-            int(y * scale),
-            int(width * scale),
-            int(height * scale)
-        )
-    
+
+
     def update_graphics_setting(self, key, value):
         """Update a graphics setting and save"""
         self.graphics[key] = value
