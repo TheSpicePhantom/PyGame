@@ -95,18 +95,19 @@ class PauseMenu:
         # Button-Events
         for button_name, button in self.buttons.items():
             if button.handle_event(event):
+                self.toggle()
                 if button_name == "Continue":
-                    elif button_name == "Settings":
-                        if self.settings_menu:
-                            self.settings_menu.active = True
-                    elif button_name == "Save":
-                        if self.save_menu:
-                            self.save_menu.active = True
-                    elif button_name == "Quit":
-                        return "Quit"
-                    self.toggle()
-                return button_name
-
+                    return "Continue"
+                elif button_name == "Settings":
+                    if self.settings_menu:
+                        self.settings_menu.active = True
+                    return "Settings"
+                elif button_name == "Save":
+                    if self.save_menu:
+                        self.save_menu.active = True
+                    return "Save"
+                elif button_name == "Quit":
+                    return "Quit"
         return None
 
     def draw(self, surface):
