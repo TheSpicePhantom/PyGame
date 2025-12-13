@@ -1,13 +1,22 @@
 import pygame
 from core import settings
+from ui.graphics_settings import GraphicsSettings
+from ui.audio_settings import AudioSettings
+from ui.controls_settings import ControlsSettings
 
 class SettingsMenu:
-    """Settings Menu with placeholders for various options"""
+    """Settings Menu with submenus for Graphics, Audio, and Controls"""
     
     def __init__(self):
         self.active = False
         self.font = pygame.font.Font(None, 48)
         self.button_font = pygame.font.Font(None, 36)
+        
+        # Initialize submenus
+        self.graphics_menu = GraphicsSettings()
+        self.audio_menu = AudioSettings()
+        self.controls_menu = ControlsSettings()
+        self.current_submenu = None
         
         # Define buttons
         button_width = 400
@@ -17,13 +26,13 @@ class SettingsMenu:
         center_x = settings.SCREEN_WIDTH // 2
         
         self.buttons = {
-            "Audio": pygame.Rect(
+            "Graphics": pygame.Rect(
                 center_x - button_width // 2,
                 start_y,
                 button_width,
                 button_height
             ),
-            "Graphics": pygame.Rect(
+            "Audio": pygame.Rect(
                 center_x - button_width // 2,
                 start_y + (button_height + button_spacing),
                 button_width,
@@ -46,6 +55,12 @@ class SettingsMenu:
     def toggle(self):
         """Toggle Settings Menu on/off"""
         self.active = not self.active
+        if not self.active:
+            # Close any open submenus when closing main settings
+            self.current_submenu = None
+            self.graphics_menu.active = False
+            self.audio_menu.active = False
+            self.controls_menu.active = False
         return self.active
     
     def handle_event(self, event):
@@ -53,8 +68,18 @@ class SettingsMenu:
         if not self.active:
             return None
         
-        # ESC key to close Settings Menu (wird in main.py behandelt)
-        # Keine Behandlung hier, damit main.py die Kontrolle hat
+        # If a submenu is active, forward events to it
+        if self.current_submenu:
+            result = self.current_submenu.handle_event(event)
+            if result == 'back':
+                self.current_submenu = None
+            return None
+        
+        # ESC key to close Settings Menu
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.toggle()
+                return 'back'
         
         # Button click events
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:  # Left click
@@ -62,13 +87,28 @@ class SettingsMenu:
                 if button_rect.collidepoint(event.pos):
                     if button_name == "Back":
                         self.toggle()
-                    return button_name.lower()
+                        return 'back'
+                    elif button_name == "Graphics":
+                        self.graphics_menu.toggle()
+                        self.current_submenu = self.graphics_menu
+                    elif button_name == "Audio":
+                        self.audio_menu.toggle()
+                        self.current_submenu = self.audio_menu
+                    elif button_name == "Controls":
+                        self.controls_menu.toggle()
+                        self.current_submenu = self.controls_menu
+                    return None
         
         return None
     
     def draw(self, surface):
         """Draw Settings Menu"""
         if not self.active:
+            return
+        
+        # If a submenu is active, draw only the submenu
+        if self.current_submenu:
+            self.current_submenu.draw(surface)
             return
         
         # Semi-transparent overlay
@@ -78,7 +118,7 @@ class SettingsMenu:
         surface.blit(overlay, (0, 0))
         
         # Title
-        title_text = self.font.render("SETTINGS", True, (255, 255, 255))
+        title_text = self.font.render("EINSTELLUNGEN", True, (255, 255, 255))
         title_rect = title_text.get_rect(center=(settings.SCREEN_WIDTH // 2, 100))
         surface.blit(title_text, title_rect)
         
