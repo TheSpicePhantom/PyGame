@@ -135,7 +135,7 @@ class ControlsSettings:
             # Check back button
             if self.back_button.collidepoint(mouse_pos):
                 self.active = False
-                return
+                return 'back'
 
     def draw(self, screen):
         """Draw the Controls Settings Menu"""
