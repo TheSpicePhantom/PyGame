@@ -160,8 +160,15 @@ def main():
             screen.blit(fps_text, (10, 10))
             screen.blit(pos_text, (10, 35))
         
+        # Sub-Menüs zeichnen (höchste Priorität)
+        if audio_settings.active:
+            audio_settings.draw(screen)
+        elif graphics_settings.active:
+            graphics_settings.draw(screen)
+        elif controls_settings.active:
+            controls_settings.draw(screen)
         # Settings-Menü zeichnen (wenn aktiv) - hat Priorität
-        if settings_menu.active:
+        elif settings_menu.active:
             settings_menu.draw(screen)
         # Pause-Menü zeichnen (wenn aktiv und Settings nicht aktiv)
         elif pause_menu.active:
