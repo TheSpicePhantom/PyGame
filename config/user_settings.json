@@ -1,21 +1,21 @@
 {
-  "graphics": {
-    "brightness": 100,
-    "quality": "medium",
-    "menu_size": 75
-  },
-  "audio": {
-    "master": 100,
-    "music": 80,
-    "sounds": 100,
-    "machines": 90,
-    "weapons": 95,
-    "build_destroy": 85,
-    "master_volume": 100,
-    "music_volume": 100,
-    "sounds_volume": 100,
-    "machines_volume": 100,
-    "weapons_volume": 100,
-    "build_destroy_volume": 100
-  }
+    "graphics": {
+        "brightness": 100,
+        "quality": "medium",
+        "menu_size": 100
+    },
+    "audio": {
+        "master": 100,
+        "music": 80,
+        "sounds": 100,
+        "machines": 90,
+        "weapons": 95,
+        "build_destroy": 85,
+        "master_volume": 100,
+        "music_volume": 100,
+        "sounds_volume": 100,
+        "machines_volume": 100,
+        "weapons_volume": 100,
+        "build_destroy_volume": 100
+    }
 }

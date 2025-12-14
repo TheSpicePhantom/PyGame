@@ -22,7 +22,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-user_settings.json
+config/user_settings.json
 
 # PyInstaller
 *.manifest
