@@ -4,7 +4,7 @@
     "octaves": 6,
     "persistence": 0.5,
     "lacunarity": 2.0,
-    "scale": 100.0
+    "scale": 200.0
   },
   "biomes": {
     "water:deep": {
@@ -12,32 +12,28 @@
       "height_max": -0.3,
       "color": [20, 60, 120],
       "tile_id": "core:deep_water",
-      "traversable": false,
-      "resources": []
+      "traversable": false
     },
     "water:shallow": {
       "height_min": -0.3,
       "height_max": 0.0,
       "color": [40, 100, 180],
       "tile_id": "core:shallow_water",
-      "traversable": false,
-      "resources": ["core:fish"]
+      "traversable": false
     },
     "terrain:beach": {
       "height_min": 0.0,
       "height_max": 0.15,
       "color": [220, 200, 160],
       "tile_id": "core:sand",
-      "traversable": true,
-      "resources": []
+      "traversable": true
     },
     "terrain:plains": {
       "height_min": 0.15,
       "height_max": 0.5,
       "color": [100, 180, 80],
       "tile_id": "core:grass",
-      "traversable": true,
-      "resources": ["core:iron_ore", "core:copper_ore"]
+      "traversable": true
     },
     "terrain:forest": {
       "height_min": 0.5,
@@ -45,7 +41,6 @@
       "color": [40, 100, 40],
       "tile_id": "core:forest",
       "traversable": true,
-      "resources": ["core:wood", "core:coal"],
       "tree_density": 0.3
     },
     "terrain:mountains": {
@@ -54,7 +49,6 @@
       "color": [120, 120, 100],
       "tile_id": "core:stone",
       "traversable": true,
-      "resources": ["core:stone", "core:iron_ore"],
       "movement_speed_modifier": 0.6
     },
     "terrain:snow": {
@@ -62,8 +56,7 @@
       "height_max": 1.0,
       "color": [240, 240, 250],
       "tile_id": "core:snow",
-      "traversable": true,
-      "resources": []
+      "traversable": true
     }
   }
 }
