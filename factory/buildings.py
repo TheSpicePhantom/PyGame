@@ -89,3 +89,7 @@ class Assembler(Building):
                         self.output_inventory[output_id] += output_amount
                     else:
                         self.output_inventory[output_id] = output_amount
+
+
+
+

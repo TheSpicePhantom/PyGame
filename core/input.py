@@ -42,3 +42,7 @@ class InputHandler:
         elif event.type == pygame.KEYUP:
             if event.key == settings.KEY_ROTATE:
                 self.rotate_pressed = False
+
+
+
+

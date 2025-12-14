@@ -61,3 +61,7 @@ def get_recipe(recipe_id: str) -> Dict[str, Any] | None:
 def get_all_recipes() -> Dict[str, Dict[str, Any]]:
     """Gibt alle geladenen Rezepte zurück"""
     return RECIPES.copy()
+
+
+
+

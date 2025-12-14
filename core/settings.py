@@ -46,3 +46,7 @@ WORLD_SIZE_CHUNKS = 128  # Max world size in chunks (128x128 chunks)
 WORLD_SIZE_TILES = CHUNK_SIZE * WORLD_SIZE_CHUNKS  # 1920x1920 tiles total
 CHUNK_LOAD_DISTANCE = 2  # Load chunks within N chunks of player
 CHUNK_UNLOAD_DISTANCE = 4  # Unload chunks farther than N chunks from player
+
+
+
+

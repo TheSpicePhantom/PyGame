@@ -1,5 +1,5 @@
 import pygame
-from config.settings import SCREEN_WIDTH, SCREEN_HEIGHT
+from core import settings
 from config.settings_manager import settings_manager
 
 
@@ -8,9 +8,9 @@ class SaveMenu:
 
     def __init__(self):
         self.active = False
-        self.font = pygame.font.Font(None, settings_manager.scale_font_size(40))
-        self.button_font = pygame.font.Font(None, settings_manager.scale_font_size(36))
-        self.slot_font = pygame.font.Font(None, settings_manager.scale_font_size(28))
+        self.font = settings_manager.scale_font_size(40)
+        self.button_font = settings_manager.scale_font_size(36)
+        self.slot_font = settings_manager.scale_font_size(28)
 
         # Define save slot buttons with scaling
         button_width = settings_manager.scale_value(400)
@@ -24,16 +24,16 @@ class SaveMenu:
         for i in range(1, 4):
             slot_name = f"Slot {i}"
             y_pos = start_y + (i-1) * (button_height + button_spacing)
-            self.buttons[slot_name] = pygame.Rect(
-                SCREEN_WIDTH // 2 - button_width // 2,
+            self.buttons[slot_name] = settings_manager.scale_rect(
+                settings.SCREEN_WIDTH // 2 - button_width // 2,
                 y_pos,
                 button_width,
                 button_height
             )
 
         # Add Back button
-        self.buttons["Back"] = pygame.Rect(
-            SCREEN_WIDTH // 2 - button_width // 2,
+        self.buttons["Back"] = settings_manager.scale_rect(
+            settings.SCREEN_WIDTH // 2 - button_width // 2,
             start_y + 3 * (button_height + button_spacing) + settings_manager.scale_value(40),
             button_width,
             button_height
@@ -74,14 +74,14 @@ class SaveMenu:
             return
 
         # Semi-transparent overlay
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay = pygame.Surface((settings.SCREEN_WIDTH, settings.SCREEN_HEIGHT))
         overlay.set_alpha(180)
         overlay.fill((0, 0, 0))
         surface.blit(overlay, (0, 0))
 
         # Title
         title_text = self.font.render("SAVE GAME", True, (255, 255, 255))
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, settings_manager.scale_value(80)))
+        title_rect = title_text.get_rect(center=(settings.SCREEN_WIDTH // 2, settings_manager.scale_value(80)))
         surface.blit(title_text, title_rect)
 
         # Buttons

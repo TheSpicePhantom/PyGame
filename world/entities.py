@@ -46,3 +46,7 @@ class ResourceNode(Entity):
             self.kill()  # Entfernt Sprite wenn leer
         
         return mined
+
+
+
+

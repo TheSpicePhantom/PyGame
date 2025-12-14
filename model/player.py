@@ -49,3 +49,7 @@ class Player:
         pos = data.get("position", {"x": 0, "y": 0})
         return cls(pos["x"], pos["y"], speed)
 
+
+
+
+
