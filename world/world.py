@@ -11,18 +11,36 @@ from world.chunk_manager import ChunkManager
 class World:
     """Verwaltet die Spielwelt mit dynamischen Chunks, Ressourcen und prozeduralem Terrain"""
 
-    def __init__(self, all_sprites, resource_sprites, seed=None):
+    def __init__(self, all_sprites, resource_sprites, save_slot=1, seed=None):        self.all_sprites = all_sprites
         self.all_sprites = all_sprites
         self.resource_sprites = resource_sprites
-
+        self.save_slot = save_slot
         # Initialize terrain generator
         self.terrain_gen = TerrainGenerator(seed=seed)
         print(f"[World] Terrain generator initialized with seed: {self.terrain_gen.seed}")
 
         # Initialize chunk manager
-        self.chunk_manager = ChunkManager(self.terrain_gen)
-        print(f"[World] ChunkManager initialized")
-
+        self.chunk_manager = ChunkManager(save_slot, self.terrain_gen)
+        
+        # Load or set seed
+        existing_seed = self.chunk_manager.get_seed()
+        if existing_seed is not None:
+            # Load existing world seed
+            self.terrain_gen.seed = existing_seed
+            print(f"[World] Loaded existing world with seed: {existing_seed}")
+        elif seed is not None:
+            # Use provided seed for new world
+            self.chunk_manager.set_seed(seed)
+            print(f"[World] Created new world with seed: {seed}")
+        else:
+            # Generate random seed for new world
+            import random
+            new_seed = random.randint(0, 999999)
+            self.chunk_manager.set_seed(new_seed)
+            self.terrain_gen.seed = new_seed
+            print(f"[World] Created new world with random seed: {new_seed}")
+        
+        print(f"[World] ChunkManager initialized for save slot {save_slot}")
         # Track spawned resource nodes
         self.spawned_resources = set()
 
