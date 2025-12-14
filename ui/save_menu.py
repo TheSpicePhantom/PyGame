@@ -61,8 +61,19 @@ class SaveMenu:
                     data = json.load(f)
                     return True, data.get('seed', 'Unknown')
             except:
+    def _check_save_exists(self, slot_num):
+        """Check if a save exists for the given slot number"""
+        save_dir = Path(f"saves/slot_{slot_num}")
+        metadata_file = save_dir / "world_metadata.json"
+        
+        if metadata_file.exists():
+            try:
+                with open(metadata_file, 'r') as f:
+                    data = json.load(f)
+                    return True, data.get('seed', 'Unknown')
+            except:
                 return False, None
-        return False, None
+        return False, None        return False, None
     
     def toggle(self):
         """Toggle Save Menu on/off"""
