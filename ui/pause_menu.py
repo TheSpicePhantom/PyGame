@@ -42,6 +42,16 @@ class PauseMenu:
 
     def __init__(self):
         self.active = False
+        
+        # Save menu reference
+        self.save_menu = None
+        self.settings_menu = None
+        
+        # Initialize UI elements
+        self._init_ui()
+    
+    def _init_ui(self):
+        """Initialize/reinitialize all UI elements with current scale"""
         # Fonts initialisieren (muss nach pygame.init() aufgerufen werden)
         # Vermeide Systemfonts als Fallback, falls Standard-Font nicht verfügbar
         try:
@@ -67,10 +77,6 @@ class PauseMenu:
                 button_height,
                 name
             )
-
-        # Save menu reference
-        self.save_menu = None
-        self.settings_menu = None
 
     def set_settings_menu(self, settings_menu):
         self.settings_menu = settings_menu

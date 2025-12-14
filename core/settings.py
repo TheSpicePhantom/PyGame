@@ -3,10 +3,28 @@ Core: Spiel-Einstellungen und Konfiguration
 """
 import pygame
 
-# Fenster
+# Fenster - Default Werte für Windowed Mode
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
 FPS = 60
+
+def get_screen_size():
+    """Get current screen size (works even if display mode changed)"""
+    try:
+        screen = pygame.display.get_surface()
+        if screen:
+            return screen.get_size()
+    except:
+        pass
+    return (SCREEN_WIDTH, SCREEN_HEIGHT)
+
+def get_screen_width():
+    """Get current screen width"""
+    return get_screen_size()[0]
+
+def get_screen_height():
+    """Get current screen height"""
+    return get_screen_size()[1]
 
 # Tiles
 TILE_SIZE = 16

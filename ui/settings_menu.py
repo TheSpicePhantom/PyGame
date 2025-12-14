@@ -10,16 +10,32 @@ class SettingsMenu:
 
     def __init__(self):
         self.active = False
-        self.font = settings_manager.scale_font_size(48)
-        self.button_font = settings_manager.scale_font_size(36)
-
+        
         # Initialize submenus
         self.graphics_menu = GraphicsSettings()
         self.audio_menu = AudioSettings()
         self.controls_menu = ControlsSettings()
         self.current_submenu = None
+        
+        # Set parent reference for UI refresh
+        self.graphics_menu.parent = self
+        self.audio_menu.parent = self
+        self.controls_menu.parent = self
+        
+        # Reference to pause menu and save menu (will be set externally)
+        self.pause_menu = None
+        self.save_menu = None
+        
+        # Initialize UI elements
+        self._init_ui()
+    
+    def _init_ui(self):
+        """Initialize/reinitialize all UI elements with current scale"""
+        # Fonts
+        self.font = settings_manager.scale_font_size(48)
+        self.button_font = settings_manager.scale_font_size(36)
 
-        # Define buttons
+        # Define buttons (scale dimensions, center on unscaled screen)
         button_width = settings_manager.scale_value(400)
         button_height = settings_manager.scale_value(60)
         button_spacing = settings_manager.scale_value(20)
@@ -27,31 +43,44 @@ class SettingsMenu:
         center_x = settings.SCREEN_WIDTH // 2
 
         self.buttons = {
-            "Graphics": settings_manager.scale_rect(pygame.Rect(
+            "Graphics": pygame.Rect(
                 center_x - button_width // 2,
                 start_y,
                 button_width,
                 button_height
-            )),
-            "Audio": settings_manager.scale_rect(pygame.Rect(
+            ),
+            "Audio": pygame.Rect(
                 center_x - button_width // 2,
                 start_y + (button_height + button_spacing),
                 button_width,
                 button_height
-            )),
-            "Controls": settings_manager.scale_rect(pygame.Rect(
+            ),
+            "Controls": pygame.Rect(
                 center_x - button_width // 2,
                 start_y + 2 * (button_height + button_spacing),
                 button_width,
                 button_height
-            )),
-            "Back": settings_manager.scale_rect(pygame.Rect(
+            ),
+            "Back": pygame.Rect(
                 center_x - button_width // 2,
                 start_y + 3 * (button_height + button_spacing),
                 button_width,
                 button_height
-            )),
+            ),
         }
+    
+    def refresh_all_ui(self):
+        """Refresh UI for all menus after scale change"""
+        self._init_ui()
+        self.graphics_menu._init_ui()
+        self.audio_menu._init_ui()
+        self.controls_menu._init_ui()
+        
+        # Refresh parent menus if they exist
+        if self.pause_menu:
+            self.pause_menu._init_ui()
+        if self.save_menu:
+            self.save_menu._init_ui()
 
     def toggle(self):
         """Toggle Settings Menu on/off"""
@@ -92,7 +121,10 @@ class SettingsMenu:
                         self.current_submenu = self.controls_menu
                         self.controls_menu.active = True
                     elif button_name == "Back":
-                        self.toggle()
+                        self.active = False
+                        # Reactivate pause menu when going back
+                        if self.pause_menu:
+                            self.pause_menu.active = True
                         return 'back'
 
         return None

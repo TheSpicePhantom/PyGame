@@ -26,9 +26,15 @@ class Camera:
         self.offset_x = settings.SCREEN_WIDTH // 2
         self.offset_y = settings.SCREEN_HEIGHT // 2
         
-        # Optional: Add vertical offset for angled view
-        # (player appears lower on screen for better forward visibility)
-        self.perspective_offset_y = settings.SCREEN_HEIGHT // 4
+        # No perspective offset for top-down factory shooter
+        # Player should be exactly in the center for equal visibility
+        self.perspective_offset_y = 0
+    
+    def update_screen_size(self):
+        """Update camera offsets when screen size changes"""
+        self.offset_x = settings.SCREEN_WIDTH // 2
+        self.offset_y = settings.SCREEN_HEIGHT // 2
+        print(f"[Camera] Updated offsets: {self.offset_x}x{self.offset_y}")
     
     def update(self, dt):
         """Smooth camera following with lerp"""

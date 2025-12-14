@@ -8,11 +8,18 @@ class SaveMenu:
 
     def __init__(self):
         self.active = False
+        
+        # Initialize UI elements
+        self._init_ui()
+    
+    def _init_ui(self):
+        """Initialize/reinitialize all UI elements with current scale"""
+        # Fonts
         self.font = settings_manager.scale_font_size(40)
         self.button_font = settings_manager.scale_font_size(36)
         self.slot_font = settings_manager.scale_font_size(28)
 
-        # Define save slot buttons with scaling
+        # Define save slot buttons (scale dimensions, center on unscaled screen)
         button_width = settings_manager.scale_value(400)
         button_height = settings_manager.scale_value(60)
         button_spacing = settings_manager.scale_value(20)
@@ -24,7 +31,7 @@ class SaveMenu:
         for i in range(1, 4):
             slot_name = f"Slot {i}"
             y_pos = start_y + (i-1) * (button_height + button_spacing)
-            self.buttons[slot_name] = settings_manager.scale_rect(
+            self.buttons[slot_name] = pygame.Rect(
                 settings.SCREEN_WIDTH // 2 - button_width // 2,
                 y_pos,
                 button_width,
@@ -32,7 +39,7 @@ class SaveMenu:
             )
 
         # Add Back button
-        self.buttons["Back"] = settings_manager.scale_rect(
+        self.buttons["Back"] = pygame.Rect(
             settings.SCREEN_WIDTH // 2 - button_width // 2,
             start_y + 3 * (button_height + button_spacing) + settings_manager.scale_value(40),
             button_width,

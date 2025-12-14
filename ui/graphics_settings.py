@@ -10,10 +10,8 @@ class GraphicsSettings:
 
     def __init__(self):
         self.active = False
-        self.font = settings_manager.scale_font_size(42)
-        self.button_font = settings_manager.scale_font_size(32)
-        self.label_font = settings_manager.scale_font_size(28)
-
+        self.parent = None  # Will be set by SettingsMenu
+        
         # Load settings
         self.config_path = os.path.join('config', 'user_settings.json')
         self.load_settings()
@@ -21,24 +19,42 @@ class GraphicsSettings:
         # Quality options
         self.quality_options = ["low", "medium", "high"]
         self.menu_size_options = [75, 100, 125]
-
-        # Slider settings
-        self.brightness_slider = self._create_slider(settings_manager.scale_value(300), 0, settings_manager.scale_value(200))
+        self.display_mode_options = ["windowed", "fullscreen_window", "fullscreen"]
+        self.display_mode_labels = {
+            "windowed": "Windowed",
+            "fullscreen_window": "Borderless",
+            "fullscreen": "Fullscreen"
+        }
+        
         self.dragging_slider = False
-
+        
         # Store rects for buttons (will be created in draw)
         self.quality_rect = None
         self.size_rect = None
+        self.display_mode_rect = None
         
-        # Buttons
+        # Initialize UI elements
+        self._init_ui()
+    
+    def _init_ui(self):
+        """Initialize/reinitialize all UI elements with current scale"""
+        # Fonts
+        self.font = settings_manager.scale_font_size(42)
+        self.button_font = settings_manager.scale_font_size(32)
+        self.label_font = settings_manager.scale_font_size(28)
+        
+        # Slider settings (unscaled values, will be scaled when used)
+        self.brightness_slider = self._create_slider(300, 0, 200)
+        
+        # Buttons (scale dimensions, center on unscaled screen)
         button_width = settings_manager.scale_value(200)
         button_height = settings_manager.scale_value(50)
-        self.back_button = settings_manager.scale_rect(pygame.Rect(
+        self.back_button = pygame.Rect(
             settings.SCREEN_WIDTH // 2 - button_width // 2,
-            settings_manager.scale_value(550),
+            settings_manager.scale_value(650),
             button_width,
             button_height
-        ))
+        )
 
     def load_settings(self):
         try:
@@ -47,10 +63,12 @@ class GraphicsSettings:
                 self.brightness = data['graphics']['brightness']
                 self.quality = data['graphics']['quality']
                 self.menu_size = data['graphics']['menu_size']
+                self.display_mode = data['graphics'].get('display_mode', 'windowed')
         except:
             self.brightness = 100
             self.quality = "medium"
             self.menu_size = 100
+            self.display_mode = "windowed"
 
     def save_settings(self):
         try:
@@ -59,6 +77,7 @@ class GraphicsSettings:
             data['graphics']['brightness'] = self.brightness
             data['graphics']['quality'] = self.quality
             data['graphics']['menu_size'] = self.menu_size
+            data['graphics']['display_mode'] = self.display_mode
             with open(self.config_path, 'w') as f:
                 json.dump(data, f, indent=2)
             # Apply menu size change
@@ -67,10 +86,12 @@ class GraphicsSettings:
             print(f"Error saving graphics settings: {e}")
 
     def _create_slider(self, width, min_val, max_val):
+        """Create a slider with scaled dimensions, centered on unscaled screen"""
+        scaled_width = settings_manager.scale_value(width)
         return {
-            'x': settings.SCREEN_WIDTH // 2 - width // 2,
+            'x': settings.SCREEN_WIDTH // 2 - scaled_width // 2,
             'y': 0,
-            'width': width,
+            'width': scaled_width,
             'min': min_val,
             'max': max_val
         }
@@ -111,6 +132,21 @@ class GraphicsSettings:
                 current_index = self.menu_size_options.index(self.menu_size)
                 next_index = (current_index + 1) % len(self.menu_size_options)
                 self.menu_size = self.menu_size_options[next_index]
+                # Apply scale immediately and reinitialize all UI
+                settings_manager.set_menu_scale(self.menu_size / 100)
+                if self.parent:
+                    self.parent.refresh_all_ui()
+                else:
+                    self._init_ui()
+                self.save_settings()
+            
+            # Display mode button
+            if self.display_mode_rect and self.display_mode_rect.collidepoint(mouse_pos):
+                current_index = self.display_mode_options.index(self.display_mode)
+                next_index = (current_index + 1) % len(self.display_mode_options)
+                self.display_mode = self.display_mode_options[next_index]
+                self.save_settings()
+                return 'display_mode_changed'
         
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             self.dragging_slider = False
@@ -159,7 +195,14 @@ class GraphicsSettings:
         label = self.label_font.render('Quality:', True, (255, 255, 255))
         screen.blit(label, (settings.SCREEN_WIDTH // 2 - settings_manager.scale_value(150), y_pos - settings_manager.scale_value(30)))
         
-        self.quality_rect = settings_manager.scale_rect(pygame.Rect(settings.SCREEN_WIDTH // 2 - settings_manager.scale_value(100), y_pos, settings_manager.scale_value(200), settings_manager.scale_value(40)))
+        button_width = settings_manager.scale_value(200)
+        button_height = settings_manager.scale_value(40)
+        self.quality_rect = pygame.Rect(
+            settings.SCREEN_WIDTH // 2 - button_width // 2,
+            y_pos,
+            button_width,
+            button_height
+        )
         color = (100, 100, 100) if self.quality_rect.collidepoint(mouse_pos) else (50, 50, 50)
         pygame.draw.rect(screen, color, self.quality_rect)
         pygame.draw.rect(screen, (200, 200, 200), self.quality_rect, 2)
@@ -172,13 +215,40 @@ class GraphicsSettings:
         label = self.label_font.render('Menu Size:', True, (255, 255, 255))
         screen.blit(label, (settings.SCREEN_WIDTH // 2 - settings_manager.scale_value(150), y_pos - settings_manager.scale_value(30)))
         
-        self.size_rect = settings_manager.scale_rect(pygame.Rect(settings.SCREEN_WIDTH // 2 - settings_manager.scale_value(100), y_pos, settings_manager.scale_value(200), settings_manager.scale_value(40)))
+        button_width = settings_manager.scale_value(200)
+        button_height = settings_manager.scale_value(40)
+        self.size_rect = pygame.Rect(
+            settings.SCREEN_WIDTH // 2 - button_width // 2,
+            y_pos,
+            button_width,
+            button_height
+        )
         color = (100, 100, 100) if self.size_rect.collidepoint(mouse_pos) else (50, 50, 50)
         pygame.draw.rect(screen, color, self.size_rect)
         pygame.draw.rect(screen, (200, 200, 200), self.size_rect, 2)
         size_text = self.button_font.render(f'{self.menu_size}%', True, (255, 255, 255))
         size_text_rect = size_text.get_rect(center=self.size_rect.center)
         screen.blit(size_text, size_text_rect)
+
+        # Display mode selector
+        y_pos = settings_manager.scale_value(430)
+        label = self.label_font.render('Display Mode:', True, (255, 255, 255))
+        screen.blit(label, (settings.SCREEN_WIDTH // 2 - settings_manager.scale_value(150), y_pos - settings_manager.scale_value(30)))
+        
+        button_width = settings_manager.scale_value(200)
+        button_height = settings_manager.scale_value(40)
+        self.display_mode_rect = pygame.Rect(
+            settings.SCREEN_WIDTH // 2 - button_width // 2,
+            y_pos,
+            button_width,
+            button_height
+        )
+        color = (100, 100, 100) if self.display_mode_rect.collidepoint(mouse_pos) else (50, 50, 50)
+        pygame.draw.rect(screen, color, self.display_mode_rect)
+        pygame.draw.rect(screen, (200, 200, 200), self.display_mode_rect, 2)
+        mode_text = self.button_font.render(self.display_mode_labels[self.display_mode], True, (255, 255, 255))
+        mode_text_rect = mode_text.get_rect(center=self.display_mode_rect.center)
+        screen.blit(mode_text, mode_text_rect)
 
         # Back button
         color = (100, 100, 100) if self.back_button.collidepoint(mouse_pos) else (50, 50, 50)

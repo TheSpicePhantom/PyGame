@@ -2,7 +2,8 @@
     "graphics": {
         "brightness": 100,
         "quality": "medium",
-        "menu_size": 100
+        "menu_size": 100,
+        "display_mode": "windowed"
     },
     "audio": {
         "master": 100,
