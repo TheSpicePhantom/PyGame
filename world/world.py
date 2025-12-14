@@ -11,7 +11,8 @@ from world.chunk_manager import ChunkManager
 class World:
     """Verwaltet die Spielwelt mit dynamischen Chunks, Ressourcen und prozeduralem Terrain"""
 
-    def __init__(self, all_sprites, resource_sprites, save_slot=1, seed=None):        self.all_sprites = all_sprites
+    def __init__(self, all_sprites, resource_sprites, save_slot=1, seed=None):        
+        self.all_sprites = all_sprites
         self.all_sprites = all_sprites
         self.resource_sprites = resource_sprites
         self.save_slot = save_slot

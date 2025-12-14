@@ -47,7 +47,7 @@ class ChunkManager:
         self.save_slot = save_slot
         self.terrain_gen = terrain_gen
         self.loaded_chunks: Dict[Tuple[int, int], Chunk] = {}
-        self.player_chunk_pos = (0, 0)
+        self.player_chunk_pos = None  # Changed from (0, 0) to None to force initial load
         
         # Setup save directories
         self.save_dir = Path(f"saves/slot_{save_slot}")
@@ -195,6 +195,46 @@ class ChunkManager:
     def get_loaded_chunks(self) -> List[Chunk]:
         """Get list of currently loaded chunks"""
         return list(self.loaded_chunks.values())
+    
+    def update(self, player_pos: Tuple[float, float]):
+        """
+        Update chunk loading/unloading based on player position
+        
+        Args:
+            player_pos: Player position (x, y) in world coordinates (pixels)
+        """
+        # Convert player position to chunk coordinates
+        player_chunk_x, player_chunk_y = self.world_to_chunk(player_pos[0], player_pos[1])
+        
+        # Only update if player moved to a different chunk or it's the first update
+        if self.player_chunk_pos is None or (player_chunk_x, player_chunk_y) != self.player_chunk_pos:
+            self.player_chunk_pos = (player_chunk_x, player_chunk_y)
+            
+            # Load chunks around player
+            self.load_chunks_around_player(player_chunk_x, player_chunk_y, settings.CHUNK_LOAD_DISTANCE)
+            
+            # Unload distant chunks (only if we have chunks loaded already)
+            if len(self.loaded_chunks) > 0:
+                self.unload_distant_chunks(player_chunk_x, player_chunk_y, settings.CHUNK_UNLOAD_DISTANCE)
+    
+    def load_chunks_around_player(self, player_chunk_x: int, player_chunk_y: int, radius: int):
+        """
+        Load all chunks within radius of player
+        
+        Args:
+            player_chunk_x: Player's current chunk X
+            player_chunk_y: Player's current chunk Y
+            radius: Radius in chunks to load around player
+        """
+        for dx in range(-radius, radius + 1):
+            for dy in range(-radius, radius + 1):
+                chunk_x = player_chunk_x + dx
+                chunk_y = player_chunk_y + dy
+                
+                # Only load if within world bounds
+                if (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and 
+                    0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
+                    self.get_or_create_chunk(chunk_x, chunk_y)
 
     def unload_distant_chunks(self, player_chunk_x: int, player_chunk_y: int, max_distance: int = 3):
         """
