@@ -201,48 +201,47 @@ class ChunkManager:
         """Get list of currently loaded chunks"""
         return list(self.loaded_chunks.values())
     
-    def update(self, player_pos: Tuple[float, float]):
-        """
-        Update chunk loading/unloading based on 
+    def preload_visible_chunks(self, player_pos: Tuple[float, float], buffer: int = 2):
+        """Pre-load all chunks visible on screen + buffer
         
-            def preload_visible_chunks(self, player_pos: Tuple[float, float], screen_width: int, screen_height: int, buffer: int = 2):
-                    """Pre-load all chunks visible on screen + buffer
-                    
-                            Args:
-                                        player_pos: Player position (x, y) in world coordinates
-                                                    screen_width: Screen width in pixels
-                                                                screen_height: Screen height in pixels
-                                                                            buffer: Extra chunks to load beyond visible area (default: 2)
-                                                                                    """
-                                                                                            # Calculate visible area in chunks
-                                                                                                    chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
-                                                                                                    
-                                                                                                            # Player chunk position
-                                                                                                                    player_chunk_x, player_chunk_y = self.world_to_chunk(player_pos[0], player_pos[1])
-                                                                                                                    
-                                                                                                                            # Calculate chunks needed to cover screen
-                                                                                                                                    chunks_horizontal = (screen_width // chunk_size_pixels) + 2  # +2 for partial chunks
-                                                                                                                                            chunks_vertical = (screen_height // chunk_size_pixels) + 2
-                                                                                                                                            
-                                                                                                                                                    # Load chunks in a rectangle around player
-                                                                                                                                                            half_h = (chunks_horizontal // 2) + buffer
-                                                                                                                                                                    half_v = (chunks_vertical // 2) + buffer
-                                                                                                                                                                    
-                                                                                                                                                                            print(f"[ChunkManager] Pre-loading {(half_h*2)*(half_v*2)} chunks for visible area...")
-                                                                                                                                                                            
-                                                                                                                                                                                    loaded_count = 0
-                                                                                                                                                                                            for dx in range(-half_h, half_h + 1):
-                                                                                                                                                                                                        for dy in range(-half_v, half_v + 1):
-                                                                                                                                                                                                                        chunk_x = player_chunk_x + dx
-                                                                                                                                                                                                                                        chunk_y = player_chunk_y + dy
-                                                                                                                                                                                                                                        
-                                                                                                                                                                                                                                                        # Only load if within world bounds
-                                                                                                                                                                                                                                                                        if (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
-                                                                                                                                                                                                                                                                                            0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
-                                                                                                                                                                                                                                                                                                                self.get_or_create_chunk(chunk_x, chunk_y)
-                                                                                                                                                                                                                                                                                                                                    loaded_count += 1
-                                                                                                                                                                                                                                                                                                                                    
-                                                                                                                                                                                                                                                                                                                                            print(f"[ChunkManager] Pre-loaded {loaded_count} chunks successfully")player position
+        Args:
+            player_pos: Player position (x, y) in world coordinates
+            buffer: Extra chunks to load beyond visible area (default: 2)
+        """
+        # Calculate visible area in chunks
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        
+        # Player chunk position
+        player_chunk_x, player_chunk_y = self.world_to_chunk(player_pos[0], player_pos[1])
+        
+        # Calculate chunks needed to cover screen
+        screen_width = settings.SCREEN_WIDTH
+        screen_height = settings.SCREEN_HEIGHT
+        chunks_horizontal = (screen_width // chunk_size_pixels) + 2  # +2 for partial chunks
+        chunks_vertical = (screen_height // chunk_size_pixels) + 2
+        
+        # Load chunks in a rectangle around player
+        half_h = (chunks_horizontal // 2) + buffer
+        half_v = (chunks_vertical // 2) + buffer
+        
+        print(f"[ChunkManager] Pre-loading {(half_h*2)*(half_v*2)} chunks for visible area...")
+        
+        loaded_count = 0
+        for dx in range(-half_h, half_h + 1):
+            for dy in range(-half_v, half_v + 1):
+                chunk_x = player_chunk_x + dx
+                chunk_y = player_chunk_y + dy
+                
+                # Only load if within world bounds
+                if (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
+                    0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
+                    self.get_or_create_chunk(chunk_x, chunk_y)
+                    loaded_count += 1
+        
+        print(f"[ChunkManager] Pre-loaded {loaded_count} chunks successfully")
+    
+    def update(self, player_pos: Tuple[float, float]):
+        """Update chunk loading/unloading based on player position
         
         Args:
             player_pos: Player position (x, y) in world coordinates (pixels)
