@@ -41,9 +41,16 @@ class World:
             print(f"[World] Created new world with random seed: {new_seed}")
         
         print(f"[World] ChunkManager initialized for save slot {save_slot}")
+                self._initial_preload_done = False  # Track initial chunk preload
     
     def update(self, player_pos):
         """Update world based on player position (load/unload chunks)"""
+
+                # Pre-load visible chunks on first update to prevent stuttering
+                if not self._initial_preload_done:
+                                self.chunk_manager.preload_visible_chunks(player_pos)
+                                self._initial_preload_done = True
+                                print(f"[World] Pre-loaded visible chunks around player position")
         self.chunk_manager.update(player_pos)
     
     def draw_grid(self, surface, camera):
