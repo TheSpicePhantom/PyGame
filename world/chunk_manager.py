@@ -7,6 +7,8 @@ import math
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List, Set
 from core import settings
+import threading
+import queue
 
 
 class Chunk:
@@ -57,6 +59,18 @@ class ChunkManager:
         # Load or create world metadata
         self.metadata_file = self.save_dir / "world_metadata.json"
         self.metadata = self._load_metadata()
+
+            # Setup chunk loading queue and worker threads
+            self.chunk_load_queue = queue.Queue()
+                self.chunk_load_results = queue.Queue()
+                self.worker_threads = []
+                self.running = True
+
+            # Start 2 worker threads for chunk loading
+            for i in range(2):
+                            thread = threading.Thread(target=self._chunk_loader_worker, daemon=True)
+                            thread.start()
+                            self.worker_threads.append(thread)
 
     def _load_metadata(self) -> dict:
         """Load world metadata (seed, player position, etc.)"""
@@ -335,3 +349,60 @@ class ChunkManager:
         except Exception as e:
             print(f"Error reading save info: {e}")
             return None
+
+    def _chunk_loader_worker(self):
+                """Worker thread that loads chunks from the queue"""
+                while self.running:
+                                try:
+                                                    # Get chunk coordinates from queue (timeout prevents hanging)
+                                                    chunk_x, chunk_y = self.chunk_load_queue.get(timeout=0.1)
+
+                # Check if chunk already loaded
+                if (chunk_x, chunk_y) in self.loaded_chunks:
+                                        continue
+
+                # Load or generate chunk
+                chunk = self._load_chunk_from_file(chunk_x, chunk_y)
+                if not chunk:
+                                        # Generate new chunk
+                                        tiles = self.terrain_gen.generate_chunk(chunk_x, chunk_y)
+                                        chunk = Chunk(chunk_x, chunk_y, tiles)
+                                        self._save_chunk_to_file(chunk)
+
+                # Put result in results queue
+                self.chunk_load_results.put((chunk_x, chunk_y, chunk))
+
+            except queue.Empty:
+                # No chunks to load, continue waiting
+                continue
+            except Exception as e:
+                print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
+
+    def request_chunk_load(self, chunk_x: int, chunk_y: int):
+                """Request a chunk to be loaded asynchronously"""
+                if (chunk_x, chunk_y) not in self.loaded_chunks:
+                                self.chunk_load_queue.put((chunk_x, chunk_y))
+
+    def process_loaded_chunks(self, all_sprites, resource_sprites):
+                """Process chunks that have finished loading in background threads"""
+                loaded_count = 0
+                while not self.chunk_load_results.empty() and loaded_count < 5:  # Process max 5 per frame
+                                try:
+                                                    chunk_x, chunk_y, chunk = self.chunk_load_results.get_nowait()
+                                                    self.loaded_chunks[(chunk_x, chunk_y)] = chunk
+
+                # Add chunk sprites to sprite groups
+                for entity in chunk.entities:
+                                        all_sprites.add(entity)
+                                        if hasattr(entity, 'resource_type'):
+                                                                    resource_sprites.add(entity)
+
+                loaded_count += 1
+            except queue.Empty:
+                break
+
+    def shutdown(self):
+                """Stop worker threads and cleanup"""
+                self.running = False
+                for thread in self.worker_threads:
+                                thread.join(timeout=1.0)
