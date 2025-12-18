@@ -16,6 +16,7 @@ from ui.graphics_settings import GraphicsSettings
 from ui.controls_settings import ControlsSettings
 from ui.save_menu import SaveMenu
 from world.player_data_manager import PlayerDataManager
+from world.auto_save import AutoSaveSystem
 from analytics.performance_monitor import PerformanceMonitor
 from analytics.logger import PerformanceLogger
 import time
@@ -196,6 +197,32 @@ def main():
                     # Use submenu instances
                     audio_settings = settings_menu.audio_menu
                     graphics_settings = settings_menu.graphics_menu
+                    
+                    # Initialize Auto-Save System
+                    def save_game():
+                        """Save game function for auto-save"""
+                        try:
+                            # Update player position in world metadata
+                            world.chunk_manager.update_player_position(player.rect.centerx, player.rect.centery)
+                            
+                            # Save all chunks (async)
+                            world.chunk_manager.save_all_chunks()
+                            
+                            # Save player data
+                            player_data_manager.save_player(
+                                position=(player.rect.centerx, player.rect.centery),
+                                inventory={},  # TODO: Implement inventory
+                                faction_data={'policies': [], 'allies': [], 'enemies': []}  # TODO: Implement faction
+                            )
+                        except Exception as e:
+                            print(f"[AutoSave] Error saving game: {e}")
+                    
+                    def get_player_pos():
+                        """Get current player position"""
+                        return (player.rect.centerx, player.rect.centery)
+                    
+                    auto_save = AutoSaveSystem(save_game, get_player_pos)
+                    auto_save.start()
                     controls_settings = settings_menu.controls_menu
                     
                     # Deactivate save menu and start game
@@ -295,6 +322,11 @@ def main():
                         camera.update_screen_size()
                         # Refresh visible chunks after screen size change
                         world.refresh_visible_chunks(player.rect.center)
+                    elif result == "auto_save_changed":
+                        # Restart auto-save with new settings
+                        if 'auto_save' in locals():
+                            auto_save.stop()
+                            auto_save.start()
                 
                 # Pause-Menü Events
                 elif pause_menu.active:
@@ -364,6 +396,10 @@ def main():
         
         performance_monitor.end_render()  # End render timing
         pygame.display.flip()
+    
+    # Stop auto-save before quitting
+    if 'auto_save' in locals():
+        auto_save.stop()
     
     # Save performance logs before quitting
     print("\n" + "="*60)

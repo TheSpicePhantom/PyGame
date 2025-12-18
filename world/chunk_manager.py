@@ -9,6 +9,8 @@ from typing import Dict, Tuple, Optional, List, Set
 from core import settings
 import threading
 import queue
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 
 class Chunk:
@@ -98,6 +100,10 @@ class ChunkManager:
         self.pending_chunks = set()  # Track chunks being loaded
         self.chunk_priority = {}  # Distance-based priority
         
+        # Async save system
+        self.save_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ChunkSave")
+        self.pending_saves = set()  # Track chunks being saved
+        
         # Start 3 worker threads for chunk loading (increased from 2)
         for i in range(3):
             thread = threading.Thread(target=self._chunk_loader_worker, daemon=True)
@@ -184,9 +190,9 @@ class ChunkManager:
         """Check if a chunk file exists on disk"""
         return self._get_chunk_filename(chunk_x, chunk_y).exists()
 
-    def _save_chunk_to_file(self, chunk: Chunk):
+    def _save_chunk_to_file_sync(self, chunk: Chunk):
         """
-        Save a chunk to JSON file
+        Synchronous save a chunk to JSON file (used by async wrapper)
         
         Args:
             chunk: Chunk instance to save
@@ -215,6 +221,47 @@ class ChunkManager:
                 self.performance_monitor.record_chunk_save(chunk.chunk_x, chunk.chunk_y, save_time)
         except Exception as e:
             print(f"Error saving chunk ({chunk.chunk_x}, {chunk.chunk_y}): {e}")
+    
+    async def _save_chunk_to_file_async(self, chunk: Chunk):
+        """
+        Asynchronously save a chunk to JSON file
+        
+        Args:
+            chunk: Chunk instance to save
+        """
+        chunk_key = (chunk.chunk_x, chunk.chunk_y)
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(self.save_executor, self._save_chunk_to_file_sync, chunk)
+        finally:
+            self.pending_saves.discard(chunk_key)
+    
+    def _save_chunk_to_file(self, chunk: Chunk):
+        """
+        Save a chunk to JSON file (async wrapper, non-blocking)
+        
+        Args:
+            chunk: Chunk instance to save
+        """
+        chunk_key = (chunk.chunk_x, chunk.chunk_y)
+        
+        # Skip if already saving
+        if chunk_key in self.pending_saves:
+            return
+        
+        self.pending_saves.add(chunk_key)
+        
+        # Schedule async save in background thread
+        def run_async_save():
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                new_loop.run_until_complete(self._save_chunk_to_file_async(chunk))
+            finally:
+                new_loop.close()
+        
+        thread = threading.Thread(target=run_async_save, daemon=True)
+        thread.start()
 
     def _load_chunk_from_file(self, chunk_x: int, chunk_y: int) -> Optional[Chunk]:
         """
@@ -531,8 +578,39 @@ class ChunkManager:
         # Load additional chunks that are now visible
         self.load_chunks_around_player(player_chunk_x, player_chunk_y, load_distance)
     
+    async def save_all_chunks_async(self):
+        """Asynchronously save all loaded chunks"""
+        tasks = []
+        for chunk in self.loaded_chunks.values():
+            chunk_key = (chunk.chunk_x, chunk.chunk_y)
+            if chunk_key not in self.pending_saves:
+                self.pending_saves.add(chunk_key)
+                tasks.append(self._save_chunk_to_file_async(chunk))
+        
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+    
+    def save_all_chunks(self):
+        """Save all loaded chunks (synchronous wrapper for compatibility)"""
+        # Run async save in background thread
+        def run_save():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self.save_all_chunks_async())
+            finally:
+                loop.close()
+        
+        thread = threading.Thread(target=run_save, daemon=False)
+        thread.start()
+        thread.join(timeout=5.0)  # Wait max 5 seconds
+    
     def shutdown(self):
         """Stop worker threads and cleanup"""
         self.running = False
         for thread in self.worker_threads:
             thread.join(timeout=1.0)
+        
+        # Shutdown save executor
+        if hasattr(self, 'save_executor'):
+            self.save_executor.shutdown(wait=True, timeout=2.0)
