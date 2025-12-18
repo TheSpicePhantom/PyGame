@@ -40,6 +40,8 @@ class PerformanceAnalyzer:
             'session_info': self._analyze_session(),
             'frame_performance': self._analyze_frame_performance(),
             'chunk_loading': self._analyze_chunk_loading(),
+            'chunk_generation': self._analyze_chunk_generation(),
+            'chunk_saving': self._analyze_chunk_saving(),
             'movement': self._analyze_movement(),
             'insights': []
         }
@@ -107,7 +109,7 @@ class PerformanceAnalyzer:
     
     def _analyze_chunk_loading(self) -> Dict:
         """Analysiert Chunk-Loading-Performance"""
-        chunk_events = self.data.get('chunk_events', [])
+        chunk_events = self.data.get('chunk_load_events', [])
         
         if not chunk_events:
             return {
@@ -162,6 +164,96 @@ class PerformanceAnalyzer:
             },
             'slowest_chunks': slowest,
             'events_per_second': len(chunk_events) / self._analyze_session()['duration_seconds'],
+        }
+    
+    def _analyze_chunk_generation(self) -> Dict:
+        """Analysiert Chunk-Generation-Performance"""
+        chunk_events = self.data.get('chunk_generation_events', [])
+        
+        if not chunk_events:
+            return {
+                'total_events': 0,
+                'generation_times': None,
+                'slowest_chunks': [],
+                'events_per_second': 0
+            }
+        
+        generation_times = [e['generation_time'] for e in chunk_events if 'generation_time' in e]
+        
+        if not generation_times:
+            return {
+                'total_events': len(chunk_events),
+                'generation_times': None,
+                'slowest_chunks': [],
+                'events_per_second': 0
+            }
+        
+        # Langsamste Chunks
+        sorted_events = sorted(chunk_events, key=lambda x: x.get('generation_time', 0), reverse=True)
+        slowest = [
+            {
+                'chunk': (e['chunk_x'], e['chunk_y']),
+                'generation_time_ms': e.get('generation_time', 0),
+            }
+            for e in sorted_events[:10]
+        ]
+        
+        session_duration = self._analyze_session()['duration_seconds']
+        return {
+            'total_events': len(chunk_events),
+            'generation_times': {
+                'min_ms': min(generation_times),
+                'max_ms': max(generation_times),
+                'avg_ms': mean(generation_times),
+                'median_ms': median(generation_times),
+            },
+            'slowest_chunks': slowest,
+            'events_per_second': len(chunk_events) / session_duration if session_duration > 0 else 0,
+        }
+    
+    def _analyze_chunk_saving(self) -> Dict:
+        """Analysiert Chunk-Saving-Performance"""
+        chunk_events = self.data.get('chunk_save_events', [])
+        
+        if not chunk_events:
+            return {
+                'total_events': 0,
+                'save_times': None,
+                'slowest_chunks': [],
+                'events_per_second': 0
+            }
+        
+        save_times = [e['save_time'] for e in chunk_events if 'save_time' in e]
+        
+        if not save_times:
+            return {
+                'total_events': len(chunk_events),
+                'save_times': None,
+                'slowest_chunks': [],
+                'events_per_second': 0
+            }
+        
+        # Langsamste Chunks
+        sorted_events = sorted(chunk_events, key=lambda x: x.get('save_time', 0), reverse=True)
+        slowest = [
+            {
+                'chunk': (e['chunk_x'], e['chunk_y']),
+                'save_time_ms': e.get('save_time', 0),
+            }
+            for e in sorted_events[:10]
+        ]
+        
+        session_duration = self._analyze_session()['duration_seconds']
+        return {
+            'total_events': len(chunk_events),
+            'save_times': {
+                'min_ms': min(save_times),
+                'max_ms': max(save_times),
+                'avg_ms': mean(save_times),
+                'median_ms': median(save_times),
+            },
+            'slowest_chunks': slowest,
+            'events_per_second': len(chunk_events) / session_duration if session_duration > 0 else 0,
         }
     
     def _analyze_movement(self) -> Dict:
