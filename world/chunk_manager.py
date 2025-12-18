@@ -442,16 +442,23 @@ class ChunkManager:
                 
                 # Load or generate chunk
                 chunk = self._load_chunk_from_file(chunk_x, chunk_y)
+                generation_time = None
                 if not chunk:
-                    # Generate new chunk
+                    # Generate new chunk - measure generation time separately
+                    gen_start_time = time.perf_counter()
                     tiles = self.terrain_gen.generate_chunk(chunk_x, chunk_y)
+                    generation_time = time.perf_counter() - gen_start_time
                     chunk = Chunk(chunk_x, chunk_y, tiles)
                     # Don't save immediately - batch save later for better performance
+                    
+                    # Record generation time
+                    if self.performance_monitor:
+                        self.performance_monitor.record_chunk_generation(chunk_x, chunk_y, generation_time)
                 
                 # Pre-render chunk surface in background thread
                 chunk.render_to_surface()
                 
-                # Record chunk load time
+                # Record chunk load time (includes generation if chunk was new)
                 load_time = time.perf_counter() - load_start_time
                 if self.performance_monitor:
                     self.performance_monitor.record_chunk_load(chunk_x, chunk_y, load_time)

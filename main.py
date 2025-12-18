@@ -375,9 +375,17 @@ def main():
     # Save to logger
     logger.log_stats(stats)
     
-    # Log chunk events
+    # Log chunk load events
     for event in performance_monitor.chunk_load_events:
-        logger.log_chunk_event(event)
+        logger.log_chunk_load_event(event)
+    
+    # Log chunk generation events
+    for event in performance_monitor.chunk_generation_events:
+        logger.log_chunk_generation_event(event)
+    
+    # Log chunk save events
+    for event in performance_monitor.chunk_save_events:
+        logger.log_chunk_save_event(event)
     
     # Log movement events
     for event in performance_monitor.movement_events:

@@ -2,6 +2,7 @@
 World: Spielwelt mit Chunk-basiertem Grid und Ressourcen
 """
 import pygame
+import time
 from core import settings
 from world.terrain_generator import TerrainGenerator
 from world.chunk_manager import ChunkManager
@@ -67,6 +68,9 @@ class World:
     
     def draw_grid(self, surface, camera):
         """Draw grid and terrain colors for loaded chunks (optimized with surface caching)"""
+        # Start timing for performance monitoring
+        render_start_time = time.perf_counter()
+        
         # Get screen bounds for culling
         screen_rect = surface.get_rect()
         
@@ -95,6 +99,11 @@ class World:
                 chunk.render_to_surface()
                 if chunk.surface:
                     surface.blit(chunk.surface, chunk_screen_pos)
+        
+        # Record chunk rendering time (if performance monitor available)
+        render_time = time.perf_counter() - render_start_time
+        if hasattr(self.chunk_manager, 'performance_monitor') and self.chunk_manager.performance_monitor:
+            self.chunk_manager.performance_monitor.record_chunk_render_time(render_time)
     
     def draw_chunk_grid_overlay(self, surface, camera, player_pos):
         """Draw 5x5 chunk grid around player (F8 cycles: Off → Chunks → Chunks+Tiles)

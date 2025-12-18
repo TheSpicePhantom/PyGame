@@ -25,6 +25,15 @@ class PerformanceMonitor:
         # Chunk loading events
         self.chunk_load_events = []
         
+        # Chunk generation events (separate from load)
+        self.chunk_generation_events = []
+        
+        # Chunk save events
+        self.chunk_save_events = []
+        
+        # Chunk render times (per frame)
+        self.chunk_render_times = deque(maxlen=300)
+        
         # Movement events (direction, delay)
         self.movement_events = []
     
@@ -76,6 +85,34 @@ class PerformanceMonitor:
             'timestamp': time.time()
         })
     
+    def record_chunk_generation(self, chunk_x, chunk_y, generation_time):
+        """Record a chunk generation event (separate from load)"""
+        if not self.enabled:
+            return
+        self.chunk_generation_events.append({
+            'chunk_x': chunk_x,
+            'chunk_y': chunk_y,
+            'generation_time': generation_time * 1000,  # Convert to ms
+            'timestamp': time.time()
+        })
+    
+    def record_chunk_save(self, chunk_x, chunk_y, save_time):
+        """Record a chunk save event"""
+        if not self.enabled:
+            return
+        self.chunk_save_events.append({
+            'chunk_x': chunk_x,
+            'chunk_y': chunk_y,
+            'save_time': save_time * 1000,  # Convert to ms
+            'timestamp': time.time()
+        })
+    
+    def record_chunk_render_time(self, render_time):
+        """Record chunk rendering time for a frame"""
+        if not self.enabled:
+            return
+        self.chunk_render_times.append(render_time * 1000)  # Convert to ms
+    
     def record_movement(self, direction):
         """Record a player movement event"""
         if not self.enabled:
@@ -122,6 +159,14 @@ class PerformanceMonitor:
                 'median': 1000.0 / median(self.frame_times) if self.frame_times and median(self.frame_times) > 0 else 0,
             },
             'chunk_load_count': len(self.chunk_load_events),
+            'chunk_generation_count': len(self.chunk_generation_events),
+            'chunk_save_count': len(self.chunk_save_events),
+            'chunk_render_times': {
+                'min': min(self.chunk_render_times) if self.chunk_render_times else 0,
+                'max': max(self.chunk_render_times) if self.chunk_render_times else 0,
+                'avg': mean(self.chunk_render_times) if self.chunk_render_times else 0,
+                'median': median(self.chunk_render_times) if self.chunk_render_times else 0,
+            },
             'movement_count': len(self.movement_events),
         }
         return stats
@@ -165,4 +210,15 @@ class PerformanceMonitor:
         print(f"  Median: {stats['render_times']['median']:.2f}")
         
         print(f"\nChunk Loads: {stats['chunk_load_count']}")
+        print(f"Chunk Generations: {stats['chunk_generation_count']}")
+        print(f"Chunk Saves: {stats['chunk_save_count']}")
+        
+        if self.chunk_render_times:
+            render_stats = stats['chunk_render_times']
+            print(f"\nChunk Render Times (ms):")
+            print(f"  Min: {render_stats['min']:.2f}")
+            print(f"  Max: {render_stats['max']:.2f}")
+            print(f"  Avg: {render_stats['avg']:.2f}")
+            print(f"  Median: {render_stats['median']:.2f}")
+        
         print(f"Movement Events: {stats['movement_count']}")

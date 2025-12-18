@@ -18,7 +18,9 @@ class PerformanceLogger:
             'session_start': datetime.now().isoformat(),
             'session_end': None,
             'stats': None,
-            'chunk_events': [],
+            'chunk_load_events': [],
+            'chunk_generation_events': [],
+            'chunk_save_events': [],
             'movement_events': []
         }
     
@@ -31,9 +33,17 @@ class PerformanceLogger:
         """Log performance statistics"""
         self.session_data['stats'] = stats
     
-    def log_chunk_event(self, event):
+    def log_chunk_load_event(self, event):
         """Log a chunk load event"""
-        self.session_data['chunk_events'].append(event)
+        self.session_data['chunk_load_events'].append(event)
+    
+    def log_chunk_generation_event(self, event):
+        """Log a chunk generation event"""
+        self.session_data['chunk_generation_events'].append(event)
+    
+    def log_chunk_save_event(self, event):
+        """Log a chunk save event"""
+        self.session_data['chunk_save_events'].append(event)
     
     def log_movement_event(self, event):
         """Log a movement event"""

@@ -341,13 +341,64 @@ class PerformanceAnalyzer:
             if chunk_loading['slowest_chunks']:
                 print(f"\nLangsamste 10 Chunk-Loads:")
                 for i, chunk_info in enumerate(chunk_loading['slowest_chunks'][:10], 1):
-                    flags = []
-                    if chunk_info['has_generation']:
-                        flags.append("GEN")
-                    if chunk_info['has_save']:
-                        flags.append("SAVE")
-                    flag_str = f" [{', '.join(flags)}]" if flags else ""
-                    print(f"  {i:>2}. Chunk ({chunk_info['chunk'][0]:>4}, {chunk_info['chunk'][1]:>4}): {chunk_info['load_time_ms']:>6.2f}ms{flag_str}")
+                    print(f"  {i:>2}. Chunk ({chunk_info['chunk'][0]:>4}, {chunk_info['chunk'][1]:>4}): {chunk_info['load_time_ms']:>6.2f}ms")
+        
+        # Chunk Generation
+        chunk_generation = analysis['chunk_generation']
+        print(f"\n{'=' * 80}")
+        print("CHUNK GENERATION")
+        print(f"{'=' * 80}")
+        print(f"Gesamt Events: {chunk_generation['total_events']}")
+        
+        if chunk_generation['generation_times']:
+            gen_times = chunk_generation['generation_times']
+            print(f"\nGenerierungs-Zeiten (ms):")
+            print(f"  Minimum:  {gen_times['min_ms']:>8.2f}")
+            print(f"  Maximum:  {gen_times['max_ms']:>8.2f}")
+            print(f"  Durchschnitt: {gen_times['avg_ms']:>8.2f}")
+            print(f"  Median:   {gen_times['median_ms']:>8.2f}")
+            
+            print(f"\nGenerierungs-Rate: {chunk_generation['events_per_second']:.2f} Chunks/Sekunde")
+            
+            if chunk_generation['slowest_chunks']:
+                print(f"\nLangsamste 10 Chunk-Generierungen:")
+                for i, chunk_info in enumerate(chunk_generation['slowest_chunks'][:10], 1):
+                    print(f"  {i:>2}. Chunk ({chunk_info['chunk'][0]:>4}, {chunk_info['chunk'][1]:>4}): {chunk_info['generation_time_ms']:>6.2f}ms")
+        
+        # Chunk Saving
+        chunk_saving = analysis['chunk_saving']
+        print(f"\n{'=' * 80}")
+        print("CHUNK SAVING")
+        print(f"{'=' * 80}")
+        print(f"Gesamt Events: {chunk_saving['total_events']}")
+        
+        if chunk_saving['save_times']:
+            save_times = chunk_saving['save_times']
+            print(f"\nSave-Zeiten (ms):")
+            print(f"  Minimum:  {save_times['min_ms']:>8.2f}")
+            print(f"  Maximum:  {save_times['max_ms']:>8.2f}")
+            print(f"  Durchschnitt: {save_times['avg_ms']:>8.2f}")
+            print(f"  Median:   {save_times['median_ms']:>8.2f}")
+            
+            print(f"\nSave-Rate: {chunk_saving['events_per_second']:.2f} Chunks/Sekunde")
+            
+            if chunk_saving['slowest_chunks']:
+                print(f"\nLangsamste 10 Chunk-Saves:")
+                for i, chunk_info in enumerate(chunk_saving['slowest_chunks'][:10], 1):
+                    print(f"  {i:>2}. Chunk ({chunk_info['chunk'][0]:>4}, {chunk_info['chunk'][1]:>4}): {chunk_info['save_time_ms']:>6.2f}ms")
+        
+        # Chunk Render Times (from stats)
+        stats = self.data.get('stats', {})
+        if 'chunk_render_times' in stats and stats['chunk_render_times'].get('avg', 0) > 0:
+            render_stats = stats['chunk_render_times']
+            print(f"\n{'=' * 80}")
+            print("CHUNK RENDERING")
+            print(f"{'=' * 80}")
+            print(f"\nRender-Zeiten pro Frame (ms):")
+            print(f"  Minimum:  {render_stats['min']:>8.2f}")
+            print(f"  Maximum:  {render_stats['max']:>8.2f}")
+            print(f"  Durchschnitt: {render_stats['avg']:>8.2f}")
+            print(f"  Median:   {render_stats['median']:>8.2f}")
         
         # Movement
         movement = analysis['movement']
