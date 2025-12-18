@@ -1,0 +1,6301 @@
+{
+  "session_start": "2025-12-18T21:34:02.059853",
+  "session_end": "2025-12-18T21:34:25.629418",
+  "stats": {
+    "frame_times": {
+      "min": 1.011300000755,
+      "max": 378.7040999995952,
+      "avg": 4.971305999940038,
+      "median": 4.268799999408657,
+      "p95": 4.741899998407462,
+      "p99": 5.133999999088701
+    },
+    "update_times": {
+      "min": 0.03470000046945643,
+      "max": 45.09249999864551,
+      "avg": 0.9727233333857536,
+      "median": 0.044749999688065145
+    },
+    "render_times": {
+      "min": 0.9542999996483559,
+      "max": 5.120100000567618,
+      "avg": 3.372060333361636,
+      "median": 4.146149999542104
+    },
+    "fps": {
+      "min": 2.6405840338170856,
+      "max": 988.8262624873295,
+      "avg": 201.15438478582118,
+      "median": 234.25787109691876
+    },
+    "chunk_load_count": 178,
+    "movement_count": 1039
+  },
+  "chunk_events": [
+    {
+      "chunk_x": 63,
+      "chunk_y": 59,
+      "load_time": 7.284799999979441,
+      "timestamp": 1766090043.207413
+    },
+    {
+      "chunk_x": 64,
+      "chunk_y": 69,
+      "load_time": 7.783799999742769,
+      "timestamp": 1766090043.2078812
+    },
+    {
+      "chunk_x": 64,
+      "chunk_y": 59,
+      "load_time": 8.104999998977291,
+      "timestamp": 1766090043.2081573
+    },
+    {
+      "chunk_x": 65,
+      "chunk_y": 69,
+      "load_time": 6.425000001399894,
+      "timestamp": 1766090043.2145941
+    },
+    {
+      "chunk_x": 65,
+      "chunk_y": 59,
+      "load_time": 7.295200000953628,
+      "timestamp": 1766090043.215185
+    },
+    {
+      "chunk_x": 63,
+      "chunk_y": 69,
+      "load_time": 8.507599999575177,
+      "timestamp": 1766090043.215934
+    },
+    {
+      "chunk_x": 66,
+      "chunk_y": 59,
+      "load_time": 6.106500000896631,
+      "timestamp": 1766090043.222051
+    },
+    {
+      "chunk_x": 62,
+      "chunk_y": 69,
+      "load_time": 7.4671000002126675,
+      "timestamp": 1766090043.2226632
+    },
+    {
+      "chunk_x": 62,
+      "chunk_y": 59,
+      "load_time": 8.635900001536356,
+      "timestamp": 1766090043.2232413
+    },
+    {
+      "chunk_x": 66,
+      "chunk_y": 69,
+      "load_time": 6.778800001484342,
+      "timestamp": 1766090043.228842
+    },
+    {
+      "chunk_x": 61,
+      "chunk_y": 69,
+      "load_time": 6.140800000139279,
+      "timestamp": 1766090043.2293901
+    },
+    {
+      "chunk_x": 61,
+      "chunk_y": 59,
+      "load_time": 7.002800000918796,
+      "timestamp": 1766090043.2296765
+    },
+    {
+      "chunk_x": 67,
+      "chunk_y": 59,
+      "load_time": 9.170100000119419,
+      "timestamp": 1766090043.2380235
+    },
+    {
+      "chunk_x": 60,
+      "chunk_y": 59,
+      "load_time": 8.627299999716342,
+      "timestamp": 1766090043.2383106
+    },
+    {
+      "chunk_x": 67,
+      "chunk_y": 69,
+      "load_time": 9.198300000207382,
+      "timestamp": 1766090043.2385964
+    },
+    {
+      "chunk_x": 60,
+      "chunk_y": 69,
+      "load_time": 7.80520000080287,
+      "timestamp": 1766090043.24584
+    },
+    {
+      "chunk_x": 68,
+      "chunk_y": 59,
+      "load_time": 7.820200000423938,
+      "timestamp": 1766090043.2461386
+    },
+    {
+      "chunk_x": 68,
+      "chunk_y": 69,
+      "load_time": 7.807999998476589,
+      "timestamp": 1766090043.246411
+    },
+    {
+      "chunk_x": 59,
+      "chunk_y": 59,
+      "load_time": 7.728299999143928,
+      "timestamp": 1766090043.2535803
+    },
+    {
+      "chunk_x": 69,
+      "chunk_y": 59,
+      "load_time": 7.722799999100971,
+      "timestamp": 1766090043.2541406
+    },
+    {
+      "chunk_x": 59,
+      "chunk_y": 69,
+      "load_time": 9.44320000053267,
+      "timestamp": 1766090043.2555902
+    },
+    {
+      "chunk_x": 69,
+      "chunk_y": 69,
+      "load_time": 7.067400001687929,
+      "timestamp": 1766090043.2606595
+    },
+    {
+      "chunk_x": 70,
+      "chunk_y": 59,
+      "load_time": 7.767099999909988,
+      "timestamp": 1766090045.4993007
+    },
+    {
+      "chunk_x": 70,
+      "chunk_y": 69,
+      "load_time": 7.978200001161895,
+      "timestamp": 1766090045.4995646
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 64,
+      "load_time": 8.24079999983951,
+      "timestamp": 1766090046.8112643
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 63,
+      "load_time": 8.488000001307228,
+      "timestamp": 1766090046.8115437
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 65,
+      "load_time": 8.980300000985153,
+      "timestamp": 1766090046.8120635
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 66,
+      "load_time": 7.418899998810957,
+      "timestamp": 1766090046.8189716
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 62,
+      "load_time": 8.185900000171387,
+      "timestamp": 1766090046.819462
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 61,
+      "load_time": 8.655400000861846,
+      "timestamp": 1766090046.820726
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 67,
+      "load_time": 7.767000000967528,
+      "timestamp": 1766090046.8267508
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 68,
+      "load_time": 6.488200000603683,
+      "timestamp": 1766090046.8272223
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 60,
+      "load_time": 7.929800000056275,
+      "timestamp": 1766090046.8273995
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 69,
+      "load_time": 6.599400001505273,
+      "timestamp": 1766090046.8338299
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 59,
+      "load_time": 7.255299999087583,
+      "timestamp": 1766090046.8340163
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 65,
+      "load_time": 7.805700000972138,
+      "timestamp": 1766090048.1389976
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 63,
+      "load_time": 8.503999999447842,
+      "timestamp": 1766090048.1396556
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 64,
+      "load_time": 8.796300000540214,
+      "timestamp": 1766090048.1399105
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 66,
+      "load_time": 7.643800001460477,
+      "timestamp": 1766090048.1473093
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 61,
+      "load_time": 7.989900001120986,
+      "timestamp": 1766090048.1479068
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 62,
+      "load_time": 9.804700001041056,
+      "timestamp": 1766090048.1488128
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 68,
+      "load_time": 5.7875000002240995,
+      "timestamp": 1766090048.154608
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 67,
+      "load_time": 7.768499999656342,
+      "timestamp": 1766090048.1550906
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 60,
+      "load_time": 8.316499999637017,
+      "timestamp": 1766090048.1562312
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 69,
+      "load_time": 7.803599999533617,
+      "timestamp": 1766090048.1629024
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 59,
+      "load_time": 8.432200000243029,
+      "timestamp": 1766090048.163051
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 64,
+      "load_time": 8.150699999532662,
+      "timestamp": 1766090049.4537594
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 65,
+      "load_time": 9.7237000009045,
+      "timestamp": 1766090049.4553943
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 63,
+      "load_time": 11.604399998759618,
+      "timestamp": 1766090049.4572465
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 62,
+      "load_time": 6.402900000466616,
+      "timestamp": 1766090049.4601743
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 66,
+      "load_time": 5.294599999615457,
+      "timestamp": 1766090049.4606993
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 61,
+      "load_time": 6.606799999644863,
+      "timestamp": 1766090049.4638631
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 67,
+      "load_time": 6.842000000688131,
+      "timestamp": 1766090049.4670272
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 60,
+      "load_time": 6.495999999970081,
+      "timestamp": 1766090049.4672034
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 68,
+      "load_time": 6.127099999503116,
+      "timestamp": 1766090049.4700012
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 59,
+      "load_time": 5.938999998761574,
+      "timestamp": 1766090049.4729776
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 69,
+      "load_time": 5.954599999313359,
+      "timestamp": 1766090049.4731658
+    },
+    {
+      "chunk_x": 67,
+      "chunk_y": 58,
+      "load_time": 7.094900000083726,
+      "timestamp": 1766090050.1668365
+    },
+    {
+      "chunk_x": 68,
+      "chunk_y": 58,
+      "load_time": 7.339399999182206,
+      "timestamp": 1766090050.16703
+    },
+    {
+      "chunk_x": 69,
+      "chunk_y": 58,
+      "load_time": 7.698699999309611,
+      "timestamp": 1766090050.1675375
+    },
+    {
+      "chunk_x": 70,
+      "chunk_y": 58,
+      "load_time": 5.959699999948498,
+      "timestamp": 1766090050.172998
+    },
+    {
+      "chunk_x": 66,
+      "chunk_y": 58,
+      "load_time": 6.715900000926922,
+      "timestamp": 1766090050.1735635
+    },
+    {
+      "chunk_x": 65,
+      "chunk_y": 58,
+      "load_time": 7.543600000644801,
+      "timestamp": 1766090050.1750865
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 58,
+      "load_time": 5.821400000058929,
+      "timestamp": 1766090050.1788306
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 58,
+      "load_time": 5.981600001177867,
+      "timestamp": 1766090050.1810775
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 58,
+      "load_time": 6.996000000071945,
+      "timestamp": 1766090050.1880836
+    },
+    {
+      "chunk_x": 63,
+      "chunk_y": 58,
+      "load_time": 197.43340000059106,
+      "timestamp": 1766090050.3762736
+    },
+    {
+      "chunk_x": 64,
+      "chunk_y": 58,
+      "load_time": 203.43549999961397,
+      "timestamp": 1766090050.3770082
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 62,
+      "load_time": 8.005600000615232,
+      "timestamp": 1766090051.0697436
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 64,
+      "load_time": 8.732999998755986,
+      "timestamp": 1766090051.070498
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 63,
+      "load_time": 8.975599999757833,
+      "timestamp": 1766090051.0706787
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 61,
+      "load_time": 6.176000000778004,
+      "timestamp": 1766090051.075931
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 65,
+      "load_time": 5.925899999056128,
+      "timestamp": 1766090051.0764341
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 60,
+      "load_time": 6.226200001037796,
+      "timestamp": 1766090051.0769126
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 59,
+      "load_time": 5.935899998803507,
+      "timestamp": 1766090051.0823796
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 67,
+      "load_time": 6.349199999021948,
+      "timestamp": 1766090051.0832694
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 66,
+      "load_time": 7.525099999838858,
+      "timestamp": 1766090051.0834675
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 68,
+      "load_time": 5.797600000732928,
+      "timestamp": 1766090051.089075
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 58,
+      "load_time": 6.9101000008231495,
+      "timestamp": 1766090051.089301
+    },
+    {
+      "chunk_x": 68,
+      "chunk_y": 57,
+      "load_time": 7.459899999957997,
+      "timestamp": 1766090052.1359482
+    },
+    {
+      "chunk_x": 70,
+      "chunk_y": 57,
+      "load_time": 7.95529999959399,
+      "timestamp": 1766090052.1365488
+    },
+    {
+      "chunk_x": 69,
+      "chunk_y": 57,
+      "load_time": 8.694300000570365,
+      "timestamp": 1766090052.1371176
+    },
+    {
+      "chunk_x": 67,
+      "chunk_y": 57,
+      "load_time": 7.890500000939937,
+      "timestamp": 1766090052.143851
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 57,
+      "load_time": 8.164799999576644,
+      "timestamp": 1766090052.1447256
+    },
+    {
+      "chunk_x": 66,
+      "chunk_y": 57,
+      "load_time": 7.966299999679904,
+      "timestamp": 1766090052.145091
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 57,
+      "load_time": 6.644499999310938,
+      "timestamp": 1766090052.1505146
+    },
+    {
+      "chunk_x": 64,
+      "chunk_y": 57,
+      "load_time": 0.9652999997342704,
+      "timestamp": 1766090052.151491
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 57,
+      "load_time": 32.282100000884384,
+      "timestamp": 1766090052.1773806
+    },
+    {
+      "chunk_x": 65,
+      "chunk_y": 57,
+      "load_time": 33.95540000019537,
+      "timestamp": 1766090052.1786885
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 57,
+      "load_time": 32.51550000095449,
+      "timestamp": 1766090052.184013
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 62,
+      "load_time": 8.612700001322082,
+      "timestamp": 1766090053.0275877
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 63,
+      "load_time": 6.989100000282633,
+      "timestamp": 1766090053.027837
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 61,
+      "load_time": 8.5601000009774,
+      "timestamp": 1766090053.0283043
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 64,
+      "load_time": 7.847400000173366,
+      "timestamp": 1766090053.0356932
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 59,
+      "load_time": 8.636399999886635,
+      "timestamp": 1766090053.0369473
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 60,
+      "load_time": 9.916599999996834,
+      "timestamp": 1766090053.0375159
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 65,
+      "load_time": 7.479100000637118,
+      "timestamp": 1766090053.043184
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 58,
+      "load_time": 6.683100000373088,
+      "timestamp": 1766090053.0436387
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 66,
+      "load_time": 6.553199998961645,
+      "timestamp": 1766090053.0440767
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 67,
+      "load_time": 5.802499999845168,
+      "timestamp": 1766090053.0494487
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 57,
+      "load_time": 6.9084000006114366,
+      "timestamp": 1766090053.0501044
+    },
+    {
+      "chunk_x": 70,
+      "chunk_y": 56,
+      "load_time": 7.93340000018361,
+      "timestamp": 1766090054.0650706
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 56,
+      "load_time": 8.431199999904493,
+      "timestamp": 1766090054.065636
+    },
+    {
+      "chunk_x": 69,
+      "chunk_y": 56,
+      "load_time": 9.260400000130176,
+      "timestamp": 1766090054.0664315
+    },
+    {
+      "chunk_x": 68,
+      "chunk_y": 56,
+      "load_time": 8.735899999010144,
+      "timestamp": 1766090054.0738182
+    },
+    {
+      "chunk_x": 67,
+      "chunk_y": 56,
+      "load_time": 8.162399999491754,
+      "timestamp": 1766090054.0746014
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 56,
+      "load_time": 9.527199999865843,
+      "timestamp": 1766090054.0751727
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 56,
+      "load_time": 6.733899999744608,
+      "timestamp": 1766090054.0805633
+    },
+    {
+      "chunk_x": 66,
+      "chunk_y": 56,
+      "load_time": 6.45020000047225,
+      "timestamp": 1766090054.0810611
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 56,
+      "load_time": 7.132400000045891,
+      "timestamp": 1766090054.0823133
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 56,
+      "load_time": 6.1541999984910944,
+      "timestamp": 1766090054.0872238
+    },
+    {
+      "chunk_x": 65,
+      "chunk_y": 56,
+      "load_time": 7.116300001143827,
+      "timestamp": 1766090054.0876899
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 62,
+      "load_time": 8.301899999423767,
+      "timestamp": 1766090054.982108
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 60,
+      "load_time": 8.50460000037856,
+      "timestamp": 1766090054.9822824
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 61,
+      "load_time": 9.447799999179551,
+      "timestamp": 1766090054.9831865
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 63,
+      "load_time": 8.860500000082538,
+      "timestamp": 1766090054.991152
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 59,
+      "load_time": 9.627899999031797,
+      "timestamp": 1766090054.9917476
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 58,
+      "load_time": 9.04650000120455,
+      "timestamp": 1766090054.9922402
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 65,
+      "load_time": 5.280900000798283,
+      "timestamp": 1766090054.9975302
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 57,
+      "load_time": 6.564400000570458,
+      "timestamp": 1766090054.9983208
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 64,
+      "load_time": 7.398900001135189,
+      "timestamp": 1766090054.9985628
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 56,
+      "load_time": 6.572000000232947,
+      "timestamp": 1766090055.0041142
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 66,
+      "load_time": 6.0570999994524755,
+      "timestamp": 1766090055.0043876
+    },
+    {
+      "chunk_x": 70,
+      "chunk_y": 55,
+      "load_time": 8.09579999986454,
+      "timestamp": 1766090055.7218242
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 55,
+      "load_time": 8.657800000946736,
+      "timestamp": 1766090055.722272
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 55,
+      "load_time": 6.5353999998478685,
+      "timestamp": 1766090055.7251866
+    },
+    {
+      "chunk_x": 69,
+      "chunk_y": 55,
+      "load_time": 6.2046000002737856,
+      "timestamp": 1766090055.7280402
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 55,
+      "load_time": 6.253900000956492,
+      "timestamp": 1766090055.728534
+    },
+    {
+      "chunk_x": 68,
+      "chunk_y": 55,
+      "load_time": 6.601799999771174,
+      "timestamp": 1766090055.731799
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 55,
+      "load_time": 6.90030000077968,
+      "timestamp": 1766090055.734951
+    },
+    {
+      "chunk_x": 67,
+      "chunk_y": 55,
+      "load_time": 6.686500000796514,
+      "timestamp": 1766090055.7352262
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 55,
+      "load_time": 6.6292000010435,
+      "timestamp": 1766090055.738441
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 55,
+      "load_time": 6.337099999655038,
+      "timestamp": 1766090055.7415714
+    },
+    {
+      "chunk_x": 66,
+      "chunk_y": 55,
+      "load_time": 7.137799999327399,
+      "timestamp": 1766090055.742098
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 54,
+      "load_time": 8.585999999922933,
+      "timestamp": 1766090057.0092752
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 54,
+      "load_time": 8.7005000004865,
+      "timestamp": 1766090057.00945
+    },
+    {
+      "chunk_x": 70,
+      "chunk_y": 54,
+      "load_time": 8.887500000128057,
+      "timestamp": 1766090057.00961
+    },
+    {
+      "chunk_x": 68,
+      "chunk_y": 54,
+      "load_time": 1.1771000008593546,
+      "timestamp": 1766090057.0107937
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 54,
+      "load_time": 6.89309999870602,
+      "timestamp": 1766090057.017694
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 54,
+      "load_time": 8.830500000840402,
+      "timestamp": 1766090057.0182884
+    },
+    {
+      "chunk_x": 69,
+      "chunk_y": 54,
+      "load_time": 9.733399998367531,
+      "timestamp": 1766090057.0190203
+    },
+    {
+      "chunk_x": 67,
+      "chunk_y": 54,
+      "load_time": 7.001100000707083,
+      "timestamp": 1766090057.0247064
+    },
+    {
+      "chunk_x": 66,
+      "chunk_y": 54,
+      "load_time": 6.59059999998135,
+      "timestamp": 1766090057.025621
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 54,
+      "load_time": 8.522100000845967,
+      "timestamp": 1766090057.026816
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 54,
+      "load_time": 6.461299999500625,
+      "timestamp": 1766090057.0311794
+    },
+    {
+      "chunk_x": 70,
+      "chunk_y": 53,
+      "load_time": 0.9135000000242144,
+      "timestamp": 1766090058.3216379
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 53,
+      "load_time": 2.2512999985337956,
+      "timestamp": 1766090058.3229392
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 53,
+      "load_time": 3.000800001245807,
+      "timestamp": 1766090058.3237522
+    },
+    {
+      "chunk_x": 69,
+      "chunk_y": 53,
+      "load_time": 2.9625000006490154,
+      "timestamp": 1766090058.3246086
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 53,
+      "load_time": 2.585600001111743,
+      "timestamp": 1766090058.3255315
+    },
+    {
+      "chunk_x": 68,
+      "chunk_y": 53,
+      "load_time": 2.6319999997213017,
+      "timestamp": 1766090058.3263903
+    },
+    {
+      "chunk_x": 67,
+      "chunk_y": 53,
+      "load_time": 2.096299998811446,
+      "timestamp": 1766090058.3276336
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 53,
+      "load_time": 2.1280000000842847,
+      "timestamp": 1766090058.3285244
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 53,
+      "load_time": 4.75180000103137,
+      "timestamp": 1766090058.329367
+    },
+    {
+      "chunk_x": 66,
+      "chunk_y": 53,
+      "load_time": 2.9679000017495127,
+      "timestamp": 1766090058.3306055
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 53,
+      "load_time": 2.954600000521168,
+      "timestamp": 1766090058.3314843
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 52,
+      "load_time": 0.9148000008281088,
+      "timestamp": 1766090059.6256201
+    },
+    {
+      "chunk_x": 70,
+      "chunk_y": 52,
+      "load_time": 1.6857999999047024,
+      "timestamp": 1766090059.6264305
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 52,
+      "load_time": 2.589100000477629,
+      "timestamp": 1766090059.6273699
+    },
+    {
+      "chunk_x": 69,
+      "chunk_y": 52,
+      "load_time": 2.4781000010989374,
+      "timestamp": 1766090059.628105
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 52,
+      "load_time": 2.4713000002520857,
+      "timestamp": 1766090059.6289084
+    },
+    {
+      "chunk_x": 68,
+      "chunk_y": 52,
+      "load_time": 2.444199999445118,
+      "timestamp": 1766090059.6298192
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 52,
+      "load_time": 0.8321000004798407,
+      "timestamp": 1766090059.630657
+    },
+    {
+      "chunk_x": 66,
+      "chunk_y": 52,
+      "load_time": 0.797100001364015,
+      "timestamp": 1766090059.6314607
+    },
+    {
+      "chunk_x": 67,
+      "chunk_y": 52,
+      "load_time": 3.387099999599741,
+      "timestamp": 1766090059.6323009
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 52,
+      "load_time": 5.3638000008504605,
+      "timestamp": 1766090059.633475
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 52,
+      "load_time": 2.9264999993756646,
+      "timestamp": 1766090059.6343913
+    },
+    {
+      "chunk_x": 71,
+      "chunk_y": 51,
+      "load_time": 0.8778000010352116,
+      "timestamp": 1766090060.9281304
+    },
+    {
+      "chunk_x": 72,
+      "chunk_y": 51,
+      "load_time": 0.849000000016531,
+      "timestamp": 1766090060.9290137
+    },
+    {
+      "chunk_x": 70,
+      "chunk_y": 51,
+      "load_time": 3.608499999245396,
+      "timestamp": 1766090060.931747
+    },
+    {
+      "chunk_x": 73,
+      "chunk_y": 51,
+      "load_time": 1.159600000391947,
+      "timestamp": 1766090060.9329162
+    },
+    {
+      "chunk_x": 74,
+      "chunk_y": 51,
+      "load_time": 0.799600000391365,
+      "timestamp": 1766090060.9337494
+    },
+    {
+      "chunk_x": 68,
+      "chunk_y": 51,
+      "load_time": 2.0416999996086815,
+      "timestamp": 1766090060.934964
+    },
+    {
+      "chunk_x": 75,
+      "chunk_y": 51,
+      "load_time": 0.7831999992049532,
+      "timestamp": 1766090060.935752
+    },
+    {
+      "chunk_x": 67,
+      "chunk_y": 51,
+      "load_time": 2.7294999999867287,
+      "timestamp": 1766090060.9364836
+    },
+    {
+      "chunk_x": 69,
+      "chunk_y": 51,
+      "load_time": 8.707499999218271,
+      "timestamp": 1766090060.9377275
+    },
+    {
+      "chunk_x": 66,
+      "chunk_y": 51,
+      "load_time": 2.682199999981094,
+      "timestamp": 1766090060.938438
+    },
+    {
+      "chunk_x": 76,
+      "chunk_y": 51,
+      "load_time": 2.657299999555107,
+      "timestamp": 1766090060.939149
+    }
+  ],
+  "movement_events": [
+    {
+      "direction": "right",
+      "delay": 0.0,
+      "timestamp": 1766090044.1867034
+    },
+    {
+      "direction": "right",
+      "delay": 0.016124248504638672,
+      "timestamp": 1766090044.202829
+    },
+    {
+      "direction": "right",
+      "delay": 0.016208887100219727,
+      "timestamp": 1766090044.2190382
+    },
+    {
+      "direction": "right",
+      "delay": 0.015718936920166016,
+      "timestamp": 1766090044.2347574
+    },
+    {
+      "direction": "right",
+      "delay": 0.016008377075195312,
+      "timestamp": 1766090044.250766
+    },
+    {
+      "direction": "right",
+      "delay": 0.01601696014404297,
+      "timestamp": 1766090044.266783
+    },
+    {
+      "direction": "right",
+      "delay": 0.0155181884765625,
+      "timestamp": 1766090044.2823014
+    },
+    {
+      "direction": "right",
+      "delay": 0.01682305335998535,
+      "timestamp": 1766090044.2991247
+    },
+    {
+      "direction": "right",
+      "delay": 0.016507625579833984,
+      "timestamp": 1766090044.3156326
+    },
+    {
+      "direction": "right",
+      "delay": 0.015859603881835938,
+      "timestamp": 1766090044.3314924
+    },
+    {
+      "direction": "right",
+      "delay": 0.016981840133666992,
+      "timestamp": 1766090044.348475
+    },
+    {
+      "direction": "right",
+      "delay": 0.01654648780822754,
+      "timestamp": 1766090044.3650217
+    },
+    {
+      "direction": "right",
+      "delay": 0.016019821166992188,
+      "timestamp": 1766090044.3810418
+    },
+    {
+      "direction": "right",
+      "delay": 0.01602935791015625,
+      "timestamp": 1766090044.3970714
+    },
+    {
+      "direction": "right",
+      "delay": 0.01602935791015625,
+      "timestamp": 1766090044.413101
+    },
+    {
+      "direction": "right",
+      "delay": 0.017092227935791016,
+      "timestamp": 1766090044.4301934
+    },
+    {
+      "direction": "right",
+      "delay": 0.016997814178466797,
+      "timestamp": 1766090044.4471915
+    },
+    {
+      "direction": "right",
+      "delay": 0.016999244689941406,
+      "timestamp": 1766090044.464191
+    },
+    {
+      "direction": "right",
+      "delay": 0.016844987869262695,
+      "timestamp": 1766090044.481036
+    },
+    {
+      "direction": "right",
+      "delay": 0.01598978042602539,
+      "timestamp": 1766090044.497026
+    },
+    {
+      "direction": "right",
+      "delay": 0.016005516052246094,
+      "timestamp": 1766090044.5130315
+    },
+    {
+      "direction": "right",
+      "delay": 0.01594996452331543,
+      "timestamp": 1766090044.5289814
+    },
+    {
+      "direction": "right",
+      "delay": 0.016013383865356445,
+      "timestamp": 1766090044.544995
+    },
+    {
+      "direction": "right",
+      "delay": 0.016002416610717773,
+      "timestamp": 1766090044.5609977
+    },
+    {
+      "direction": "right",
+      "delay": 0.016042709350585938,
+      "timestamp": 1766090044.5770407
+    },
+    {
+      "direction": "right",
+      "delay": 0.015810012817382812,
+      "timestamp": 1766090044.5928507
+    },
+    {
+      "direction": "right",
+      "delay": 0.016003847122192383,
+      "timestamp": 1766090044.6088548
+    },
+    {
+      "direction": "right",
+      "delay": 0.015529155731201172,
+      "timestamp": 1766090044.6243842
+    },
+    {
+      "direction": "right",
+      "delay": 0.016617298126220703,
+      "timestamp": 1766090044.6410015
+    },
+    {
+      "direction": "right",
+      "delay": 0.016142606735229492,
+      "timestamp": 1766090044.6571443
+    },
+    {
+      "direction": "right",
+      "delay": 0.0160064697265625,
+      "timestamp": 1766090044.673151
+    },
+    {
+      "direction": "right",
+      "delay": 0.016011953353881836,
+      "timestamp": 1766090044.6891632
+    },
+    {
+      "direction": "right",
+      "delay": 0.015976428985595703,
+      "timestamp": 1766090044.7051399
+    },
+    {
+      "direction": "right",
+      "delay": 0.016095399856567383,
+      "timestamp": 1766090044.7212355
+    },
+    {
+      "direction": "right",
+      "delay": 0.01664423942565918,
+      "timestamp": 1766090044.73788
+    },
+    {
+      "direction": "right",
+      "delay": 0.016145944595336914,
+      "timestamp": 1766090044.7540262
+    },
+    {
+      "direction": "right",
+      "delay": 0.01638007164001465,
+      "timestamp": 1766090044.7704065
+    },
+    {
+      "direction": "right",
+      "delay": 0.017050981521606445,
+      "timestamp": 1766090044.7874577
+    },
+    {
+      "direction": "right",
+      "delay": 0.016905784606933594,
+      "timestamp": 1766090044.8043637
+    },
+    {
+      "direction": "right",
+      "delay": 0.017131805419921875,
+      "timestamp": 1766090044.8214958
+    },
+    {
+      "direction": "right",
+      "delay": 0.01684856414794922,
+      "timestamp": 1766090044.8383448
+    },
+    {
+      "direction": "right",
+      "delay": 0.017104625701904297,
+      "timestamp": 1766090044.8554497
+    },
+    {
+      "direction": "right",
+      "delay": 0.017062902450561523,
+      "timestamp": 1766090044.8725128
+    },
+    {
+      "direction": "right",
+      "delay": 0.016838550567626953,
+      "timestamp": 1766090044.8893514
+    },
+    {
+      "direction": "right",
+      "delay": 0.017017364501953125,
+      "timestamp": 1766090044.906369
+    },
+    {
+      "direction": "right",
+      "delay": 0.017116785049438477,
+      "timestamp": 1766090044.923486
+    },
+    {
+      "direction": "right",
+      "delay": 0.015949726104736328,
+      "timestamp": 1766090044.9394357
+    },
+    {
+      "direction": "right",
+      "delay": 0.016928911209106445,
+      "timestamp": 1766090044.9563649
+    },
+    {
+      "direction": "right",
+      "delay": 0.016831636428833008,
+      "timestamp": 1766090044.9731967
+    },
+    {
+      "direction": "right",
+      "delay": 0.01717853546142578,
+      "timestamp": 1766090044.9903755
+    },
+    {
+      "direction": "right",
+      "delay": 0.016863346099853516,
+      "timestamp": 1766090045.0072389
+    },
+    {
+      "direction": "right",
+      "delay": 0.01711273193359375,
+      "timestamp": 1766090045.0243518
+    },
+    {
+      "direction": "right",
+      "delay": 0.017160654067993164,
+      "timestamp": 1766090045.0415125
+    },
+    {
+      "direction": "right",
+      "delay": 0.01570749282836914,
+      "timestamp": 1766090045.0572207
+    },
+    {
+      "direction": "right",
+      "delay": 0.017189741134643555,
+      "timestamp": 1766090045.0744107
+    },
+    {
+      "direction": "right",
+      "delay": 0.017001867294311523,
+      "timestamp": 1766090045.0914128
+    },
+    {
+      "direction": "right",
+      "delay": 0.017067909240722656,
+      "timestamp": 1766090045.108481
+    },
+    {
+      "direction": "right",
+      "delay": 0.016880035400390625,
+      "timestamp": 1766090045.1253614
+    },
+    {
+      "direction": "right",
+      "delay": 0.01720905303955078,
+      "timestamp": 1766090045.1425705
+    },
+    {
+      "direction": "right",
+      "delay": 0.017145633697509766,
+      "timestamp": 1766090045.1597164
+    },
+    {
+      "direction": "right",
+      "delay": 0.01585078239440918,
+      "timestamp": 1766090045.1755674
+    },
+    {
+      "direction": "right",
+      "delay": 0.016138792037963867,
+      "timestamp": 1766090045.1917062
+    },
+    {
+      "direction": "right",
+      "delay": 0.015886783599853516,
+      "timestamp": 1766090045.2075932
+    },
+    {
+      "direction": "right",
+      "delay": 0.01612567901611328,
+      "timestamp": 1766090045.223719
+    },
+    {
+      "direction": "right",
+      "delay": 0.01640176773071289,
+      "timestamp": 1766090045.240121
+    },
+    {
+      "direction": "right",
+      "delay": 0.017112016677856445,
+      "timestamp": 1766090045.257233
+    },
+    {
+      "direction": "right",
+      "delay": 0.017191410064697266,
+      "timestamp": 1766090045.2744246
+    },
+    {
+      "direction": "right",
+      "delay": 0.016730070114135742,
+      "timestamp": 1766090045.2911549
+    },
+    {
+      "direction": "right",
+      "delay": 0.0171053409576416,
+      "timestamp": 1766090045.3082604
+    },
+    {
+      "direction": "right",
+      "delay": 0.01667475700378418,
+      "timestamp": 1766090045.3249354
+    },
+    {
+      "direction": "right",
+      "delay": 0.01630258560180664,
+      "timestamp": 1766090045.3412383
+    },
+    {
+      "direction": "right",
+      "delay": 0.016166210174560547,
+      "timestamp": 1766090045.3574047
+    },
+    {
+      "direction": "right",
+      "delay": 0.01717686653137207,
+      "timestamp": 1766090045.3745818
+    },
+    {
+      "direction": "right",
+      "delay": 0.015848159790039062,
+      "timestamp": 1766090045.3904305
+    },
+    {
+      "direction": "right",
+      "delay": 0.0160977840423584,
+      "timestamp": 1766090045.4065285
+    },
+    {
+      "direction": "right",
+      "delay": 0.016910791397094727,
+      "timestamp": 1766090045.4234395
+    },
+    {
+      "direction": "right",
+      "delay": 0.01585245132446289,
+      "timestamp": 1766090045.439292
+    },
+    {
+      "direction": "right",
+      "delay": 0.01712965965270996,
+      "timestamp": 1766090045.4564219
+    },
+    {
+      "direction": "right",
+      "delay": 0.016951560974121094,
+      "timestamp": 1766090045.4733737
+    },
+    {
+      "direction": "right",
+      "delay": 0.017140865325927734,
+      "timestamp": 1766090045.4905148
+    },
+    {
+      "direction": "right",
+      "delay": 0.01652216911315918,
+      "timestamp": 1766090045.5070372
+    },
+    {
+      "direction": "right",
+      "delay": 0.016205787658691406,
+      "timestamp": 1766090045.523243
+    },
+    {
+      "direction": "right",
+      "delay": 0.017129182815551758,
+      "timestamp": 1766090045.5403724
+    },
+    {
+      "direction": "right",
+      "delay": 0.0158998966217041,
+      "timestamp": 1766090045.5562723
+    },
+    {
+      "direction": "right",
+      "delay": 0.017095088958740234,
+      "timestamp": 1766090045.5733676
+    },
+    {
+      "direction": "right",
+      "delay": 0.01594853401184082,
+      "timestamp": 1766090045.5893166
+    },
+    {
+      "direction": "right",
+      "delay": 0.017090320587158203,
+      "timestamp": 1766090045.606407
+    },
+    {
+      "direction": "right",
+      "delay": 0.0167691707611084,
+      "timestamp": 1766090045.6231763
+    },
+    {
+      "direction": "right",
+      "delay": 0.017154932022094727,
+      "timestamp": 1766090045.6403315
+    },
+    {
+      "direction": "right",
+      "delay": 0.016760587692260742,
+      "timestamp": 1766090045.6570923
+    },
+    {
+      "direction": "right",
+      "delay": 0.015993118286132812,
+      "timestamp": 1766090045.6730855
+    },
+    {
+      "direction": "right",
+      "delay": 0.0172271728515625,
+      "timestamp": 1766090045.6903129
+    },
+    {
+      "direction": "right",
+      "delay": 0.016896963119506836,
+      "timestamp": 1766090045.70721
+    },
+    {
+      "direction": "right",
+      "delay": 0.017296552658081055,
+      "timestamp": 1766090045.7245069
+    },
+    {
+      "direction": "right",
+      "delay": 0.015791893005371094,
+      "timestamp": 1766090045.7402992
+    },
+    {
+      "direction": "right",
+      "delay": 0.015910625457763672,
+      "timestamp": 1766090045.75621
+    },
+    {
+      "direction": "right",
+      "delay": 0.0166165828704834,
+      "timestamp": 1766090045.772827
+    },
+    {
+      "direction": "right",
+      "delay": 0.01593160629272461,
+      "timestamp": 1766090045.7887588
+    },
+    {
+      "direction": "right",
+      "delay": 0.015851497650146484,
+      "timestamp": 1766090045.8046105
+    },
+    {
+      "direction": "right",
+      "delay": 0.015680551528930664,
+      "timestamp": 1766090045.8202913
+    },
+    {
+      "direction": "right",
+      "delay": 0.016935110092163086,
+      "timestamp": 1766090045.8372269
+    },
+    {
+      "direction": "right",
+      "delay": 0.016930818557739258,
+      "timestamp": 1766090045.854158
+    },
+    {
+      "direction": "right",
+      "delay": 0.017165422439575195,
+      "timestamp": 1766090045.8713233
+    },
+    {
+      "direction": "right",
+      "delay": 0.016863584518432617,
+      "timestamp": 1766090045.888187
+    },
+    {
+      "direction": "right",
+      "delay": 0.01705002784729004,
+      "timestamp": 1766090045.9052372
+    },
+    {
+      "direction": "right",
+      "delay": 0.015849828720092773,
+      "timestamp": 1766090045.921087
+    },
+    {
+      "direction": "right",
+      "delay": 0.01597285270690918,
+      "timestamp": 1766090045.93706
+    },
+    {
+      "direction": "right",
+      "delay": 0.016182661056518555,
+      "timestamp": 1766090045.953243
+    },
+    {
+      "direction": "right",
+      "delay": 0.017014741897583008,
+      "timestamp": 1766090045.970258
+    },
+    {
+      "direction": "right",
+      "delay": 0.016977310180664062,
+      "timestamp": 1766090045.9872355
+    },
+    {
+      "direction": "right",
+      "delay": 0.01697230339050293,
+      "timestamp": 1766090046.004208
+    },
+    {
+      "direction": "right",
+      "delay": 0.016904115676879883,
+      "timestamp": 1766090046.0211127
+    },
+    {
+      "direction": "right",
+      "delay": 0.016640186309814453,
+      "timestamp": 1766090046.037753
+    },
+    {
+      "direction": "right",
+      "delay": 0.015908002853393555,
+      "timestamp": 1766090046.0536613
+    },
+    {
+      "direction": "right",
+      "delay": 0.016618728637695312,
+      "timestamp": 1766090046.0702806
+    },
+    {
+      "direction": "right",
+      "delay": 0.0169064998626709,
+      "timestamp": 1766090046.0871873
+    },
+    {
+      "direction": "right",
+      "delay": 0.01685643196105957,
+      "timestamp": 1766090046.1040437
+    },
+    {
+      "direction": "right",
+      "delay": 0.016470909118652344,
+      "timestamp": 1766090046.1205149
+    },
+    {
+      "direction": "right",
+      "delay": 0.01621270179748535,
+      "timestamp": 1766090046.1367278
+    },
+    {
+      "direction": "right",
+      "delay": 0.015888452529907227,
+      "timestamp": 1766090046.1526167
+    },
+    {
+      "direction": "right",
+      "delay": 0.016065359115600586,
+      "timestamp": 1766090046.1686823
+    },
+    {
+      "direction": "right",
+      "delay": 0.015906810760498047,
+      "timestamp": 1766090046.1845894
+    },
+    {
+      "direction": "right",
+      "delay": 0.015864849090576172,
+      "timestamp": 1766090046.2004545
+    },
+    {
+      "direction": "right",
+      "delay": 0.01683950424194336,
+      "timestamp": 1766090046.2172945
+    },
+    {
+      "direction": "right",
+      "delay": 0.0169832706451416,
+      "timestamp": 1766090046.234278
+    },
+    {
+      "direction": "right",
+      "delay": 0.01683187484741211,
+      "timestamp": 1766090046.2511098
+    },
+    {
+      "direction": "right",
+      "delay": 0.015961647033691406,
+      "timestamp": 1766090046.267072
+    },
+    {
+      "direction": "right",
+      "delay": 0.015873432159423828,
+      "timestamp": 1766090046.2829454
+    },
+    {
+      "direction": "right",
+      "delay": 0.015614032745361328,
+      "timestamp": 1766090046.2985597
+    },
+    {
+      "direction": "right",
+      "delay": 0.015654325485229492,
+      "timestamp": 1766090046.314214
+    },
+    {
+      "direction": "right",
+      "delay": 0.01701068878173828,
+      "timestamp": 1766090046.331225
+    },
+    {
+      "direction": "right",
+      "delay": 0.016716957092285156,
+      "timestamp": 1766090046.3479424
+    },
+    {
+      "direction": "right",
+      "delay": 0.016095876693725586,
+      "timestamp": 1766090046.3640385
+    },
+    {
+      "direction": "right",
+      "delay": 0.016443252563476562,
+      "timestamp": 1766090046.3804817
+    },
+    {
+      "direction": "right",
+      "delay": 0.016180038452148438,
+      "timestamp": 1766090046.396662
+    },
+    {
+      "direction": "right",
+      "delay": 0.015752553939819336,
+      "timestamp": 1766090046.4124148
+    },
+    {
+      "direction": "right",
+      "delay": 0.01698017120361328,
+      "timestamp": 1766090046.4293952
+    },
+    {
+      "direction": "right",
+      "delay": 0.016138553619384766,
+      "timestamp": 1766090046.445534
+    },
+    {
+      "direction": "right",
+      "delay": 0.015918254852294922,
+      "timestamp": 1766090046.4614525
+    },
+    {
+      "direction": "right",
+      "delay": 0.016596078872680664,
+      "timestamp": 1766090046.4780486
+    },
+    {
+      "direction": "right",
+      "delay": 0.01593184471130371,
+      "timestamp": 1766090046.4939804
+    },
+    {
+      "direction": "right",
+      "delay": 0.016587257385253906,
+      "timestamp": 1766090046.510568
+    },
+    {
+      "direction": "right",
+      "delay": 0.015927791595458984,
+      "timestamp": 1766090046.526496
+    },
+    {
+      "direction": "right",
+      "delay": 0.017130136489868164,
+      "timestamp": 1766090046.5436263
+    },
+    {
+      "direction": "right",
+      "delay": 0.01565861701965332,
+      "timestamp": 1766090046.559285
+    },
+    {
+      "direction": "right",
+      "delay": 0.017039060592651367,
+      "timestamp": 1766090046.5763245
+    },
+    {
+      "direction": "right",
+      "delay": 0.017028093338012695,
+      "timestamp": 1766090046.5933528
+    },
+    {
+      "direction": "right",
+      "delay": 0.01688218116760254,
+      "timestamp": 1766090046.610235
+    },
+    {
+      "direction": "right",
+      "delay": 0.016612768173217773,
+      "timestamp": 1766090046.626848
+    },
+    {
+      "direction": "right",
+      "delay": 0.01598954200744629,
+      "timestamp": 1766090046.6428378
+    },
+    {
+      "direction": "right",
+      "delay": 0.01609516143798828,
+      "timestamp": 1766090046.658933
+    },
+    {
+      "direction": "right",
+      "delay": 0.015920400619506836,
+      "timestamp": 1766090046.6748536
+    },
+    {
+      "direction": "right",
+      "delay": 0.01599264144897461,
+      "timestamp": 1766090046.6908462
+    },
+    {
+      "direction": "right",
+      "delay": 0.016098737716674805,
+      "timestamp": 1766090046.7069452
+    },
+    {
+      "direction": "right",
+      "delay": 0.01595163345336914,
+      "timestamp": 1766090046.7228968
+    },
+    {
+      "direction": "right",
+      "delay": 0.016094207763671875,
+      "timestamp": 1766090046.7389913
+    },
+    {
+      "direction": "right",
+      "delay": 0.015923500061035156,
+      "timestamp": 1766090046.7549148
+    },
+    {
+      "direction": "right",
+      "delay": 0.01600050926208496,
+      "timestamp": 1766090046.7709153
+    },
+    {
+      "direction": "right",
+      "delay": 0.01581430435180664,
+      "timestamp": 1766090046.7867296
+    },
+    {
+      "direction": "right",
+      "delay": 0.016140222549438477,
+      "timestamp": 1766090046.80287
+    },
+    {
+      "direction": "right",
+      "delay": 0.03133749961853027,
+      "timestamp": 1766090046.8342075
+    },
+    {
+      "direction": "right",
+      "delay": 0.017043590545654297,
+      "timestamp": 1766090046.8512514
+    },
+    {
+      "direction": "right",
+      "delay": 0.01656198501586914,
+      "timestamp": 1766090046.8678136
+    },
+    {
+      "direction": "right",
+      "delay": 0.015410423278808594,
+      "timestamp": 1766090046.8832242
+    },
+    {
+      "direction": "right",
+      "delay": 0.017136573791503906,
+      "timestamp": 1766090046.900361
+    },
+    {
+      "direction": "right",
+      "delay": 0.016310453414916992,
+      "timestamp": 1766090046.9166718
+    },
+    {
+      "direction": "right",
+      "delay": 0.01646733283996582,
+      "timestamp": 1766090046.9331396
+    },
+    {
+      "direction": "right",
+      "delay": 0.015328645706176758,
+      "timestamp": 1766090046.9484684
+    },
+    {
+      "direction": "right",
+      "delay": 0.016582727432250977,
+      "timestamp": 1766090046.9650514
+    },
+    {
+      "direction": "right",
+      "delay": 0.015636205673217773,
+      "timestamp": 1766090046.9806876
+    },
+    {
+      "direction": "right",
+      "delay": 0.016521453857421875,
+      "timestamp": 1766090046.9972093
+    },
+    {
+      "direction": "right",
+      "delay": 0.01695394515991211,
+      "timestamp": 1766090047.0141633
+    },
+    {
+      "direction": "right",
+      "delay": 0.017066001892089844,
+      "timestamp": 1766090047.0312295
+    },
+    {
+      "direction": "right",
+      "delay": 0.016930103302001953,
+      "timestamp": 1766090047.0481596
+    },
+    {
+      "direction": "right",
+      "delay": 0.01714181900024414,
+      "timestamp": 1766090047.0653017
+    },
+    {
+      "direction": "right",
+      "delay": 0.016888856887817383,
+      "timestamp": 1766090047.082191
+    },
+    {
+      "direction": "right",
+      "delay": 0.017121553421020508,
+      "timestamp": 1766090047.0993128
+    },
+    {
+      "direction": "right",
+      "delay": 0.016911983489990234,
+      "timestamp": 1766090047.116225
+    },
+    {
+      "direction": "right",
+      "delay": 0.017173290252685547,
+      "timestamp": 1766090047.1333983
+    },
+    {
+      "direction": "right",
+      "delay": 0.017124414443969727,
+      "timestamp": 1766090047.150523
+    },
+    {
+      "direction": "right",
+      "delay": 0.016733884811401367,
+      "timestamp": 1766090047.167257
+    },
+    {
+      "direction": "right",
+      "delay": 0.01682901382446289,
+      "timestamp": 1766090047.184086
+    },
+    {
+      "direction": "right",
+      "delay": 0.016414165496826172,
+      "timestamp": 1766090047.2005005
+    },
+    {
+      "direction": "right",
+      "delay": 0.016948223114013672,
+      "timestamp": 1766090047.2174487
+    },
+    {
+      "direction": "right",
+      "delay": 0.016917943954467773,
+      "timestamp": 1766090047.2343667
+    },
+    {
+      "direction": "right",
+      "delay": 0.016957521438598633,
+      "timestamp": 1766090047.2513244
+    },
+    {
+      "direction": "right",
+      "delay": 0.017063617706298828,
+      "timestamp": 1766090047.268388
+    },
+    {
+      "direction": "right",
+      "delay": 0.01599597930908203,
+      "timestamp": 1766090047.2843843
+    },
+    {
+      "direction": "right",
+      "delay": 0.017124176025390625,
+      "timestamp": 1766090047.3015087
+    },
+    {
+      "direction": "right",
+      "delay": 0.01579141616821289,
+      "timestamp": 1766090047.3173003
+    },
+    {
+      "direction": "right",
+      "delay": 0.017095088958740234,
+      "timestamp": 1766090047.3343956
+    },
+    {
+      "direction": "right",
+      "delay": 0.01595759391784668,
+      "timestamp": 1766090047.3503532
+    },
+    {
+      "direction": "right",
+      "delay": 0.016861438751220703,
+      "timestamp": 1766090047.367215
+    },
+    {
+      "direction": "right",
+      "delay": 0.01599740982055664,
+      "timestamp": 1766090047.3832126
+    },
+    {
+      "direction": "right",
+      "delay": 0.016902923583984375,
+      "timestamp": 1766090047.4001157
+    },
+    {
+      "direction": "right",
+      "delay": 0.017132282257080078,
+      "timestamp": 1766090047.4172482
+    },
+    {
+      "direction": "right",
+      "delay": 0.016939640045166016,
+      "timestamp": 1766090047.4341881
+    },
+    {
+      "direction": "right",
+      "delay": 0.016952991485595703,
+      "timestamp": 1766090047.4511414
+    },
+    {
+      "direction": "right",
+      "delay": 0.017138004302978516,
+      "timestamp": 1766090047.4682796
+    },
+    {
+      "direction": "right",
+      "delay": 0.016984939575195312,
+      "timestamp": 1766090047.4852648
+    },
+    {
+      "direction": "right",
+      "delay": 0.017119169235229492,
+      "timestamp": 1766090047.5023842
+    },
+    {
+      "direction": "right",
+      "delay": 0.016771793365478516,
+      "timestamp": 1766090047.5191562
+    },
+    {
+      "direction": "right",
+      "delay": 0.017117738723754883,
+      "timestamp": 1766090047.5362742
+    },
+    {
+      "direction": "right",
+      "delay": 0.01715230941772461,
+      "timestamp": 1766090047.5534267
+    },
+    {
+      "direction": "right",
+      "delay": 0.016741037368774414,
+      "timestamp": 1766090047.570168
+    },
+    {
+      "direction": "right",
+      "delay": 0.017121076583862305,
+      "timestamp": 1766090047.587289
+    },
+    {
+      "direction": "right",
+      "delay": 0.016928434371948242,
+      "timestamp": 1766090047.6042175
+    },
+    {
+      "direction": "right",
+      "delay": 0.01713871955871582,
+      "timestamp": 1766090047.6213567
+    },
+    {
+      "direction": "right",
+      "delay": 0.01686239242553711,
+      "timestamp": 1766090047.638219
+    },
+    {
+      "direction": "right",
+      "delay": 0.01713252067565918,
+      "timestamp": 1766090047.6553519
+    },
+    {
+      "direction": "right",
+      "delay": 0.016953229904174805,
+      "timestamp": 1766090047.6723053
+    },
+    {
+      "direction": "right",
+      "delay": 0.016928672790527344,
+      "timestamp": 1766090047.6892343
+    },
+    {
+      "direction": "right",
+      "delay": 0.015856027603149414,
+      "timestamp": 1766090047.7050905
+    },
+    {
+      "direction": "right",
+      "delay": 0.01579451560974121,
+      "timestamp": 1766090047.7208853
+    },
+    {
+      "direction": "right",
+      "delay": 0.015889883041381836,
+      "timestamp": 1766090047.7367754
+    },
+    {
+      "direction": "right",
+      "delay": 0.016009092330932617,
+      "timestamp": 1766090047.7527847
+    },
+    {
+      "direction": "right",
+      "delay": 0.016171693801879883,
+      "timestamp": 1766090047.7689567
+    },
+    {
+      "direction": "right",
+      "delay": 0.01596665382385254,
+      "timestamp": 1766090047.7849236
+    },
+    {
+      "direction": "right",
+      "delay": 0.015882492065429688,
+      "timestamp": 1766090047.8008063
+    },
+    {
+      "direction": "right",
+      "delay": 0.01618051528930664,
+      "timestamp": 1766090047.8169868
+    },
+    {
+      "direction": "right",
+      "delay": 0.01611804962158203,
+      "timestamp": 1766090047.833105
+    },
+    {
+      "direction": "right",
+      "delay": 0.017158985137939453,
+      "timestamp": 1766090047.8502643
+    },
+    {
+      "direction": "right",
+      "delay": 0.01689934730529785,
+      "timestamp": 1766090047.867164
+    },
+    {
+      "direction": "right",
+      "delay": 0.017095088958740234,
+      "timestamp": 1766090047.8842592
+    },
+    {
+      "direction": "right",
+      "delay": 0.016933917999267578,
+      "timestamp": 1766090047.9011934
+    },
+    {
+      "direction": "right",
+      "delay": 0.017075777053833008,
+      "timestamp": 1766090047.9182696
+    },
+    {
+      "direction": "right",
+      "delay": 0.016768455505371094,
+      "timestamp": 1766090047.9350386
+    },
+    {
+      "direction": "right",
+      "delay": 0.016207456588745117,
+      "timestamp": 1766090047.9512463
+    },
+    {
+      "direction": "right",
+      "delay": 0.01587653160095215,
+      "timestamp": 1766090047.967123
+    },
+    {
+      "direction": "right",
+      "delay": 0.017008066177368164,
+      "timestamp": 1766090047.9841313
+    },
+    {
+      "direction": "right",
+      "delay": 0.01715254783630371,
+      "timestamp": 1766090048.0012841
+    },
+    {
+      "direction": "right",
+      "delay": 0.016536951065063477,
+      "timestamp": 1766090048.0178216
+    },
+    {
+      "direction": "right",
+      "delay": 0.016584396362304688,
+      "timestamp": 1766090048.0344062
+    },
+    {
+      "direction": "right",
+      "delay": 0.016489505767822266,
+      "timestamp": 1766090048.050896
+    },
+    {
+      "direction": "right",
+      "delay": 0.015889406204223633,
+      "timestamp": 1766090048.0667856
+    },
+    {
+      "direction": "right",
+      "delay": 0.016136646270751953,
+      "timestamp": 1766090048.0829225
+    },
+    {
+      "direction": "right",
+      "delay": 0.015978574752807617,
+      "timestamp": 1766090048.098901
+    },
+    {
+      "direction": "right",
+      "delay": 0.016025066375732422,
+      "timestamp": 1766090048.114926
+    },
+    {
+      "direction": "right",
+      "delay": 0.01602649688720703,
+      "timestamp": 1766090048.1309526
+    },
+    {
+      "direction": "right",
+      "delay": 0.036783695220947266,
+      "timestamp": 1766090048.1677363
+    },
+    {
+      "direction": "right",
+      "delay": 0.015795230865478516,
+      "timestamp": 1766090048.1835315
+    },
+    {
+      "direction": "right",
+      "delay": 0.016870498657226562,
+      "timestamp": 1766090048.2004023
+    },
+    {
+      "direction": "right",
+      "delay": 0.01666116714477539,
+      "timestamp": 1766090048.2170634
+    },
+    {
+      "direction": "right",
+      "delay": 0.015264511108398438,
+      "timestamp": 1766090048.2323282
+    },
+    {
+      "direction": "right",
+      "delay": 0.016667604446411133,
+      "timestamp": 1766090048.248996
+    },
+    {
+      "direction": "right",
+      "delay": 0.015543937683105469,
+      "timestamp": 1766090048.26454
+    },
+    {
+      "direction": "right",
+      "delay": 0.0164794921875,
+      "timestamp": 1766090048.2810197
+    },
+    {
+      "direction": "right",
+      "delay": 0.015581369400024414,
+      "timestamp": 1766090048.296601
+    },
+    {
+      "direction": "right",
+      "delay": 0.016404151916503906,
+      "timestamp": 1766090048.3130057
+    },
+    {
+      "direction": "right",
+      "delay": 0.015555381774902344,
+      "timestamp": 1766090048.3285613
+    },
+    {
+      "direction": "right",
+      "delay": 0.015966415405273438,
+      "timestamp": 1766090048.344528
+    },
+    {
+      "direction": "right",
+      "delay": 0.01708078384399414,
+      "timestamp": 1766090048.3616087
+    },
+    {
+      "direction": "right",
+      "delay": 0.015965938568115234,
+      "timestamp": 1766090048.377575
+    },
+    {
+      "direction": "right",
+      "delay": 0.015912294387817383,
+      "timestamp": 1766090048.3934875
+    },
+    {
+      "direction": "right",
+      "delay": 0.017161130905151367,
+      "timestamp": 1766090048.4106486
+    },
+    {
+      "direction": "right",
+      "delay": 0.01592230796813965,
+      "timestamp": 1766090048.4265714
+    },
+    {
+      "direction": "right",
+      "delay": 0.01614212989807129,
+      "timestamp": 1766090048.4427137
+    },
+    {
+      "direction": "right",
+      "delay": 0.015874385833740234,
+      "timestamp": 1766090048.4585884
+    },
+    {
+      "direction": "right",
+      "delay": 0.016738176345825195,
+      "timestamp": 1766090048.4753268
+    },
+    {
+      "direction": "right",
+      "delay": 0.01688098907470703,
+      "timestamp": 1766090048.4922082
+    },
+    {
+      "direction": "right",
+      "delay": 0.016969919204711914,
+      "timestamp": 1766090048.5091786
+    },
+    {
+      "direction": "right",
+      "delay": 0.016657114028930664,
+      "timestamp": 1766090048.5258358
+    },
+    {
+      "direction": "right",
+      "delay": 0.015914440155029297,
+      "timestamp": 1766090048.5417504
+    },
+    {
+      "direction": "right",
+      "delay": 0.016127824783325195,
+      "timestamp": 1766090048.5578785
+    },
+    {
+      "direction": "right",
+      "delay": 0.01587700843811035,
+      "timestamp": 1766090048.5737557
+    },
+    {
+      "direction": "right",
+      "delay": 0.01662611961364746,
+      "timestamp": 1766090048.590382
+    },
+    {
+      "direction": "right",
+      "delay": 0.01687002182006836,
+      "timestamp": 1766090048.6072521
+    },
+    {
+      "direction": "right",
+      "delay": 0.017241716384887695,
+      "timestamp": 1766090048.624494
+    },
+    {
+      "direction": "right",
+      "delay": 0.016026020050048828,
+      "timestamp": 1766090048.6405203
+    },
+    {
+      "direction": "right",
+      "delay": 0.01589679718017578,
+      "timestamp": 1766090048.6564174
+    },
+    {
+      "direction": "right",
+      "delay": 0.01712322235107422,
+      "timestamp": 1766090048.6735408
+    },
+    {
+      "direction": "right",
+      "delay": 0.015927791595458984,
+      "timestamp": 1766090048.6894689
+    },
+    {
+      "direction": "right",
+      "delay": 0.016118764877319336,
+      "timestamp": 1766090048.7055883
+    },
+    {
+      "direction": "right",
+      "delay": 0.01591968536376953,
+      "timestamp": 1766090048.7215083
+    },
+    {
+      "direction": "right",
+      "delay": 0.016106843948364258,
+      "timestamp": 1766090048.737615
+    },
+    {
+      "direction": "right",
+      "delay": 0.015660524368286133,
+      "timestamp": 1766090048.7532759
+    },
+    {
+      "direction": "right",
+      "delay": 0.016977787017822266,
+      "timestamp": 1766090048.770254
+    },
+    {
+      "direction": "right",
+      "delay": 0.017157793045043945,
+      "timestamp": 1766090048.787412
+    },
+    {
+      "direction": "right",
+      "delay": 0.016961097717285156,
+      "timestamp": 1766090048.8043733
+    },
+    {
+      "direction": "right",
+      "delay": 0.017055034637451172,
+      "timestamp": 1766090048.8214283
+    },
+    {
+      "direction": "right",
+      "delay": 0.016920089721679688,
+      "timestamp": 1766090048.8383486
+    },
+    {
+      "direction": "right",
+      "delay": 0.0171506404876709,
+      "timestamp": 1766090048.8554995
+    },
+    {
+      "direction": "right",
+      "delay": 0.017219066619873047,
+      "timestamp": 1766090048.8727188
+    },
+    {
+      "direction": "right",
+      "delay": 0.015642881393432617,
+      "timestamp": 1766090048.888362
+    },
+    {
+      "direction": "right",
+      "delay": 0.01662421226501465,
+      "timestamp": 1766090048.9049864
+    },
+    {
+      "direction": "right",
+      "delay": 0.015921354293823242,
+      "timestamp": 1766090048.920908
+    },
+    {
+      "direction": "right",
+      "delay": 0.016106605529785156,
+      "timestamp": 1766090048.9370148
+    },
+    {
+      "direction": "right",
+      "delay": 0.01614689826965332,
+      "timestamp": 1766090048.9531617
+    },
+    {
+      "direction": "right",
+      "delay": 0.01719522476196289,
+      "timestamp": 1766090048.970357
+    },
+    {
+      "direction": "right",
+      "delay": 0.016829490661621094,
+      "timestamp": 1766090048.9871867
+    },
+    {
+      "direction": "right",
+      "delay": 0.017101764678955078,
+      "timestamp": 1766090049.0042887
+    },
+    {
+      "direction": "right",
+      "delay": 0.016921043395996094,
+      "timestamp": 1766090049.02121
+    },
+    {
+      "direction": "right",
+      "delay": 0.016510725021362305,
+      "timestamp": 1766090049.037721
+    },
+    {
+      "direction": "right",
+      "delay": 0.016143321990966797,
+      "timestamp": 1766090049.0538645
+    },
+    {
+      "direction": "right",
+      "delay": 0.016417264938354492,
+      "timestamp": 1766090049.0702817
+    },
+    {
+      "direction": "right",
+      "delay": 0.0170748233795166,
+      "timestamp": 1766090049.087357
+    },
+    {
+      "direction": "right",
+      "delay": 0.016927480697631836,
+      "timestamp": 1766090049.1042848
+    },
+    {
+      "direction": "right",
+      "delay": 0.017203330993652344,
+      "timestamp": 1766090049.1214883
+    },
+    {
+      "direction": "right",
+      "delay": 0.016981124877929688,
+      "timestamp": 1766090049.1384697
+    },
+    {
+      "direction": "right",
+      "delay": 0.01676797866821289,
+      "timestamp": 1766090049.155238
+    },
+    {
+      "direction": "right",
+      "delay": 0.016716480255126953,
+      "timestamp": 1766090049.1719546
+    },
+    {
+      "direction": "right",
+      "delay": 0.015692710876464844,
+      "timestamp": 1766090049.1876476
+    },
+    {
+      "direction": "right",
+      "delay": 0.015599966049194336,
+      "timestamp": 1766090049.2032478
+    },
+    {
+      "direction": "right",
+      "delay": 0.017032384872436523,
+      "timestamp": 1766090049.2202804
+    },
+    {
+      "direction": "right",
+      "delay": 0.01692795753479004,
+      "timestamp": 1766090049.2372086
+    },
+    {
+      "direction": "right",
+      "delay": 0.015947580337524414,
+      "timestamp": 1766090049.2531564
+    },
+    {
+      "direction": "right",
+      "delay": 0.015987873077392578,
+      "timestamp": 1766090049.2691445
+    },
+    {
+      "direction": "right",
+      "delay": 0.015936613082885742,
+      "timestamp": 1766090049.2850811
+    },
+    {
+      "direction": "right",
+      "delay": 0.015967607498168945,
+      "timestamp": 1766090049.301049
+    },
+    {
+      "direction": "right",
+      "delay": 0.016039371490478516,
+      "timestamp": 1766090049.3170884
+    },
+    {
+      "direction": "right",
+      "delay": 0.015887737274169922,
+      "timestamp": 1766090049.3329763
+    },
+    {
+      "direction": "right",
+      "delay": 0.0156557559967041,
+      "timestamp": 1766090049.3486323
+    },
+    {
+      "direction": "right",
+      "delay": 0.016412734985351562,
+      "timestamp": 1766090049.365045
+    },
+    {
+      "direction": "right",
+      "delay": 0.016104698181152344,
+      "timestamp": 1766090049.38115
+    },
+    {
+      "direction": "right",
+      "delay": 0.01589369773864746,
+      "timestamp": 1766090049.397044
+    },
+    {
+      "direction": "right",
+      "delay": 0.01602935791015625,
+      "timestamp": 1766090049.4130733
+    },
+    {
+      "direction": "right",
+      "delay": 0.015920400619506836,
+      "timestamp": 1766090049.428994
+    },
+    {
+      "direction": "right",
+      "delay": 0.0161135196685791,
+      "timestamp": 1766090049.4451075
+    },
+    {
+      "direction": "right",
+      "delay": 0.036777496337890625,
+      "timestamp": 1766090049.4818852
+    },
+    {
+      "direction": "right",
+      "delay": 0.01624584197998047,
+      "timestamp": 1766090049.4981313
+    },
+    {
+      "direction": "right",
+      "delay": 0.015421628952026367,
+      "timestamp": 1766090049.5135531
+    },
+    {
+      "direction": "right",
+      "delay": 0.017078638076782227,
+      "timestamp": 1766090049.5306323
+    },
+    {
+      "direction": "right",
+      "delay": 0.01639723777770996,
+      "timestamp": 1766090049.5470297
+    },
+    {
+      "direction": "right",
+      "delay": 0.015473604202270508,
+      "timestamp": 1766090049.5625036
+    },
+    {
+      "direction": "right",
+      "delay": 0.016552209854125977,
+      "timestamp": 1766090049.579056
+    },
+    {
+      "direction": "right",
+      "delay": 0.015438079833984375,
+      "timestamp": 1766090049.5944946
+    },
+    {
+      "direction": "right",
+      "delay": 0.016221284866333008,
+      "timestamp": 1766090049.610716
+    },
+    {
+      "direction": "right",
+      "delay": 0.016450881958007812,
+      "timestamp": 1766090049.627167
+    },
+    {
+      "direction": "right",
+      "delay": 0.01663041114807129,
+      "timestamp": 1766090049.6437979
+    },
+    {
+      "direction": "right",
+      "delay": 0.01638174057006836,
+      "timestamp": 1766090049.6601799
+    },
+    {
+      "direction": "right",
+      "delay": 0.01711416244506836,
+      "timestamp": 1766090049.677294
+    },
+    {
+      "direction": "right",
+      "delay": 0.01689314842224121,
+      "timestamp": 1766090049.6941874
+    },
+    {
+      "direction": "right",
+      "delay": 0.017211437225341797,
+      "timestamp": 1766090049.711399
+    },
+    {
+      "direction": "right",
+      "delay": 0.016910076141357422,
+      "timestamp": 1766090049.7283094
+    },
+    {
+      "direction": "right",
+      "delay": 0.016644954681396484,
+      "timestamp": 1766090049.7449546
+    },
+    {
+      "direction": "right",
+      "delay": 0.015863418579101562,
+      "timestamp": 1766090049.760818
+    },
+    {
+      "direction": "right",
+      "delay": 0.015626907348632812,
+      "timestamp": 1766090049.776445
+    },
+    {
+      "direction": "right",
+      "delay": 0.01719069480895996,
+      "timestamp": 1766090049.793636
+    },
+    {
+      "direction": "right",
+      "delay": 0.01583552360534668,
+      "timestamp": 1766090049.8094716
+    },
+    {
+      "direction": "right",
+      "delay": 0.017011165618896484,
+      "timestamp": 1766090049.826483
+    },
+    {
+      "direction": "right",
+      "delay": 0.01718926429748535,
+      "timestamp": 1766090049.8436723
+    },
+    {
+      "direction": "right",
+      "delay": 0.015583992004394531,
+      "timestamp": 1766090049.8592565
+    },
+    {
+      "direction": "right",
+      "delay": 0.017146587371826172,
+      "timestamp": 1766090049.8764036
+    },
+    {
+      "direction": "right",
+      "delay": 0.016831636428833008,
+      "timestamp": 1766090049.8932354
+    },
+    {
+      "direction": "right",
+      "delay": 0.017153501510620117,
+      "timestamp": 1766090049.9103892
+    },
+    {
+      "direction": "right",
+      "delay": 0.016918420791625977,
+      "timestamp": 1766090049.9273078
+    },
+    {
+      "direction": "right",
+      "delay": 0.017052412033081055,
+      "timestamp": 1766090049.9443603
+    },
+    {
+      "direction": "right",
+      "delay": 0.017047643661499023,
+      "timestamp": 1766090049.961408
+    },
+    {
+      "direction": "right",
+      "delay": 0.01665806770324707,
+      "timestamp": 1766090049.9780662
+    },
+    {
+      "direction": "right",
+      "delay": 0.016134023666381836,
+      "timestamp": 1766090049.9942005
+    },
+    {
+      "direction": "right",
+      "delay": 0.015914440155029297,
+      "timestamp": 1766090050.010115
+    },
+    {
+      "direction": "right",
+      "delay": 0.017189502716064453,
+      "timestamp": 1766090050.0273046
+    },
+    {
+      "direction": "right",
+      "delay": 0.01700901985168457,
+      "timestamp": 1766090050.044314
+    },
+    {
+      "direction": "right",
+      "delay": 0.01671123504638672,
+      "timestamp": 1766090050.0610254
+    },
+    {
+      "direction": "right",
+      "delay": 0.015914201736450195,
+      "timestamp": 1766090050.0769396
+    },
+    {
+      "direction": "right",
+      "delay": 0.01592731475830078,
+      "timestamp": 1766090050.0928671
+    },
+    {
+      "direction": "right",
+      "delay": 0.015633583068847656,
+      "timestamp": 1766090050.108501
+    },
+    {
+      "direction": "right",
+      "delay": 0.016997814178466797,
+      "timestamp": 1766090050.1254988
+    },
+    {
+      "direction": "right",
+      "delay": 0.017100095748901367,
+      "timestamp": 1766090050.142599
+    },
+    {
+      "direction": "up",
+      "delay": 0.0159609317779541,
+      "timestamp": 1766090050.1585603
+    },
+    {
+      "direction": "up",
+      "delay": 0.01627206802368164,
+      "timestamp": 1766090050.1748326
+    },
+    {
+      "direction": "up",
+      "delay": 0.016094446182250977,
+      "timestamp": 1766090050.190927
+    },
+    {
+      "direction": "up",
+      "delay": 0.016000747680664062,
+      "timestamp": 1766090050.206928
+    },
+    {
+      "direction": "up",
+      "delay": 0.016044139862060547,
+      "timestamp": 1766090050.2229724
+    },
+    {
+      "direction": "up",
+      "delay": 0.017006874084472656,
+      "timestamp": 1766090050.2399795
+    },
+    {
+      "direction": "up",
+      "delay": 0.01598072052001953,
+      "timestamp": 1766090050.2559602
+    },
+    {
+      "direction": "up",
+      "delay": 0.015664339065551758,
+      "timestamp": 1766090050.2716248
+    },
+    {
+      "direction": "up",
+      "delay": 0.016888141632080078,
+      "timestamp": 1766090050.2885132
+    },
+    {
+      "direction": "up",
+      "delay": 0.01652240753173828,
+      "timestamp": 1766090050.3050356
+    },
+    {
+      "direction": "up",
+      "delay": 0.016620874404907227,
+      "timestamp": 1766090050.3216565
+    },
+    {
+      "direction": "up",
+      "delay": 0.01691913604736328,
+      "timestamp": 1766090050.3385758
+    },
+    {
+      "direction": "up",
+      "delay": 0.015964508056640625,
+      "timestamp": 1766090050.3545406
+    },
+    {
+      "direction": "up",
+      "delay": 0.016026735305786133,
+      "timestamp": 1766090050.3705673
+    },
+    {
+      "direction": "up",
+      "delay": 0.016008615493774414,
+      "timestamp": 1766090050.3865762
+    },
+    {
+      "direction": "up",
+      "delay": 0.016503572463989258,
+      "timestamp": 1766090050.40308
+    },
+    {
+      "direction": "up",
+      "delay": 0.01701831817626953,
+      "timestamp": 1766090050.4200983
+    },
+    {
+      "direction": "up",
+      "delay": 0.016509532928466797,
+      "timestamp": 1766090050.436608
+    },
+    {
+      "direction": "up",
+      "delay": 0.015668630599975586,
+      "timestamp": 1766090050.452277
+    },
+    {
+      "direction": "up",
+      "delay": 0.017014503479003906,
+      "timestamp": 1766090050.4692917
+    },
+    {
+      "direction": "up",
+      "delay": 0.017008066177368164,
+      "timestamp": 1766090050.4862998
+    },
+    {
+      "direction": "up",
+      "delay": 0.01650834083557129,
+      "timestamp": 1766090050.5028083
+    },
+    {
+      "direction": "up",
+      "delay": 0.015720844268798828,
+      "timestamp": 1766090050.5185297
+    },
+    {
+      "direction": "up",
+      "delay": 0.01601433753967285,
+      "timestamp": 1766090050.5345442
+    },
+    {
+      "direction": "up",
+      "delay": 0.015816450119018555,
+      "timestamp": 1766090050.550361
+    },
+    {
+      "direction": "up",
+      "delay": 0.01701641082763672,
+      "timestamp": 1766090050.5673773
+    },
+    {
+      "direction": "up",
+      "delay": 0.01700758934020996,
+      "timestamp": 1766090050.5843854
+    },
+    {
+      "direction": "up",
+      "delay": 0.017044782638549805,
+      "timestamp": 1766090050.6014304
+    },
+    {
+      "direction": "up",
+      "delay": 0.015980005264282227,
+      "timestamp": 1766090050.6174104
+    },
+    {
+      "direction": "up",
+      "delay": 0.016752958297729492,
+      "timestamp": 1766090050.6341636
+    },
+    {
+      "direction": "up",
+      "delay": 0.017032146453857422,
+      "timestamp": 1766090050.651196
+    },
+    {
+      "direction": "up",
+      "delay": 0.017233610153198242,
+      "timestamp": 1766090050.6684299
+    },
+    {
+      "direction": "up",
+      "delay": 0.016897201538085938,
+      "timestamp": 1766090050.685327
+    },
+    {
+      "direction": "up",
+      "delay": 0.017080307006835938,
+      "timestamp": 1766090050.7024076
+    },
+    {
+      "direction": "up",
+      "delay": 0.01700878143310547,
+      "timestamp": 1766090050.7194166
+    },
+    {
+      "direction": "up",
+      "delay": 0.016859054565429688,
+      "timestamp": 1766090050.736276
+    },
+    {
+      "direction": "up",
+      "delay": 0.016651153564453125,
+      "timestamp": 1766090050.752927
+    },
+    {
+      "direction": "up",
+      "delay": 0.015916109085083008,
+      "timestamp": 1766090050.7688434
+    },
+    {
+      "direction": "up",
+      "delay": 0.0160977840423584,
+      "timestamp": 1766090050.7849417
+    },
+    {
+      "direction": "up",
+      "delay": 0.015947818756103516,
+      "timestamp": 1766090050.80089
+    },
+    {
+      "direction": "up",
+      "delay": 0.01609945297241211,
+      "timestamp": 1766090050.8169897
+    },
+    {
+      "direction": "up",
+      "delay": 0.015905380249023438,
+      "timestamp": 1766090050.8328953
+    },
+    {
+      "direction": "up",
+      "delay": 0.015980243682861328,
+      "timestamp": 1766090050.8488755
+    },
+    {
+      "direction": "up",
+      "delay": 0.01563858985900879,
+      "timestamp": 1766090050.8645144
+    },
+    {
+      "direction": "up",
+      "delay": 0.0169527530670166,
+      "timestamp": 1766090050.8814673
+    },
+    {
+      "direction": "up",
+      "delay": 0.017085552215576172,
+      "timestamp": 1766090050.8985531
+    },
+    {
+      "direction": "up",
+      "delay": 0.016925811767578125,
+      "timestamp": 1766090050.9154792
+    },
+    {
+      "direction": "up",
+      "delay": 0.017117023468017578,
+      "timestamp": 1766090050.9325962
+    },
+    {
+      "direction": "up",
+      "delay": 0.015912294387817383,
+      "timestamp": 1766090050.9485087
+    },
+    {
+      "direction": "up",
+      "delay": 0.016698598861694336,
+      "timestamp": 1766090050.9652076
+    },
+    {
+      "direction": "up",
+      "delay": 0.01581883430480957,
+      "timestamp": 1766090050.9810266
+    },
+    {
+      "direction": "up",
+      "delay": 0.016165971755981445,
+      "timestamp": 1766090050.9971929
+    },
+    {
+      "direction": "up",
+      "delay": 0.015949726104736328,
+      "timestamp": 1766090051.0131426
+    },
+    {
+      "direction": "up",
+      "delay": 0.016115903854370117,
+      "timestamp": 1766090051.0292587
+    },
+    {
+      "direction": "up",
+      "delay": 0.016338109970092773,
+      "timestamp": 1766090051.045597
+    },
+    {
+      "direction": "up",
+      "delay": 0.015958070755004883,
+      "timestamp": 1766090051.0615554
+    },
+    {
+      "direction": "up",
+      "delay": 0.03664278984069824,
+      "timestamp": 1766090051.0981984
+    },
+    {
+      "direction": "up",
+      "delay": 0.015255212783813477,
+      "timestamp": 1766090051.1134539
+    },
+    {
+      "direction": "up",
+      "delay": 0.01722431182861328,
+      "timestamp": 1766090051.1306782
+    },
+    {
+      "direction": "up",
+      "delay": 0.016373872756958008,
+      "timestamp": 1766090051.1470523
+    },
+    {
+      "direction": "up",
+      "delay": 0.01560354232788086,
+      "timestamp": 1766090051.162656
+    },
+    {
+      "direction": "up",
+      "delay": 0.016345739364624023,
+      "timestamp": 1766090051.179002
+    },
+    {
+      "direction": "up",
+      "delay": 0.015582084655761719,
+      "timestamp": 1766090051.1945844
+    },
+    {
+      "direction": "up",
+      "delay": 0.016446590423583984,
+      "timestamp": 1766090051.2110312
+    },
+    {
+      "direction": "up",
+      "delay": 0.015604734420776367,
+      "timestamp": 1766090051.2266362
+    },
+    {
+      "direction": "up",
+      "delay": 0.016934871673583984,
+      "timestamp": 1766090051.2435713
+    },
+    {
+      "direction": "up",
+      "delay": 0.017106056213378906,
+      "timestamp": 1766090051.2606776
+    },
+    {
+      "direction": "up",
+      "delay": 0.015922069549560547,
+      "timestamp": 1766090051.2766
+    },
+    {
+      "direction": "up",
+      "delay": 0.01730656623840332,
+      "timestamp": 1766090051.2939067
+    },
+    {
+      "direction": "up",
+      "delay": 0.016279220581054688,
+      "timestamp": 1766090051.3101861
+    },
+    {
+      "direction": "up",
+      "delay": 0.015842199325561523,
+      "timestamp": 1766090051.3260283
+    },
+    {
+      "direction": "up",
+      "delay": 0.015527009963989258,
+      "timestamp": 1766090051.3415556
+    },
+    {
+      "direction": "up",
+      "delay": 0.015980005264282227,
+      "timestamp": 1766090051.357536
+    },
+    {
+      "direction": "up",
+      "delay": 0.01572871208190918,
+      "timestamp": 1766090051.3732648
+    },
+    {
+      "direction": "up",
+      "delay": 0.017030954360961914,
+      "timestamp": 1766090051.3903005
+    },
+    {
+      "direction": "up",
+      "delay": 0.017109394073486328,
+      "timestamp": 1766090051.40741
+    },
+    {
+      "direction": "up",
+      "delay": 0.01682591438293457,
+      "timestamp": 1766090051.424236
+    },
+    {
+      "direction": "up",
+      "delay": 0.016913890838623047,
+      "timestamp": 1766090051.4411502
+    },
+    {
+      "direction": "up",
+      "delay": 0.017093420028686523,
+      "timestamp": 1766090051.4582438
+    },
+    {
+      "direction": "up",
+      "delay": 0.016976356506347656,
+      "timestamp": 1766090051.4752202
+    },
+    {
+      "direction": "up",
+      "delay": 0.017129182815551758,
+      "timestamp": 1766090051.4923496
+    },
+    {
+      "direction": "up",
+      "delay": 0.016847610473632812,
+      "timestamp": 1766090051.5091972
+    },
+    {
+      "direction": "up",
+      "delay": 0.017111539840698242,
+      "timestamp": 1766090051.5263088
+    },
+    {
+      "direction": "up",
+      "delay": 0.017024517059326172,
+      "timestamp": 1766090051.5433335
+    },
+    {
+      "direction": "up",
+      "delay": 0.01688241958618164,
+      "timestamp": 1766090051.5602164
+    },
+    {
+      "direction": "up",
+      "delay": 0.017206192016601562,
+      "timestamp": 1766090051.5774229
+    },
+    {
+      "direction": "up",
+      "delay": 0.0168764591217041,
+      "timestamp": 1766090051.5942996
+    },
+    {
+      "direction": "up",
+      "delay": 0.016730546951293945,
+      "timestamp": 1766090051.6110303
+    },
+    {
+      "direction": "up",
+      "delay": 0.01620316505432129,
+      "timestamp": 1766090051.6272337
+    },
+    {
+      "direction": "up",
+      "delay": 0.015995264053344727,
+      "timestamp": 1766090051.6432292
+    },
+    {
+      "direction": "up",
+      "delay": 0.01728200912475586,
+      "timestamp": 1766090051.6605115
+    },
+    {
+      "direction": "up",
+      "delay": 0.015903711318969727,
+      "timestamp": 1766090051.6764154
+    },
+    {
+      "direction": "up",
+      "delay": 0.016700029373168945,
+      "timestamp": 1766090051.6931155
+    },
+    {
+      "direction": "up",
+      "delay": 0.01592540740966797,
+      "timestamp": 1766090051.7090409
+    },
+    {
+      "direction": "up",
+      "delay": 0.016144752502441406,
+      "timestamp": 1766090051.7251859
+    },
+    {
+      "direction": "up",
+      "delay": 0.015904903411865234,
+      "timestamp": 1766090051.7410908
+    },
+    {
+      "direction": "up",
+      "delay": 0.016101837158203125,
+      "timestamp": 1766090051.7571933
+    },
+    {
+      "direction": "up",
+      "delay": 0.016265869140625,
+      "timestamp": 1766090051.7734592
+    },
+    {
+      "direction": "up",
+      "delay": 0.016666889190673828,
+      "timestamp": 1766090051.790126
+    },
+    {
+      "direction": "up",
+      "delay": 0.017101526260375977,
+      "timestamp": 1766090051.8072278
+    },
+    {
+      "direction": "up",
+      "delay": 0.01695108413696289,
+      "timestamp": 1766090051.8241792
+    },
+    {
+      "direction": "up",
+      "delay": 0.017163753509521484,
+      "timestamp": 1766090051.8413432
+    },
+    {
+      "direction": "up",
+      "delay": 0.016895055770874023,
+      "timestamp": 1766090051.8582385
+    },
+    {
+      "direction": "up",
+      "delay": 0.0169374942779541,
+      "timestamp": 1766090051.8751762
+    },
+    {
+      "direction": "up",
+      "delay": 0.017173051834106445,
+      "timestamp": 1766090051.8923495
+    },
+    {
+      "direction": "up",
+      "delay": 0.016945362091064453,
+      "timestamp": 1766090051.909295
+    },
+    {
+      "direction": "up",
+      "delay": 0.01703810691833496,
+      "timestamp": 1766090051.9263332
+    },
+    {
+      "direction": "up",
+      "delay": 0.016959190368652344,
+      "timestamp": 1766090051.9432926
+    },
+    {
+      "direction": "up",
+      "delay": 0.01722240447998047,
+      "timestamp": 1766090051.9605153
+    },
+    {
+      "direction": "up",
+      "delay": 0.01589035987854004,
+      "timestamp": 1766090051.9764056
+    },
+    {
+      "direction": "up",
+      "delay": 0.016928672790527344,
+      "timestamp": 1766090051.9933345
+    },
+    {
+      "direction": "up",
+      "delay": 0.017105579376220703,
+      "timestamp": 1766090052.01044
+    },
+    {
+      "direction": "up",
+      "delay": 0.01694345474243164,
+      "timestamp": 1766090052.0273838
+    },
+    {
+      "direction": "up",
+      "delay": 0.017134666442871094,
+      "timestamp": 1766090052.0445185
+    },
+    {
+      "direction": "up",
+      "delay": 0.015927791595458984,
+      "timestamp": 1766090052.0604465
+    },
+    {
+      "direction": "up",
+      "delay": 0.01590585708618164,
+      "timestamp": 1766090052.0763526
+    },
+    {
+      "direction": "up",
+      "delay": 0.01688671112060547,
+      "timestamp": 1766090052.0932393
+    },
+    {
+      "direction": "up",
+      "delay": 0.017174959182739258,
+      "timestamp": 1766090052.1104145
+    },
+    {
+      "direction": "up",
+      "delay": 0.01685953140258789,
+      "timestamp": 1766090052.1272743
+    },
+    {
+      "direction": "up",
+      "delay": 0.017527103424072266,
+      "timestamp": 1766090052.1448016
+    },
+    {
+      "direction": "up",
+      "delay": 0.031890153884887695,
+      "timestamp": 1766090052.176692
+    },
+    {
+      "direction": "up",
+      "delay": 0.015772342681884766,
+      "timestamp": 1766090052.1924644
+    },
+    {
+      "direction": "up",
+      "delay": 0.016475439071655273,
+      "timestamp": 1766090052.20894
+    },
+    {
+      "direction": "up",
+      "delay": 0.015714645385742188,
+      "timestamp": 1766090052.2246547
+    },
+    {
+      "direction": "up",
+      "delay": 0.016443729400634766,
+      "timestamp": 1766090052.2410986
+    },
+    {
+      "direction": "up",
+      "delay": 0.015357017517089844,
+      "timestamp": 1766090052.2564557
+    },
+    {
+      "direction": "up",
+      "delay": 0.016636371612548828,
+      "timestamp": 1766090052.273092
+    },
+    {
+      "direction": "up",
+      "delay": 0.015410184860229492,
+      "timestamp": 1766090052.2885025
+    },
+    {
+      "direction": "up",
+      "delay": 0.016637563705444336,
+      "timestamp": 1766090052.3051403
+    },
+    {
+      "direction": "up",
+      "delay": 0.015420198440551758,
+      "timestamp": 1766090052.3205607
+    },
+    {
+      "direction": "up",
+      "delay": 0.016602277755737305,
+      "timestamp": 1766090052.3371632
+    },
+    {
+      "direction": "up",
+      "delay": 0.015922069549560547,
+      "timestamp": 1766090052.3530855
+    },
+    {
+      "direction": "up",
+      "delay": 0.016097545623779297,
+      "timestamp": 1766090052.369183
+    },
+    {
+      "direction": "up",
+      "delay": 0.015918731689453125,
+      "timestamp": 1766090052.385102
+    },
+    {
+      "direction": "up",
+      "delay": 0.01676201820373535,
+      "timestamp": 1766090052.4018643
+    },
+    {
+      "direction": "up",
+      "delay": 0.016294002532958984,
+      "timestamp": 1766090052.4181585
+    },
+    {
+      "direction": "up",
+      "delay": 0.015890121459960938,
+      "timestamp": 1766090052.4340491
+    },
+    {
+      "direction": "up",
+      "delay": 0.016316652297973633,
+      "timestamp": 1766090052.450366
+    },
+    {
+      "direction": "up",
+      "delay": 0.017541170120239258,
+      "timestamp": 1766090052.4679072
+    },
+    {
+      "direction": "up",
+      "delay": 0.015775203704833984,
+      "timestamp": 1766090052.4836826
+    },
+    {
+      "direction": "up",
+      "delay": 0.0159604549407959,
+      "timestamp": 1766090052.4996433
+    },
+    {
+      "direction": "up",
+      "delay": 0.016155004501342773,
+      "timestamp": 1766090052.5157986
+    },
+    {
+      "direction": "up",
+      "delay": 0.01587367057800293,
+      "timestamp": 1766090052.5316725
+    },
+    {
+      "direction": "up",
+      "delay": 0.015990734100341797,
+      "timestamp": 1766090052.5476635
+    },
+    {
+      "direction": "up",
+      "delay": 0.015898942947387695,
+      "timestamp": 1766090052.5635624
+    },
+    {
+      "direction": "up",
+      "delay": 0.01613640785217285,
+      "timestamp": 1766090052.5796988
+    },
+    {
+      "direction": "up",
+      "delay": 0.015813112258911133,
+      "timestamp": 1766090052.5955122
+    },
+    {
+      "direction": "up",
+      "delay": 0.016144514083862305,
+      "timestamp": 1766090052.6116567
+    },
+    {
+      "direction": "up",
+      "delay": 0.015848159790039062,
+      "timestamp": 1766090052.6275048
+    },
+    {
+      "direction": "up",
+      "delay": 0.017095088958740234,
+      "timestamp": 1766090052.6446
+    },
+    {
+      "direction": "up",
+      "delay": 0.015933513641357422,
+      "timestamp": 1766090052.6605337
+    },
+    {
+      "direction": "up",
+      "delay": 0.016126155853271484,
+      "timestamp": 1766090052.67666
+    },
+    {
+      "direction": "up",
+      "delay": 0.01589059829711914,
+      "timestamp": 1766090052.692551
+    },
+    {
+      "direction": "up",
+      "delay": 0.01670980453491211,
+      "timestamp": 1766090052.709261
+    },
+    {
+      "direction": "up",
+      "delay": 0.01692986488342285,
+      "timestamp": 1766090052.726191
+    },
+    {
+      "direction": "up",
+      "delay": 0.017071962356567383,
+      "timestamp": 1766090052.7432632
+    },
+    {
+      "direction": "up",
+      "delay": 0.01581883430480957,
+      "timestamp": 1766090052.7590823
+    },
+    {
+      "direction": "up",
+      "delay": 0.016107797622680664,
+      "timestamp": 1766090052.7751904
+    },
+    {
+      "direction": "up",
+      "delay": 0.01590752601623535,
+      "timestamp": 1766090052.791098
+    },
+    {
+      "direction": "up",
+      "delay": 0.01610422134399414,
+      "timestamp": 1766090052.8072028
+    },
+    {
+      "direction": "up",
+      "delay": 0.01695537567138672,
+      "timestamp": 1766090052.8241584
+    },
+    {
+      "direction": "up",
+      "delay": 0.01718592643737793,
+      "timestamp": 1766090052.8413446
+    },
+    {
+      "direction": "up",
+      "delay": 0.016791105270385742,
+      "timestamp": 1766090052.8581362
+    },
+    {
+      "direction": "up",
+      "delay": 0.01638507843017578,
+      "timestamp": 1766090052.8745215
+    },
+    {
+      "direction": "up",
+      "delay": 0.01621723175048828,
+      "timestamp": 1766090052.890739
+    },
+    {
+      "direction": "up",
+      "delay": 0.01607370376586914,
+      "timestamp": 1766090052.906813
+    },
+    {
+      "direction": "up",
+      "delay": 0.015944480895996094,
+      "timestamp": 1766090052.9227576
+    },
+    {
+      "direction": "up",
+      "delay": 0.016135692596435547,
+      "timestamp": 1766090052.9388936
+    },
+    {
+      "direction": "up",
+      "delay": 0.0158994197845459,
+      "timestamp": 1766090052.9547932
+    },
+    {
+      "direction": "up",
+      "delay": 0.016101598739624023,
+      "timestamp": 1766090052.970895
+    },
+    {
+      "direction": "up",
+      "delay": 0.015911102294921875,
+      "timestamp": 1766090052.9868066
+    },
+    {
+      "direction": "up",
+      "delay": 0.016110658645629883,
+      "timestamp": 1766090053.0029175
+    },
+    {
+      "direction": "up",
+      "delay": 0.015899658203125,
+      "timestamp": 1766090053.0188172
+    },
+    {
+      "direction": "up",
+      "delay": 0.037813663482666016,
+      "timestamp": 1766090053.0566308
+    },
+    {
+      "direction": "up",
+      "delay": 0.016315937042236328,
+      "timestamp": 1766090053.0729468
+    },
+    {
+      "direction": "up",
+      "delay": 0.0163724422454834,
+      "timestamp": 1766090053.0893195
+    },
+    {
+      "direction": "up",
+      "delay": 0.016658544540405273,
+      "timestamp": 1766090053.1059783
+    },
+    {
+      "direction": "up",
+      "delay": 0.01548624038696289,
+      "timestamp": 1766090053.1214652
+    },
+    {
+      "direction": "up",
+      "delay": 0.01656365394592285,
+      "timestamp": 1766090053.1380289
+    },
+    {
+      "direction": "up",
+      "delay": 0.01540994644165039,
+      "timestamp": 1766090053.1534388
+    },
+    {
+      "direction": "up",
+      "delay": 0.016991853713989258,
+      "timestamp": 1766090053.170431
+    },
+    {
+      "direction": "up",
+      "delay": 0.016594409942626953,
+      "timestamp": 1766090053.1870255
+    },
+    {
+      "direction": "up",
+      "delay": 0.015499114990234375,
+      "timestamp": 1766090053.202525
+    },
+    {
+      "direction": "up",
+      "delay": 0.01637744903564453,
+      "timestamp": 1766090053.2189026
+    },
+    {
+      "direction": "up",
+      "delay": 0.016147136688232422,
+      "timestamp": 1766090053.23505
+    },
+    {
+      "direction": "up",
+      "delay": 0.01590585708618164,
+      "timestamp": 1766090053.2509558
+    },
+    {
+      "direction": "up",
+      "delay": 0.016115903854370117,
+      "timestamp": 1766090053.267072
+    },
+    {
+      "direction": "up",
+      "delay": 0.01593613624572754,
+      "timestamp": 1766090053.283008
+    },
+    {
+      "direction": "up",
+      "delay": 0.01610398292541504,
+      "timestamp": 1766090053.2991126
+    },
+    {
+      "direction": "up",
+      "delay": 0.015904903411865234,
+      "timestamp": 1766090053.3150177
+    },
+    {
+      "direction": "up",
+      "delay": 0.01565241813659668,
+      "timestamp": 1766090053.3306704
+    },
+    {
+      "direction": "up",
+      "delay": 0.015951156616210938,
+      "timestamp": 1766090053.3466218
+    },
+    {
+      "direction": "up",
+      "delay": 0.015739917755126953,
+      "timestamp": 1766090053.3623617
+    },
+    {
+      "direction": "up",
+      "delay": 0.016906023025512695,
+      "timestamp": 1766090053.3792677
+    },
+    {
+      "direction": "up",
+      "delay": 0.017120361328125,
+      "timestamp": 1766090053.3963883
+    },
+    {
+      "direction": "up",
+      "delay": 0.015911579132080078,
+      "timestamp": 1766090053.4123
+    },
+    {
+      "direction": "up",
+      "delay": 0.016727924346923828,
+      "timestamp": 1766090053.4290283
+    },
+    {
+      "direction": "up",
+      "delay": 0.016190290451049805,
+      "timestamp": 1766090053.4452188
+    },
+    {
+      "direction": "up",
+      "delay": 0.015873432159423828,
+      "timestamp": 1766090053.4610927
+    },
+    {
+      "direction": "up",
+      "delay": 0.01610589027404785,
+      "timestamp": 1766090053.477199
+    },
+    {
+      "direction": "up",
+      "delay": 0.01587510108947754,
+      "timestamp": 1766090053.4930744
+    },
+    {
+      "direction": "up",
+      "delay": 0.015612125396728516,
+      "timestamp": 1766090053.5086865
+    },
+    {
+      "direction": "up",
+      "delay": 0.015923261642456055,
+      "timestamp": 1766090053.5246098
+    },
+    {
+      "direction": "up",
+      "delay": 0.016091108322143555,
+      "timestamp": 1766090053.5407012
+    },
+    {
+      "direction": "up",
+      "delay": 0.015909194946289062,
+      "timestamp": 1766090053.5566106
+    },
+    {
+      "direction": "up",
+      "delay": 0.016111373901367188,
+      "timestamp": 1766090053.572722
+    },
+    {
+      "direction": "up",
+      "delay": 0.015911102294921875,
+      "timestamp": 1766090053.5886335
+    },
+    {
+      "direction": "up",
+      "delay": 0.016143083572387695,
+      "timestamp": 1766090053.604777
+    },
+    {
+      "direction": "up",
+      "delay": 0.01584601402282715,
+      "timestamp": 1766090053.620623
+    },
+    {
+      "direction": "up",
+      "delay": 0.01617741584777832,
+      "timestamp": 1766090053.6368005
+    },
+    {
+      "direction": "up",
+      "delay": 0.015894174575805664,
+      "timestamp": 1766090053.652695
+    },
+    {
+      "direction": "up",
+      "delay": 0.015880584716796875,
+      "timestamp": 1766090053.6685758
+    },
+    {
+      "direction": "up",
+      "delay": 0.01601433753967285,
+      "timestamp": 1766090053.6845903
+    },
+    {
+      "direction": "up",
+      "delay": 0.016139745712280273,
+      "timestamp": 1766090053.7007306
+    },
+    {
+      "direction": "up",
+      "delay": 0.015909194946289062,
+      "timestamp": 1766090053.71664
+    },
+    {
+      "direction": "up",
+      "delay": 0.01609969139099121,
+      "timestamp": 1766090053.73274
+    },
+    {
+      "direction": "up",
+      "delay": 0.01602911949157715,
+      "timestamp": 1766090053.748769
+    },
+    {
+      "direction": "up",
+      "delay": 0.016068220138549805,
+      "timestamp": 1766090053.7648373
+    },
+    {
+      "direction": "up",
+      "delay": 0.01592850685119629,
+      "timestamp": 1766090053.780766
+    },
+    {
+      "direction": "up",
+      "delay": 0.015853166580200195,
+      "timestamp": 1766090053.7966194
+    },
+    {
+      "direction": "up",
+      "delay": 0.015833377838134766,
+      "timestamp": 1766090053.812453
+    },
+    {
+      "direction": "up",
+      "delay": 0.016158342361450195,
+      "timestamp": 1766090053.8286116
+    },
+    {
+      "direction": "up",
+      "delay": 0.015621423721313477,
+      "timestamp": 1766090053.8442333
+    },
+    {
+      "direction": "up",
+      "delay": 0.017118453979492188,
+      "timestamp": 1766090053.861352
+    },
+    {
+      "direction": "up",
+      "delay": 0.016727685928344727,
+      "timestamp": 1766090053.87808
+    },
+    {
+      "direction": "up",
+      "delay": 0.01608872413635254,
+      "timestamp": 1766090053.8941686
+    },
+    {
+      "direction": "up",
+      "delay": 0.015947818756103516,
+      "timestamp": 1766090053.9101167
+    },
+    {
+      "direction": "up",
+      "delay": 0.017181873321533203,
+      "timestamp": 1766090053.9272988
+    },
+    {
+      "direction": "up",
+      "delay": 0.016841411590576172,
+      "timestamp": 1766090053.9441404
+    },
+    {
+      "direction": "up",
+      "delay": 0.016613006591796875,
+      "timestamp": 1766090053.9607537
+    },
+    {
+      "direction": "up",
+      "delay": 0.016146183013916016,
+      "timestamp": 1766090053.9769
+    },
+    {
+      "direction": "up",
+      "delay": 0.01621532440185547,
+      "timestamp": 1766090053.9931157
+    },
+    {
+      "direction": "up",
+      "delay": 0.015709400177001953,
+      "timestamp": 1766090054.008825
+    },
+    {
+      "direction": "up",
+      "delay": 0.016106605529785156,
+      "timestamp": 1766090054.0249317
+    },
+    {
+      "direction": "up",
+      "delay": 0.015924692153930664,
+      "timestamp": 1766090054.0408566
+    },
+    {
+      "direction": "up",
+      "delay": 0.016113996505737305,
+      "timestamp": 1766090054.0569706
+    },
+    {
+      "direction": "up",
+      "delay": 0.03713107109069824,
+      "timestamp": 1766090054.094102
+    },
+    {
+      "direction": "up",
+      "delay": 0.015347480773925781,
+      "timestamp": 1766090054.1094496
+    },
+    {
+      "direction": "up",
+      "delay": 0.01677250862121582,
+      "timestamp": 1766090054.1262221
+    },
+    {
+      "direction": "up",
+      "delay": 0.016612529754638672,
+      "timestamp": 1766090054.1428347
+    },
+    {
+      "direction": "up",
+      "delay": 0.016696453094482422,
+      "timestamp": 1766090054.159531
+    },
+    {
+      "direction": "up",
+      "delay": 0.016339778900146484,
+      "timestamp": 1766090054.1758711
+    },
+    {
+      "direction": "up",
+      "delay": 0.01646137237548828,
+      "timestamp": 1766090054.1923327
+    },
+    {
+      "direction": "up",
+      "delay": 0.016638994216918945,
+      "timestamp": 1766090054.208972
+    },
+    {
+      "direction": "up",
+      "delay": 0.015413761138916016,
+      "timestamp": 1766090054.2243857
+    },
+    {
+      "direction": "up",
+      "delay": 0.01671576499938965,
+      "timestamp": 1766090054.2411017
+    },
+    {
+      "direction": "up",
+      "delay": 0.015433311462402344,
+      "timestamp": 1766090054.2565353
+    },
+    {
+      "direction": "up",
+      "delay": 0.015876293182373047,
+      "timestamp": 1766090054.2724118
+    },
+    {
+      "direction": "up",
+      "delay": 0.01712822914123535,
+      "timestamp": 1766090054.2895403
+    },
+    {
+      "direction": "up",
+      "delay": 0.015930891036987305,
+      "timestamp": 1766090054.3054714
+    },
+    {
+      "direction": "up",
+      "delay": 0.017104387283325195,
+      "timestamp": 1766090054.3225758
+    },
+    {
+      "direction": "up",
+      "delay": 0.015972614288330078,
+      "timestamp": 1766090054.3385487
+    },
+    {
+      "direction": "up",
+      "delay": 0.015779495239257812,
+      "timestamp": 1766090054.3543284
+    },
+    {
+      "direction": "up",
+      "delay": 0.01701951026916504,
+      "timestamp": 1766090054.3713481
+    },
+    {
+      "direction": "up",
+      "delay": 0.016973018646240234,
+      "timestamp": 1766090054.3883216
+    },
+    {
+      "direction": "up",
+      "delay": 0.01698446273803711,
+      "timestamp": 1766090054.4053063
+    },
+    {
+      "direction": "up",
+      "delay": 0.01667499542236328,
+      "timestamp": 1766090054.4219818
+    },
+    {
+      "direction": "up",
+      "delay": 0.01589488983154297,
+      "timestamp": 1766090054.4378767
+    },
+    {
+      "direction": "up",
+      "delay": 0.0159759521484375,
+      "timestamp": 1766090054.453853
+    },
+    {
+      "direction": "up",
+      "delay": 0.0166323184967041,
+      "timestamp": 1766090054.4704854
+    },
+    {
+      "direction": "up",
+      "delay": 0.01698780059814453,
+      "timestamp": 1766090054.4874732
+    },
+    {
+      "direction": "up",
+      "delay": 0.017049074172973633,
+      "timestamp": 1766090054.5045226
+    },
+    {
+      "direction": "up",
+      "delay": 0.016014575958251953,
+      "timestamp": 1766090054.5205371
+    },
+    {
+      "direction": "up",
+      "delay": 0.015869855880737305,
+      "timestamp": 1766090054.5364072
+    },
+    {
+      "direction": "up",
+      "delay": 0.01712346076965332,
+      "timestamp": 1766090054.553531
+    },
+    {
+      "direction": "up",
+      "delay": 0.01671290397644043,
+      "timestamp": 1766090054.570244
+    },
+    {
+      "direction": "up",
+      "delay": 0.017096519470214844,
+      "timestamp": 1766090054.5873408
+    },
+    {
+      "direction": "up",
+      "delay": 0.01674509048461914,
+      "timestamp": 1766090054.6040862
+    },
+    {
+      "direction": "up",
+      "delay": 0.016376256942749023,
+      "timestamp": 1766090054.6204634
+    },
+    {
+      "direction": "up",
+      "delay": 0.0168454647064209,
+      "timestamp": 1766090054.6373088
+    },
+    {
+      "direction": "up",
+      "delay": 0.0169827938079834,
+      "timestamp": 1766090054.6542919
+    },
+    {
+      "direction": "up",
+      "delay": 0.016864776611328125,
+      "timestamp": 1766090054.6711566
+    },
+    {
+      "direction": "up",
+      "delay": 0.017174959182739258,
+      "timestamp": 1766090054.6883318
+    },
+    {
+      "direction": "up",
+      "delay": 0.016843795776367188,
+      "timestamp": 1766090054.7051759
+    },
+    {
+      "direction": "up",
+      "delay": 0.016999244689941406,
+      "timestamp": 1766090054.7221756
+    },
+    {
+      "direction": "up",
+      "delay": 0.015828847885131836,
+      "timestamp": 1766090054.7380047
+    },
+    {
+      "direction": "up",
+      "delay": 0.01612257957458496,
+      "timestamp": 1766090054.7541275
+    },
+    {
+      "direction": "up",
+      "delay": 0.01618337631225586,
+      "timestamp": 1766090054.7703109
+    },
+    {
+      "direction": "up",
+      "delay": 0.017162561416625977,
+      "timestamp": 1766090054.787474
+    },
+    {
+      "direction": "up",
+      "delay": 0.016857624053955078,
+      "timestamp": 1766090054.8043318
+    },
+    {
+      "direction": "up",
+      "delay": 0.016956567764282227,
+      "timestamp": 1766090054.8212886
+    },
+    {
+      "direction": "up",
+      "delay": 0.016865968704223633,
+      "timestamp": 1766090054.8381546
+    },
+    {
+      "direction": "up",
+      "delay": 0.017180919647216797,
+      "timestamp": 1766090054.8553357
+    },
+    {
+      "direction": "up",
+      "delay": 0.01692342758178711,
+      "timestamp": 1766090054.8722591
+    },
+    {
+      "direction": "up",
+      "delay": 0.017142534255981445,
+      "timestamp": 1766090054.889402
+    },
+    {
+      "direction": "up",
+      "delay": 0.016947507858276367,
+      "timestamp": 1766090054.9063494
+    },
+    {
+      "direction": "up",
+      "delay": 0.016887903213500977,
+      "timestamp": 1766090054.9232373
+    },
+    {
+      "direction": "up",
+      "delay": 0.017162561416625977,
+      "timestamp": 1766090054.9404001
+    },
+    {
+      "direction": "up",
+      "delay": 0.017150163650512695,
+      "timestamp": 1766090054.9575505
+    },
+    {
+      "direction": "up",
+      "delay": 0.016038894653320312,
+      "timestamp": 1766090054.9735897
+    },
+    {
+      "direction": "up",
+      "delay": 0.03726935386657715,
+      "timestamp": 1766090055.0108593
+    },
+    {
+      "direction": "up",
+      "delay": 0.015797853469848633,
+      "timestamp": 1766090055.0266573
+    },
+    {
+      "direction": "up",
+      "delay": 0.016834020614624023,
+      "timestamp": 1766090055.0434916
+    },
+    {
+      "direction": "up",
+      "delay": 0.017212390899658203,
+      "timestamp": 1766090055.060704
+    },
+    {
+      "direction": "up",
+      "delay": 0.01597762107849121,
+      "timestamp": 1766090055.076682
+    },
+    {
+      "direction": "up",
+      "delay": 0.016347169876098633,
+      "timestamp": 1766090055.0930293
+    },
+    {
+      "direction": "up",
+      "delay": 0.015494346618652344,
+      "timestamp": 1766090055.1085238
+    },
+    {
+      "direction": "up",
+      "delay": 0.016514301300048828,
+      "timestamp": 1766090055.1250384
+    },
+    {
+      "direction": "up",
+      "delay": 0.015513896942138672,
+      "timestamp": 1766090055.1405525
+    },
+    {
+      "direction": "up",
+      "delay": 0.016508102416992188,
+      "timestamp": 1766090055.1570609
+    },
+    {
+      "direction": "up",
+      "delay": 0.015522241592407227,
+      "timestamp": 1766090055.172583
+    },
+    {
+      "direction": "up",
+      "delay": 0.016614437103271484,
+      "timestamp": 1766090055.1891978
+    },
+    {
+      "direction": "up",
+      "delay": 0.017009496688842773,
+      "timestamp": 1766090055.2062075
+    },
+    {
+      "direction": "up",
+      "delay": 0.01653766632080078,
+      "timestamp": 1766090055.2227452
+    },
+    {
+      "direction": "up",
+      "delay": 0.01603984832763672,
+      "timestamp": 1766090055.2387853
+    },
+    {
+      "direction": "up",
+      "delay": 0.015723705291748047,
+      "timestamp": 1766090055.2545092
+    },
+    {
+      "direction": "up",
+      "delay": 0.01607203483581543,
+      "timestamp": 1766090055.2705815
+    },
+    {
+      "direction": "up",
+      "delay": 0.01572704315185547,
+      "timestamp": 1766090055.2863088
+    },
+    {
+      "direction": "up",
+      "delay": 0.016880273818969727,
+      "timestamp": 1766090055.303189
+    },
+    {
+      "direction": "up",
+      "delay": 0.017019033432006836,
+      "timestamp": 1766090055.3202083
+    },
+    {
+      "direction": "up",
+      "delay": 0.01700425148010254,
+      "timestamp": 1766090055.337213
+    },
+    {
+      "direction": "up",
+      "delay": 0.017018556594848633,
+      "timestamp": 1766090055.3542318
+    },
+    {
+      "direction": "up",
+      "delay": 0.016983985900878906,
+      "timestamp": 1766090055.371216
+    },
+    {
+      "direction": "up",
+      "delay": 0.016999244689941406,
+      "timestamp": 1766090055.3882158
+    },
+    {
+      "direction": "up",
+      "delay": 0.017042160034179688,
+      "timestamp": 1766090055.405258
+    },
+    {
+      "direction": "up",
+      "delay": 0.016482830047607422,
+      "timestamp": 1766090055.421741
+    },
+    {
+      "direction": "up",
+      "delay": 0.015690088272094727,
+      "timestamp": 1766090055.4374313
+    },
+    {
+      "direction": "up",
+      "delay": 0.017004728317260742,
+      "timestamp": 1766090055.4544363
+    },
+    {
+      "direction": "up",
+      "delay": 0.016921043395996094,
+      "timestamp": 1766090055.4713576
+    },
+    {
+      "direction": "up",
+      "delay": 0.01701664924621582,
+      "timestamp": 1766090055.4883745
+    },
+    {
+      "direction": "up",
+      "delay": 0.016495466232299805,
+      "timestamp": 1766090055.5048702
+    },
+    {
+      "direction": "up",
+      "delay": 0.016018152236938477,
+      "timestamp": 1766090055.5208883
+    },
+    {
+      "direction": "up",
+      "delay": 0.01601386070251465,
+      "timestamp": 1766090055.5369024
+    },
+    {
+      "direction": "up",
+      "delay": 0.01602029800415039,
+      "timestamp": 1766090055.552923
+    },
+    {
+      "direction": "up",
+      "delay": 0.01566004753112793,
+      "timestamp": 1766090055.568583
+    },
+    {
+      "direction": "up",
+      "delay": 0.016158103942871094,
+      "timestamp": 1766090055.5847414
+    },
+    {
+      "direction": "up",
+      "delay": 0.015895605087280273,
+      "timestamp": 1766090055.6006372
+    },
+    {
+      "direction": "up",
+      "delay": 0.01613306999206543,
+      "timestamp": 1766090055.6167705
+    },
+    {
+      "direction": "up",
+      "delay": 0.015825748443603516,
+      "timestamp": 1766090055.6325965
+    },
+    {
+      "direction": "up",
+      "delay": 0.016135692596435547,
+      "timestamp": 1766090055.6487324
+    },
+    {
+      "direction": "up",
+      "delay": 0.015685081481933594,
+      "timestamp": 1766090055.6644177
+    },
+    {
+      "direction": "up",
+      "delay": 0.017141103744506836,
+      "timestamp": 1766090055.681559
+    },
+    {
+      "direction": "up",
+      "delay": 0.016149282455444336,
+      "timestamp": 1766090055.6977084
+    },
+    {
+      "direction": "up",
+      "delay": 0.015734195709228516,
+      "timestamp": 1766090055.7134428
+    },
+    {
+      "direction": "up",
+      "delay": 0.037774085998535156,
+      "timestamp": 1766090055.7512171
+    },
+    {
+      "direction": "up",
+      "delay": 0.015246152877807617,
+      "timestamp": 1766090055.7664635
+    },
+    {
+      "direction": "up",
+      "delay": 0.016617536544799805,
+      "timestamp": 1766090055.7830813
+    },
+    {
+      "direction": "up",
+      "delay": 0.01540374755859375,
+      "timestamp": 1766090055.7984853
+    },
+    {
+      "direction": "up",
+      "delay": 0.01671314239501953,
+      "timestamp": 1766090055.8151987
+    },
+    {
+      "direction": "up",
+      "delay": 0.01586127281188965,
+      "timestamp": 1766090055.8310602
+    },
+    {
+      "direction": "up",
+      "delay": 0.015549898147583008,
+      "timestamp": 1766090055.84661
+    },
+    {
+      "direction": "up",
+      "delay": 0.016465187072753906,
+      "timestamp": 1766090055.8630753
+    },
+    {
+      "direction": "up",
+      "delay": 0.015560150146484375,
+      "timestamp": 1766090055.878636
+    },
+    {
+      "direction": "up",
+      "delay": 0.016489505767822266,
+      "timestamp": 1766090055.8951259
+    },
+    {
+      "direction": "up",
+      "delay": 0.01558995246887207,
+      "timestamp": 1766090055.910716
+    },
+    {
+      "direction": "up",
+      "delay": 0.016022920608520508,
+      "timestamp": 1766090055.926739
+    },
+    {
+      "direction": "up",
+      "delay": 0.01576089859008789,
+      "timestamp": 1766090055.9424999
+    },
+    {
+      "direction": "up",
+      "delay": 0.01682424545288086,
+      "timestamp": 1766090055.9593244
+    },
+    {
+      "direction": "up",
+      "delay": 0.017052173614501953,
+      "timestamp": 1766090055.976377
+    },
+    {
+      "direction": "up",
+      "delay": 0.01695728302001953,
+      "timestamp": 1766090055.9933343
+    },
+    {
+      "direction": "up",
+      "delay": 0.01703047752380371,
+      "timestamp": 1766090056.010365
+    },
+    {
+      "direction": "up",
+      "delay": 0.01700878143310547,
+      "timestamp": 1766090056.027374
+    },
+    {
+      "direction": "up",
+      "delay": 0.01714801788330078,
+      "timestamp": 1766090056.044522
+    },
+    {
+      "direction": "up",
+      "delay": 0.016960859298706055,
+      "timestamp": 1766090056.0614834
+    },
+    {
+      "direction": "up",
+      "delay": 0.017040252685546875,
+      "timestamp": 1766090056.0785239
+    },
+    {
+      "direction": "up",
+      "delay": 0.01593780517578125,
+      "timestamp": 1766090056.094462
+    },
+    {
+      "direction": "up",
+      "delay": 0.01703047752380371,
+      "timestamp": 1766090056.1114926
+    },
+    {
+      "direction": "up",
+      "delay": 0.016955852508544922,
+      "timestamp": 1766090056.1284485
+    },
+    {
+      "direction": "up",
+      "delay": 0.016686677932739258,
+      "timestamp": 1766090056.1451354
+    },
+    {
+      "direction": "up",
+      "delay": 0.01586151123046875,
+      "timestamp": 1766090056.1609972
+    },
+    {
+      "direction": "up",
+      "delay": 0.016202688217163086,
+      "timestamp": 1766090056.1772
+    },
+    {
+      "direction": "up",
+      "delay": 0.015857219696044922,
+      "timestamp": 1766090056.1930575
+    },
+    {
+      "direction": "up",
+      "delay": 0.01606917381286621,
+      "timestamp": 1766090056.209127
+    },
+    {
+      "direction": "up",
+      "delay": 0.016187667846679688,
+      "timestamp": 1766090056.2253149
+    },
+    {
+      "direction": "up",
+      "delay": 0.01571345329284668,
+      "timestamp": 1766090056.2410285
+    },
+    {
+      "direction": "up",
+      "delay": 0.015884876251220703,
+      "timestamp": 1766090056.2569137
+    },
+    {
+      "direction": "up",
+      "delay": 0.01610732078552246,
+      "timestamp": 1766090056.273021
+    },
+    {
+      "direction": "up",
+      "delay": 0.015970230102539062,
+      "timestamp": 1766090056.2889915
+    },
+    {
+      "direction": "up",
+      "delay": 0.016148090362548828,
+      "timestamp": 1766090056.3051398
+    },
+    {
+      "direction": "up",
+      "delay": 0.015913724899291992,
+      "timestamp": 1766090056.3210537
+    },
+    {
+      "direction": "up",
+      "delay": 0.016106605529785156,
+      "timestamp": 1766090056.3371603
+    },
+    {
+      "direction": "up",
+      "delay": 0.015910863876342773,
+      "timestamp": 1766090056.3530712
+    },
+    {
+      "direction": "up",
+      "delay": 0.016109466552734375,
+      "timestamp": 1766090056.369181
+    },
+    {
+      "direction": "up",
+      "delay": 0.015601873397827148,
+      "timestamp": 1766090056.384783
+    },
+    {
+      "direction": "up",
+      "delay": 0.01613140106201172,
+      "timestamp": 1766090056.4009147
+    },
+    {
+      "direction": "up",
+      "delay": 0.015913963317871094,
+      "timestamp": 1766090056.4168289
+    },
+    {
+      "direction": "up",
+      "delay": 0.0161130428314209,
+      "timestamp": 1766090056.4329422
+    },
+    {
+      "direction": "up",
+      "delay": 0.016002893447875977,
+      "timestamp": 1766090056.448945
+    },
+    {
+      "direction": "up",
+      "delay": 0.016025304794311523,
+      "timestamp": 1766090056.4649706
+    },
+    {
+      "direction": "up",
+      "delay": 0.015910625457763672,
+      "timestamp": 1766090056.4808815
+    },
+    {
+      "direction": "up",
+      "delay": 0.016185283660888672,
+      "timestamp": 1766090056.497067
+    },
+    {
+      "direction": "up",
+      "delay": 0.015962839126586914,
+      "timestamp": 1766090056.51303
+    },
+    {
+      "direction": "up",
+      "delay": 0.01587510108947754,
+      "timestamp": 1766090056.5289054
+    },
+    {
+      "direction": "up",
+      "delay": 0.01621222496032715,
+      "timestamp": 1766090056.5451179
+    },
+    {
+      "direction": "up",
+      "delay": 0.015853404998779297,
+      "timestamp": 1766090056.5609715
+    },
+    {
+      "direction": "up",
+      "delay": 0.016129255294799805,
+      "timestamp": 1766090056.577101
+    },
+    {
+      "direction": "up",
+      "delay": 0.015949726104736328,
+      "timestamp": 1766090056.5930512
+    },
+    {
+      "direction": "up",
+      "delay": 0.01606011390686035,
+      "timestamp": 1766090056.6091113
+    },
+    {
+      "direction": "up",
+      "delay": 0.01592564582824707,
+      "timestamp": 1766090056.6250372
+    },
+    {
+      "direction": "up",
+      "delay": 0.016048431396484375,
+      "timestamp": 1766090056.641086
+    },
+    {
+      "direction": "up",
+      "delay": 0.015981197357177734,
+      "timestamp": 1766090056.6570675
+    },
+    {
+      "direction": "up",
+      "delay": 0.01596975326538086,
+      "timestamp": 1766090056.6730375
+    },
+    {
+      "direction": "up",
+      "delay": 0.016004323959350586,
+      "timestamp": 1766090056.6890419
+    },
+    {
+      "direction": "up",
+      "delay": 0.01605057716369629,
+      "timestamp": 1766090056.7050927
+    },
+    {
+      "direction": "up",
+      "delay": 0.015882492065429688,
+      "timestamp": 1766090056.7209754
+    },
+    {
+      "direction": "up",
+      "delay": 0.016073942184448242,
+      "timestamp": 1766090056.7370496
+    },
+    {
+      "direction": "up",
+      "delay": 0.016078472137451172,
+      "timestamp": 1766090056.7531283
+    },
+    {
+      "direction": "up",
+      "delay": 0.015813589096069336,
+      "timestamp": 1766090056.768942
+    },
+    {
+      "direction": "up",
+      "delay": 0.01600360870361328,
+      "timestamp": 1766090056.784946
+    },
+    {
+      "direction": "up",
+      "delay": 0.016146183013916016,
+      "timestamp": 1766090056.8010924
+    },
+    {
+      "direction": "up",
+      "delay": 0.01620173454284668,
+      "timestamp": 1766090056.8172946
+    },
+    {
+      "direction": "up",
+      "delay": 0.01711297035217285,
+      "timestamp": 1766090056.834408
+    },
+    {
+      "direction": "up",
+      "delay": 0.015894651412963867,
+      "timestamp": 1766090056.850303
+    },
+    {
+      "direction": "up",
+      "delay": 0.017110824584960938,
+      "timestamp": 1766090056.867414
+    },
+    {
+      "direction": "up",
+      "delay": 0.015921831130981445,
+      "timestamp": 1766090056.8833363
+    },
+    {
+      "direction": "up",
+      "delay": 0.017101287841796875,
+      "timestamp": 1766090056.9004378
+    },
+    {
+      "direction": "up",
+      "delay": 0.01691126823425293,
+      "timestamp": 1766090056.917349
+    },
+    {
+      "direction": "up",
+      "delay": 0.01713728904724121,
+      "timestamp": 1766090056.9344866
+    },
+    {
+      "direction": "up",
+      "delay": 0.015929698944091797,
+      "timestamp": 1766090056.9504163
+    },
+    {
+      "direction": "up",
+      "delay": 0.01722121238708496,
+      "timestamp": 1766090056.9676378
+    },
+    {
+      "direction": "up",
+      "delay": 0.015857696533203125,
+      "timestamp": 1766090056.9834955
+    },
+    {
+      "direction": "up",
+      "delay": 0.01702713966369629,
+      "timestamp": 1766090057.0005226
+    },
+    {
+      "direction": "up",
+      "delay": 0.03974652290344238,
+      "timestamp": 1766090057.0402694
+    },
+    {
+      "direction": "up",
+      "delay": 0.0167386531829834,
+      "timestamp": 1766090057.0570083
+    },
+    {
+      "direction": "up",
+      "delay": 0.015442371368408203,
+      "timestamp": 1766090057.0724509
+    },
+    {
+      "direction": "up",
+      "delay": 0.016471385955810547,
+      "timestamp": 1766090057.0889227
+    },
+    {
+      "direction": "up",
+      "delay": 0.015781879425048828,
+      "timestamp": 1766090057.1047049
+    },
+    {
+      "direction": "up",
+      "delay": 0.0164792537689209,
+      "timestamp": 1766090057.1211843
+    },
+    {
+      "direction": "up",
+      "delay": 0.016571998596191406,
+      "timestamp": 1766090057.1377563
+    },
+    {
+      "direction": "up",
+      "delay": 0.015526533126831055,
+      "timestamp": 1766090057.1532829
+    },
+    {
+      "direction": "up",
+      "delay": 0.017079830169677734,
+      "timestamp": 1766090057.170363
+    },
+    {
+      "direction": "up",
+      "delay": 0.0164029598236084,
+      "timestamp": 1766090057.1867661
+    },
+    {
+      "direction": "up",
+      "delay": 0.01668381690979004,
+      "timestamp": 1766090057.2034502
+    },
+    {
+      "direction": "up",
+      "delay": 0.017129898071289062,
+      "timestamp": 1766090057.22058
+    },
+    {
+      "direction": "up",
+      "delay": 0.015862464904785156,
+      "timestamp": 1766090057.2364428
+    },
+    {
+      "direction": "up",
+      "delay": 0.01713728904724121,
+      "timestamp": 1766090057.2535803
+    },
+    {
+      "direction": "up",
+      "delay": 0.015622854232788086,
+      "timestamp": 1766090057.2692034
+    },
+    {
+      "direction": "up",
+      "delay": 0.017119407653808594,
+      "timestamp": 1766090057.2863233
+    },
+    {
+      "direction": "up",
+      "delay": 0.016724348068237305,
+      "timestamp": 1766090057.3030477
+    },
+    {
+      "direction": "up",
+      "delay": 0.015941381454467773,
+      "timestamp": 1766090057.3189893
+    },
+    {
+      "direction": "up",
+      "delay": 0.016200780868530273,
+      "timestamp": 1766090057.33519
+    },
+    {
+      "direction": "up",
+      "delay": 0.01694965362548828,
+      "timestamp": 1766090057.3521397
+    },
+    {
+      "direction": "up",
+      "delay": 0.016901731491088867,
+      "timestamp": 1766090057.3690417
+    },
+    {
+      "direction": "up",
+      "delay": 0.015689611434936523,
+      "timestamp": 1766090057.3847315
+    },
+    {
+      "direction": "up",
+      "delay": 0.016154050827026367,
+      "timestamp": 1766090057.4008858
+    },
+    {
+      "direction": "up",
+      "delay": 0.015851259231567383,
+      "timestamp": 1766090057.4167373
+    },
+    {
+      "direction": "up",
+      "delay": 0.01614236831665039,
+      "timestamp": 1766090057.43288
+    },
+    {
+      "direction": "up",
+      "delay": 0.015882253646850586,
+      "timestamp": 1766090057.4487624
+    },
+    {
+      "direction": "up",
+      "delay": 0.016142606735229492,
+      "timestamp": 1766090057.464905
+    },
+    {
+      "direction": "up",
+      "delay": 0.01592731475830078,
+      "timestamp": 1766090057.4808326
+    },
+    {
+      "direction": "up",
+      "delay": 0.016094684600830078,
+      "timestamp": 1766090057.4969275
+    },
+    {
+      "direction": "up",
+      "delay": 0.01596808433532715,
+      "timestamp": 1766090057.5128956
+    },
+    {
+      "direction": "up",
+      "delay": 0.015846967697143555,
+      "timestamp": 1766090057.528743
+    },
+    {
+      "direction": "up",
+      "delay": 0.015957117080688477,
+      "timestamp": 1766090057.5447004
+    },
+    {
+      "direction": "up",
+      "delay": 0.01592254638671875,
+      "timestamp": 1766090057.5606232
+    },
+    {
+      "direction": "up",
+      "delay": 0.015796422958374023,
+      "timestamp": 1766090057.5764198
+    },
+    {
+      "direction": "up",
+      "delay": 0.016863346099853516,
+      "timestamp": 1766090057.5932834
+    },
+    {
+      "direction": "up",
+      "delay": 0.016857147216796875,
+      "timestamp": 1766090057.610141
+    },
+    {
+      "direction": "up",
+      "delay": 0.01706385612487793,
+      "timestamp": 1766090057.6272051
+    },
+    {
+      "direction": "up",
+      "delay": 0.016943931579589844,
+      "timestamp": 1766090057.644149
+    },
+    {
+      "direction": "up",
+      "delay": 0.016740083694458008,
+      "timestamp": 1766090057.6608894
+    },
+    {
+      "direction": "up",
+      "delay": 0.01610851287841797,
+      "timestamp": 1766090057.6769984
+    },
+    {
+      "direction": "up",
+      "delay": 0.016089916229248047,
+      "timestamp": 1766090057.6930885
+    },
+    {
+      "direction": "up",
+      "delay": 0.01607990264892578,
+      "timestamp": 1766090057.7091687
+    },
+    {
+      "direction": "up",
+      "delay": 0.01719212532043457,
+      "timestamp": 1766090057.726361
+    },
+    {
+      "direction": "up",
+      "delay": 0.017282962799072266,
+      "timestamp": 1766090057.743644
+    },
+    {
+      "direction": "up",
+      "delay": 0.0157163143157959,
+      "timestamp": 1766090057.7593606
+    },
+    {
+      "direction": "up",
+      "delay": 0.017126798629760742,
+      "timestamp": 1766090057.7764874
+    },
+    {
+      "direction": "up",
+      "delay": 0.01698923110961914,
+      "timestamp": 1766090057.793477
+    },
+    {
+      "direction": "up",
+      "delay": 0.016744136810302734,
+      "timestamp": 1766090057.810222
+    },
+    {
+      "direction": "up",
+      "delay": 0.017155170440673828,
+      "timestamp": 1766090057.8273773
+    },
+    {
+      "direction": "up",
+      "delay": 0.016802072525024414,
+      "timestamp": 1766090057.8441794
+    },
+    {
+      "direction": "up",
+      "delay": 0.017113685607910156,
+      "timestamp": 1766090057.8612933
+    },
+    {
+      "direction": "up",
+      "delay": 0.016684532165527344,
+      "timestamp": 1766090057.877978
+    },
+    {
+      "direction": "up",
+      "delay": 0.016063213348388672,
+      "timestamp": 1766090057.8940415
+    },
+    {
+      "direction": "up",
+      "delay": 0.016381025314331055,
+      "timestamp": 1766090057.9104228
+    },
+    {
+      "direction": "up",
+      "delay": 0.017098665237426758,
+      "timestamp": 1766090057.9275217
+    },
+    {
+      "direction": "up",
+      "delay": 0.015855789184570312,
+      "timestamp": 1766090057.9433777
+    },
+    {
+      "direction": "up",
+      "delay": 0.01621222496032715,
+      "timestamp": 1766090057.9595902
+    },
+    {
+      "direction": "up",
+      "delay": 0.015880346298217773,
+      "timestamp": 1766090057.9754708
+    },
+    {
+      "direction": "up",
+      "delay": 0.0162050724029541,
+      "timestamp": 1766090057.9916759
+    },
+    {
+      "direction": "up",
+      "delay": 0.015930652618408203,
+      "timestamp": 1766090058.0076067
+    },
+    {
+      "direction": "up",
+      "delay": 0.01581406593322754,
+      "timestamp": 1766090058.0234213
+    },
+    {
+      "direction": "up",
+      "delay": 0.016188859939575195,
+      "timestamp": 1766090058.0396101
+    },
+    {
+      "direction": "up",
+      "delay": 0.015941143035888672,
+      "timestamp": 1766090058.0555515
+    },
+    {
+      "direction": "up",
+      "delay": 0.015985727310180664,
+      "timestamp": 1766090058.0715375
+    },
+    {
+      "direction": "up",
+      "delay": 0.0161285400390625,
+      "timestamp": 1766090058.087666
+    },
+    {
+      "direction": "up",
+      "delay": 0.015913724899291992,
+      "timestamp": 1766090058.10358
+    },
+    {
+      "direction": "up",
+      "delay": 0.016606807708740234,
+      "timestamp": 1766090058.120187
+    },
+    {
+      "direction": "up",
+      "delay": 0.015913963317871094,
+      "timestamp": 1766090058.1361015
+    },
+    {
+      "direction": "up",
+      "delay": 0.01615142822265625,
+      "timestamp": 1766090058.152253
+    },
+    {
+      "direction": "up",
+      "delay": 0.017247915267944336,
+      "timestamp": 1766090058.169501
+    },
+    {
+      "direction": "up",
+      "delay": 0.01683664321899414,
+      "timestamp": 1766090058.186338
+    },
+    {
+      "direction": "up",
+      "delay": 0.017133712768554688,
+      "timestamp": 1766090058.203472
+    },
+    {
+      "direction": "up",
+      "delay": 0.017038583755493164,
+      "timestamp": 1766090058.2205107
+    },
+    {
+      "direction": "up",
+      "delay": 0.015966415405273438,
+      "timestamp": 1766090058.2364774
+    },
+    {
+      "direction": "up",
+      "delay": 0.017180919647216797,
+      "timestamp": 1766090058.2536585
+    },
+    {
+      "direction": "up",
+      "delay": 0.015691518783569336,
+      "timestamp": 1766090058.2693503
+    },
+    {
+      "direction": "up",
+      "delay": 0.017174243927001953,
+      "timestamp": 1766090058.2865248
+    },
+    {
+      "direction": "up",
+      "delay": 0.01691150665283203,
+      "timestamp": 1766090058.3034363
+    },
+    {
+      "direction": "up",
+      "delay": 0.017098665237426758,
+      "timestamp": 1766090058.3205352
+    },
+    {
+      "direction": "up",
+      "delay": 0.045960187911987305,
+      "timestamp": 1766090058.3664954
+    },
+    {
+      "direction": "up",
+      "delay": 0.017132043838500977,
+      "timestamp": 1766090058.383628
+    },
+    {
+      "direction": "up",
+      "delay": 0.01695728302001953,
+      "timestamp": 1766090058.4005854
+    },
+    {
+      "direction": "up",
+      "delay": 0.016549110412597656,
+      "timestamp": 1766090058.4171348
+    },
+    {
+      "direction": "up",
+      "delay": 0.015903472900390625,
+      "timestamp": 1766090058.4330382
+    },
+    {
+      "direction": "up",
+      "delay": 0.01600503921508789,
+      "timestamp": 1766090058.4490435
+    },
+    {
+      "direction": "up",
+      "delay": 0.0158843994140625,
+      "timestamp": 1766090058.464928
+    },
+    {
+      "direction": "up",
+      "delay": 0.015897512435913086,
+      "timestamp": 1766090058.4808257
+    },
+    {
+      "direction": "up",
+      "delay": 0.015852689743041992,
+      "timestamp": 1766090058.4966786
+    },
+    {
+      "direction": "up",
+      "delay": 0.015920639038085938,
+      "timestamp": 1766090058.5125992
+    },
+    {
+      "direction": "up",
+      "delay": 0.016396045684814453,
+      "timestamp": 1766090058.5289953
+    },
+    {
+      "direction": "up",
+      "delay": 0.015885114669799805,
+      "timestamp": 1766090058.5448804
+    },
+    {
+      "direction": "up",
+      "delay": 0.015944957733154297,
+      "timestamp": 1766090058.5608256
+    },
+    {
+      "direction": "up",
+      "delay": 0.01589822769165039,
+      "timestamp": 1766090058.576724
+    },
+    {
+      "direction": "up",
+      "delay": 0.01613759994506836,
+      "timestamp": 1766090058.5928617
+    },
+    {
+      "direction": "up",
+      "delay": 0.015978574752807617,
+      "timestamp": 1766090058.6088402
+    },
+    {
+      "direction": "up",
+      "delay": 0.016027450561523438,
+      "timestamp": 1766090058.6248677
+    },
+    {
+      "direction": "up",
+      "delay": 0.01618361473083496,
+      "timestamp": 1766090058.6410515
+    },
+    {
+      "direction": "up",
+      "delay": 0.016135454177856445,
+      "timestamp": 1766090058.6571872
+    },
+    {
+      "direction": "up",
+      "delay": 0.016101598739624023,
+      "timestamp": 1766090058.6732893
+    },
+    {
+      "direction": "up",
+      "delay": 0.015728235244750977,
+      "timestamp": 1766090058.6890178
+    },
+    {
+      "direction": "up",
+      "delay": 0.016121625900268555,
+      "timestamp": 1766090058.7051396
+    },
+    {
+      "direction": "up",
+      "delay": 0.01600790023803711,
+      "timestamp": 1766090058.721148
+    },
+    {
+      "direction": "up",
+      "delay": 0.017071008682250977,
+      "timestamp": 1766090058.7382193
+    },
+    {
+      "direction": "up",
+      "delay": 0.016950368881225586,
+      "timestamp": 1766090058.7551699
+    },
+    {
+      "direction": "up",
+      "delay": 0.01709270477294922,
+      "timestamp": 1766090058.7722628
+    },
+    {
+      "direction": "up",
+      "delay": 0.016925811767578125,
+      "timestamp": 1766090058.7891889
+    },
+    {
+      "direction": "up",
+      "delay": 0.01711106300354004,
+      "timestamp": 1766090058.8063004
+    },
+    {
+      "direction": "up",
+      "delay": 0.01697516441345215,
+      "timestamp": 1766090058.8232758
+    },
+    {
+      "direction": "up",
+      "delay": 0.01716446876525879,
+      "timestamp": 1766090058.8404403
+    },
+    {
+      "direction": "up",
+      "delay": 0.015952110290527344,
+      "timestamp": 1766090058.8563926
+    },
+    {
+      "direction": "up",
+      "delay": 0.017009258270263672,
+      "timestamp": 1766090058.873402
+    },
+    {
+      "direction": "up",
+      "delay": 0.016036272048950195,
+      "timestamp": 1766090058.8894386
+    },
+    {
+      "direction": "up",
+      "delay": 0.017065763473510742,
+      "timestamp": 1766090058.9065046
+    },
+    {
+      "direction": "up",
+      "delay": 0.015861034393310547,
+      "timestamp": 1766090058.9223661
+    },
+    {
+      "direction": "up",
+      "delay": 0.016107797622680664,
+      "timestamp": 1766090058.938474
+    },
+    {
+      "direction": "up",
+      "delay": 0.015931129455566406,
+      "timestamp": 1766090058.954405
+    },
+    {
+      "direction": "up",
+      "delay": 0.01628398895263672,
+      "timestamp": 1766090058.9706893
+    },
+    {
+      "direction": "up",
+      "delay": 0.015851974487304688,
+      "timestamp": 1766090058.9865413
+    },
+    {
+      "direction": "up",
+      "delay": 0.015889406204223633,
+      "timestamp": 1766090059.0024312
+    },
+    {
+      "direction": "up",
+      "delay": 0.016620397567749023,
+      "timestamp": 1766090059.019052
+    },
+    {
+      "direction": "up",
+      "delay": 0.016092300415039062,
+      "timestamp": 1766090059.0351448
+    },
+    {
+      "direction": "up",
+      "delay": 0.01607537269592285,
+      "timestamp": 1766090059.0512202
+    },
+    {
+      "direction": "up",
+      "delay": 0.016962528228759766,
+      "timestamp": 1766090059.0681827
+    },
+    {
+      "direction": "up",
+      "delay": 0.01713871955871582,
+      "timestamp": 1766090059.0853217
+    },
+    {
+      "direction": "up",
+      "delay": 0.016158103942871094,
+      "timestamp": 1766090059.10148
+    },
+    {
+      "direction": "up",
+      "delay": 0.016035079956054688,
+      "timestamp": 1766090059.1175153
+    },
+    {
+      "direction": "up",
+      "delay": 0.015933990478515625,
+      "timestamp": 1766090059.1334496
+    },
+    {
+      "direction": "up",
+      "delay": 0.0170285701751709,
+      "timestamp": 1766090059.1504781
+    },
+    {
+      "direction": "up",
+      "delay": 0.015896320343017578,
+      "timestamp": 1766090059.1663747
+    },
+    {
+      "direction": "up",
+      "delay": 0.017095565795898438,
+      "timestamp": 1766090059.1834705
+    },
+    {
+      "direction": "up",
+      "delay": 0.017081260681152344,
+      "timestamp": 1766090059.200552
+    },
+    {
+      "direction": "up",
+      "delay": 0.01578354835510254,
+      "timestamp": 1766090059.2163358
+    },
+    {
+      "direction": "up",
+      "delay": 0.017131328582763672,
+      "timestamp": 1766090059.2334673
+    },
+    {
+      "direction": "up",
+      "delay": 0.01693558692932129,
+      "timestamp": 1766090059.2504032
+    },
+    {
+      "direction": "up",
+      "delay": 0.017127037048339844,
+      "timestamp": 1766090059.2675304
+    },
+    {
+      "direction": "up",
+      "delay": 0.015893220901489258,
+      "timestamp": 1766090059.283424
+    },
+    {
+      "direction": "up",
+      "delay": 0.017108678817749023,
+      "timestamp": 1766090059.3005326
+    },
+    {
+      "direction": "up",
+      "delay": 0.01589822769165039,
+      "timestamp": 1766090059.316431
+    },
+    {
+      "direction": "up",
+      "delay": 0.016978740692138672,
+      "timestamp": 1766090059.3334098
+    },
+    {
+      "direction": "up",
+      "delay": 0.01715707778930664,
+      "timestamp": 1766090059.3505673
+    },
+    {
+      "direction": "up",
+      "delay": 0.016051530838012695,
+      "timestamp": 1766090059.3666189
+    },
+    {
+      "direction": "up",
+      "delay": 0.016057252883911133,
+      "timestamp": 1766090059.3826764
+    },
+    {
+      "direction": "up",
+      "delay": 0.01588916778564453,
+      "timestamp": 1766090059.3985658
+    },
+    {
+      "direction": "up",
+      "delay": 0.016209125518798828,
+      "timestamp": 1766090059.4147751
+    },
+    {
+      "direction": "up",
+      "delay": 0.01582050323486328,
+      "timestamp": 1766090059.430596
+    },
+    {
+      "direction": "up",
+      "delay": 0.01594400405883789,
+      "timestamp": 1766090059.4465404
+    },
+    {
+      "direction": "up",
+      "delay": 0.015872478485107422,
+      "timestamp": 1766090059.462413
+    },
+    {
+      "direction": "up",
+      "delay": 0.016068220138549805,
+      "timestamp": 1766090059.4784818
+    },
+    {
+      "direction": "up",
+      "delay": 0.016005277633666992,
+      "timestamp": 1766090059.4944873
+    },
+    {
+      "direction": "up",
+      "delay": 0.017017126083374023,
+      "timestamp": 1766090059.5115044
+    },
+    {
+      "direction": "up",
+      "delay": 0.017159223556518555,
+      "timestamp": 1766090059.5286639
+    },
+    {
+      "direction": "up",
+      "delay": 0.01596689224243164,
+      "timestamp": 1766090059.544631
+    },
+    {
+      "direction": "up",
+      "delay": 0.016097545623779297,
+      "timestamp": 1766090059.5607288
+    },
+    {
+      "direction": "up",
+      "delay": 0.01589035987854004,
+      "timestamp": 1766090059.5766196
+    },
+    {
+      "direction": "up",
+      "delay": 0.015999794006347656,
+      "timestamp": 1766090059.5926194
+    },
+    {
+      "direction": "up",
+      "delay": 0.01611948013305664,
+      "timestamp": 1766090059.6087394
+    },
+    {
+      "direction": "up",
+      "delay": 0.01578831672668457,
+      "timestamp": 1766090059.624528
+    },
+    {
+      "direction": "up",
+      "delay": 0.04524111747741699,
+      "timestamp": 1766090059.6697693
+    },
+    {
+      "direction": "up",
+      "delay": 0.016346216201782227,
+      "timestamp": 1766090059.6861157
+    },
+    {
+      "direction": "up",
+      "delay": 0.01621532440185547,
+      "timestamp": 1766090059.7023313
+    },
+    {
+      "direction": "up",
+      "delay": 0.015285015106201172,
+      "timestamp": 1766090059.7176166
+    },
+    {
+      "direction": "up",
+      "delay": 0.016640424728393555,
+      "timestamp": 1766090059.734257
+    },
+    {
+      "direction": "up",
+      "delay": 0.015845298767089844,
+      "timestamp": 1766090059.7501025
+    },
+    {
+      "direction": "up",
+      "delay": 0.01710796356201172,
+      "timestamp": 1766090059.7672107
+    },
+    {
+      "direction": "up",
+      "delay": 0.016429424285888672,
+      "timestamp": 1766090059.7836404
+    },
+    {
+      "direction": "up",
+      "delay": 0.01666116714477539,
+      "timestamp": 1766090059.8003018
+    },
+    {
+      "direction": "up",
+      "delay": 0.01676344871520996,
+      "timestamp": 1766090059.8170655
+    },
+    {
+      "direction": "up",
+      "delay": 0.01597762107849121,
+      "timestamp": 1766090059.833043
+    },
+    {
+      "direction": "up",
+      "delay": 0.015915632247924805,
+      "timestamp": 1766090059.848959
+    },
+    {
+      "direction": "up",
+      "delay": 0.015978574752807617,
+      "timestamp": 1766090059.8649378
+    },
+    {
+      "direction": "up",
+      "delay": 0.016146183013916016,
+      "timestamp": 1766090059.8810842
+    },
+    {
+      "direction": "up",
+      "delay": 0.016222715377807617,
+      "timestamp": 1766090059.8973072
+    },
+    {
+      "direction": "up",
+      "delay": 0.01565408706665039,
+      "timestamp": 1766090059.9129617
+    },
+    {
+      "direction": "up",
+      "delay": 0.01611781120300293,
+      "timestamp": 1766090059.9290798
+    },
+    {
+      "direction": "up",
+      "delay": 0.015993118286132812,
+      "timestamp": 1766090059.945073
+    },
+    {
+      "direction": "up",
+      "delay": 0.016036510467529297,
+      "timestamp": 1766090059.9611094
+    },
+    {
+      "direction": "up",
+      "delay": 0.01593184471130371,
+      "timestamp": 1766090059.9770415
+    },
+    {
+      "direction": "up",
+      "delay": 0.016182422637939453,
+      "timestamp": 1766090059.9932241
+    },
+    {
+      "direction": "up",
+      "delay": 0.01715230941772461,
+      "timestamp": 1766090060.0103767
+    },
+    {
+      "direction": "up",
+      "delay": 0.017074108123779297,
+      "timestamp": 1766090060.0274508
+    },
+    {
+      "direction": "up",
+      "delay": 0.016906261444091797,
+      "timestamp": 1766090060.044357
+    },
+    {
+      "direction": "up",
+      "delay": 0.017010927200317383,
+      "timestamp": 1766090060.0613682
+    },
+    {
+      "direction": "up",
+      "delay": 0.016819238662719727,
+      "timestamp": 1766090060.0781877
+    },
+    {
+      "direction": "up",
+      "delay": 0.016982078552246094,
+      "timestamp": 1766090060.0951703
+    },
+    {
+      "direction": "up",
+      "delay": 0.017127275466918945,
+      "timestamp": 1766090060.1122978
+    },
+    {
+      "direction": "up",
+      "delay": 0.016939163208007812,
+      "timestamp": 1766090060.1292372
+    },
+    {
+      "direction": "up",
+      "delay": 0.016130924224853516,
+      "timestamp": 1766090060.145368
+    },
+    {
+      "direction": "up",
+      "delay": 0.016972780227661133,
+      "timestamp": 1766090060.162341
+    },
+    {
+      "direction": "up",
+      "delay": 0.01688671112060547,
+      "timestamp": 1766090060.1792278
+    },
+    {
+      "direction": "up",
+      "delay": 0.017187833786010742,
+      "timestamp": 1766090060.196416
+    },
+    {
+      "direction": "up",
+      "delay": 0.016800403594970703,
+      "timestamp": 1766090060.2132165
+    },
+    {
+      "direction": "up",
+      "delay": 0.01718592643737793,
+      "timestamp": 1766090060.2304027
+    },
+    {
+      "direction": "up",
+      "delay": 0.0159304141998291,
+      "timestamp": 1766090060.2463334
+    },
+    {
+      "direction": "up",
+      "delay": 0.016097545623779297,
+      "timestamp": 1766090060.2624311
+    },
+    {
+      "direction": "up",
+      "delay": 0.01589488983154297,
+      "timestamp": 1766090060.2783263
+    },
+    {
+      "direction": "up",
+      "delay": 0.017225027084350586,
+      "timestamp": 1766090060.2955515
+    },
+    {
+      "direction": "up",
+      "delay": 0.01589345932006836,
+      "timestamp": 1766090060.3114452
+    },
+    {
+      "direction": "up",
+      "delay": 0.017047643661499023,
+      "timestamp": 1766090060.328493
+    },
+    {
+      "direction": "up",
+      "delay": 0.015908241271972656,
+      "timestamp": 1766090060.3444016
+    },
+    {
+      "direction": "up",
+      "delay": 0.01705479621887207,
+      "timestamp": 1766090060.3614566
+    },
+    {
+      "direction": "up",
+      "delay": 0.017152786254882812,
+      "timestamp": 1766090060.3786097
+    },
+    {
+      "direction": "up",
+      "delay": 0.016053438186645508,
+      "timestamp": 1766090060.3946633
+    },
+    {
+      "direction": "up",
+      "delay": 0.015900135040283203,
+      "timestamp": 1766090060.4105642
+    },
+    {
+      "direction": "up",
+      "delay": 0.015996217727661133,
+      "timestamp": 1766090060.4265604
+    },
+    {
+      "direction": "up",
+      "delay": 0.015909671783447266,
+      "timestamp": 1766090060.4424703
+    },
+    {
+      "direction": "up",
+      "delay": 0.0171353816986084,
+      "timestamp": 1766090060.459606
+    },
+    {
+      "direction": "up",
+      "delay": 0.015918493270874023,
+      "timestamp": 1766090060.4755247
+    },
+    {
+      "direction": "up",
+      "delay": 0.01579761505126953,
+      "timestamp": 1766090060.491323
+    },
+    {
+      "direction": "up",
+      "delay": 0.016913890838623047,
+      "timestamp": 1766090060.5082371
+    },
+    {
+      "direction": "up",
+      "delay": 0.017102479934692383,
+      "timestamp": 1766090060.5253398
+    },
+    {
+      "direction": "up",
+      "delay": 0.016921520233154297,
+      "timestamp": 1766090060.5422616
+    },
+    {
+      "direction": "up",
+      "delay": 0.016729354858398438,
+      "timestamp": 1766090060.5589912
+    },
+    {
+      "direction": "up",
+      "delay": 0.015863656997680664,
+      "timestamp": 1766090060.574855
+    },
+    {
+      "direction": "up",
+      "delay": 0.016216754913330078,
+      "timestamp": 1766090060.591072
+    },
+    {
+      "direction": "up",
+      "delay": 0.015836477279663086,
+      "timestamp": 1766090060.606909
+    },
+    {
+      "direction": "up",
+      "delay": 0.01599574089050293,
+      "timestamp": 1766090060.622905
+    },
+    {
+      "direction": "up",
+      "delay": 0.01611161231994629,
+      "timestamp": 1766090060.6390169
+    },
+    {
+      "direction": "up",
+      "delay": 0.01577162742614746,
+      "timestamp": 1766090060.6547892
+    },
+    {
+      "direction": "up",
+      "delay": 0.01648712158203125,
+      "timestamp": 1766090060.6712763
+    },
+    {
+      "direction": "up",
+      "delay": 0.01570272445678711,
+      "timestamp": 1766090060.686979
+    },
+    {
+      "direction": "up",
+      "delay": 0.01617884635925293,
+      "timestamp": 1766090060.7031584
+    },
+    {
+      "direction": "up",
+      "delay": 0.01587533950805664,
+      "timestamp": 1766090060.7190342
+    },
+    {
+      "direction": "up",
+      "delay": 0.015895366668701172,
+      "timestamp": 1766090060.73493
+    },
+    {
+      "direction": "up",
+      "delay": 0.01611185073852539,
+      "timestamp": 1766090060.7510421
+    },
+    {
+      "direction": "up",
+      "delay": 0.01593184471130371,
+      "timestamp": 1766090060.7669742
+    },
+    {
+      "direction": "up",
+      "delay": 0.01611638069152832,
+      "timestamp": 1766090060.7830908
+    },
+    {
+      "direction": "up",
+      "delay": 0.01575183868408203,
+      "timestamp": 1766090060.7988427
+    },
+    {
+      "direction": "up",
+      "delay": 0.016089916229248047,
+      "timestamp": 1766090060.8149328
+    },
+    {
+      "direction": "up",
+      "delay": 0.016048908233642578,
+      "timestamp": 1766090060.830982
+    },
+    {
+      "direction": "up",
+      "delay": 0.0159609317779541,
+      "timestamp": 1766090060.8469431
+    },
+    {
+      "direction": "up",
+      "delay": 0.01625990867614746,
+      "timestamp": 1766090060.8632033
+    },
+    {
+      "direction": "up",
+      "delay": 0.01580977439880371,
+      "timestamp": 1766090060.879013
+    },
+    {
+      "direction": "up",
+      "delay": 0.01608586311340332,
+      "timestamp": 1766090060.8950992
+    },
+    {
+      "direction": "up",
+      "delay": 0.015920400619506836,
+      "timestamp": 1766090060.9110198
+    },
+    {
+      "direction": "up",
+      "delay": 0.01607966423034668,
+      "timestamp": 1766090060.9270997
+    },
+    {
+      "direction": "up",
+      "delay": 0.04681968688964844,
+      "timestamp": 1766090060.9739194
+    },
+    {
+      "direction": "up",
+      "delay": 0.016680240631103516,
+      "timestamp": 1766090060.9905999
+    },
+    {
+      "direction": "up",
+      "delay": 0.015907764434814453,
+      "timestamp": 1766090061.0065079
+    },
+    {
+      "direction": "up",
+      "delay": 0.016115427017211914,
+      "timestamp": 1766090061.0226235
+    },
+    {
+      "direction": "up",
+      "delay": 0.015880823135375977,
+      "timestamp": 1766090061.0385046
+    },
+    {
+      "direction": "up",
+      "delay": 0.016224384307861328,
+      "timestamp": 1766090061.0547292
+    },
+    {
+      "direction": "up",
+      "delay": 0.01581406593322754,
+      "timestamp": 1766090061.0705435
+    },
+    {
+      "direction": "up",
+      "delay": 0.016121387481689453,
+      "timestamp": 1766090061.0866652
+    },
+    {
+      "direction": "up",
+      "delay": 0.01591038703918457,
+      "timestamp": 1766090061.1025758
+    },
+    {
+      "direction": "up",
+      "delay": 0.016457796096801758,
+      "timestamp": 1766090061.1190338
+    },
+    {
+      "direction": "up",
+      "delay": 0.015624284744262695,
+      "timestamp": 1766090061.1346583
+    },
+    {
+      "direction": "up",
+      "delay": 0.016434431076049805,
+      "timestamp": 1766090061.151093
+    },
+    {
+      "direction": "up",
+      "delay": 0.016196250915527344,
+      "timestamp": 1766090061.1672895
+    },
+    {
+      "direction": "up",
+      "delay": 0.016543865203857422,
+      "timestamp": 1766090061.1838338
+    },
+    {
+      "direction": "up",
+      "delay": 0.01641058921813965,
+      "timestamp": 1766090061.2002444
+    },
+    {
+      "direction": "up",
+      "delay": 0.017098188400268555,
+      "timestamp": 1766090061.217343
+    },
+    {
+      "direction": "up",
+      "delay": 0.015927553176879883,
+      "timestamp": 1766090061.233271
+    },
+    {
+      "direction": "up",
+      "delay": 0.01608872413635254,
+      "timestamp": 1766090061.2493598
+    },
+    {
+      "direction": "up",
+      "delay": 0.01593494415283203,
+      "timestamp": 1766090061.2652948
+    },
+    {
+      "direction": "up",
+      "delay": 0.016087055206298828,
+      "timestamp": 1766090061.281382
+    },
+    {
+      "direction": "up",
+      "delay": 0.0158536434173584,
+      "timestamp": 1766090061.2972357
+    },
+    {
+      "direction": "up",
+      "delay": 0.017097949981689453,
+      "timestamp": 1766090061.3143342
+    },
+    {
+      "direction": "up",
+      "delay": 0.016840696334838867,
+      "timestamp": 1766090061.331175
+    },
+    {
+      "direction": "up",
+      "delay": 0.017161130905151367,
+      "timestamp": 1766090061.3483365
+    },
+    {
+      "direction": "up",
+      "delay": 0.01687002182006836,
+      "timestamp": 1766090061.3652065
+    },
+    {
+      "direction": "up",
+      "delay": 0.016991615295410156,
+      "timestamp": 1766090061.382198
+    },
+    {
+      "direction": "up",
+      "delay": 0.017150402069091797,
+      "timestamp": 1766090061.399349
+    },
+    {
+      "direction": "up",
+      "delay": 0.01690840721130371,
+      "timestamp": 1766090061.4162574
+    },
+    {
+      "direction": "up",
+      "delay": 0.017092466354370117,
+      "timestamp": 1766090061.4333498
+    },
+    {
+      "direction": "up",
+      "delay": 0.017064571380615234,
+      "timestamp": 1766090061.4504147
+    },
+    {
+      "direction": "up",
+      "delay": 0.017038583755493164,
+      "timestamp": 1766090061.4674535
+    },
+    {
+      "direction": "up",
+      "delay": 0.017141103744506836,
+      "timestamp": 1766090061.484595
+    },
+    {
+      "direction": "up",
+      "delay": 0.015912294387817383,
+      "timestamp": 1766090061.5005074
+    }
+  ]
+}

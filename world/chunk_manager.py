@@ -66,16 +66,18 @@ class Chunk:
 class ChunkManager:
     """Manages chunk loading/unloading and save/load to JSON"""
 
-    def __init__(self, save_slot: int, terrain_gen):
+    def __init__(self, save_slot: int, terrain_gen, performance_monitor=None):
         """
         Initialize ChunkManager for a specific save slot
         
         Args:
             save_slot: Save slot number (1-3)
             terrain_gen: TerrainGenerator instance for new chunk generation
+            performance_monitor: Optional PerformanceMonitor instance for metrics
         """
         self.save_slot = save_slot
         self.terrain_gen = terrain_gen
+        self.performance_monitor = performance_monitor
         self.loaded_chunks: Dict[Tuple[int, int], Chunk] = {}
         self.player_chunk_pos = None  # Changed from (0, 0) to None to force initial load
         
@@ -189,7 +191,11 @@ class ChunkManager:
         Args:
             chunk: Chunk instance to save
         """
+        import time
         chunk_file = self._get_chunk_filename(chunk.chunk_x, chunk.chunk_y)
+        
+        # Start timing chunk save
+        save_start_time = time.perf_counter()
         
         # Prepare chunk data for JSON serialization
         save_data = {
@@ -202,6 +208,11 @@ class ChunkManager:
         try:
             with open(chunk_file, 'w') as f:
                 json.dump(save_data, f, indent=2)
+            
+            # Record chunk save time
+            save_time = time.perf_counter() - save_start_time
+            if self.performance_monitor:
+                self.performance_monitor.record_chunk_save(chunk.chunk_x, chunk.chunk_y, save_time)
         except Exception as e:
             print(f"Error saving chunk ({chunk.chunk_x}, {chunk.chunk_y}): {e}")
 
@@ -415,6 +426,7 @@ class ChunkManager:
 
     def _chunk_loader_worker(self):
         """Worker thread that loads chunks from the queue"""
+        import time
         while self.running:
             try:
                 # Get chunk coordinates from queue (timeout prevents hanging)
@@ -424,6 +436,9 @@ class ChunkManager:
                 if (chunk_x, chunk_y) in self.loaded_chunks:
                     self.pending_chunks.discard((chunk_x, chunk_y))
                     continue
+                
+                # Start timing chunk load
+                load_start_time = time.perf_counter()
                 
                 # Load or generate chunk
                 chunk = self._load_chunk_from_file(chunk_x, chunk_y)
@@ -435,6 +450,11 @@ class ChunkManager:
                 
                 # Pre-render chunk surface in background thread
                 chunk.render_to_surface()
+                
+                # Record chunk load time
+                load_time = time.perf_counter() - load_start_time
+                if self.performance_monitor:
+                    self.performance_monitor.record_chunk_load(chunk_x, chunk_y, load_time)
                 
                 # Put result in results queue
                 self.chunk_load_results.put((chunk_x, chunk_y, chunk))

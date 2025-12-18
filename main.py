@@ -16,6 +16,9 @@ from ui.graphics_settings import GraphicsSettings
 from ui.controls_settings import ControlsSettings
 from ui.save_menu import SaveMenu
 from world.player_data_manager import PlayerDataManager
+from analytics.performance_monitor import PerformanceMonitor
+from analytics.logger import PerformanceLogger
+import time
 
 def get_desktop_resolution():
     """Get desktop resolution using OS-specific method"""
@@ -81,6 +84,12 @@ def main():
     """Hauptfunktion"""
     pygame.init()
     
+    # Initialize performance monitoring (always enabled)
+    performance_monitor = PerformanceMonitor()
+    logger = PerformanceLogger()
+    logger.start_log()
+    print("[Main] Performance monitoring enabled")
+    
     # Load display mode from settings
     from config.settings_manager import settings_manager
     settings_manager.load_settings()
@@ -127,6 +136,7 @@ def main():
     running = True
     while running:
         dt = clock.tick(settings.FPS) / 1000.0
+        performance_monitor.start_frame()  # Start frame timing
         
         # Event handling
         for event in pygame.event.get():
@@ -149,7 +159,7 @@ def main():
                     building_sprites = pygame.sprite.Group()
                     
                     # Welt erstellen mit save_slot Parameter
-                    world = World(all_sprites, resource_sprites, save_slot=selected_slot)
+                    world = World(all_sprites, resource_sprites, save_slot=selected_slot, performance_monitor=performance_monitor)
                     
                     # Initialize PlayerDataManager for save/load
                     player_data_manager = PlayerDataManager(selected_slot)
@@ -162,6 +172,7 @@ def main():
                     player = Player(
                         pos=(start_world_x, start_world_y),
                         input_handler=input_handler,
+                        performance_monitor=performance_monitor
                     )
                     all_sprites.add(player, layer=settings.LAYER_PLAYER)
                     
@@ -304,12 +315,15 @@ def main():
         if game_initialized:
             # Update (nur wenn kein Menü aktiv ist)
             if not (pause_menu.active or settings_menu.active or save_menu.active):
+                performance_monitor.start_update()
                 input_handler.update()
                 all_sprites.update(dt)
                 camera.update(dt)
                 world.update(player.rect.center)
+                performance_monitor.end_update()
             
             # Render
+            performance_monitor.start_render()
             screen.fill(settings.COLOR_BG)
             world.draw_grid(screen, camera)
             
@@ -348,7 +362,31 @@ def main():
             screen.fill(settings.COLOR_BG)
             save_menu.draw(screen)
         
+        performance_monitor.end_render()  # End render timing
         pygame.display.flip()
+    
+    # Save performance logs before quitting
+    print("\n" + "="*60)
+    print("PERFORMANCE STATISTICS")
+    print("="*60)
+    stats = performance_monitor.get_stats()
+    performance_monitor.print_stats()
+    
+    # Save to logger
+    logger.log_stats(stats)
+    
+    # Log chunk events
+    for event in performance_monitor.chunk_load_events:
+        logger.log_chunk_event(event)
+    
+    # Log movement events
+    for event in performance_monitor.movement_events:
+        logger.log_movement_event(event)
+    
+    # Save log file
+    logger.save_log()
+    
+    print("="*60 + "\n")
     
     pygame.quit()
 

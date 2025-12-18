@@ -8,7 +8,7 @@ from core import settings
 class Player(pygame.sprite.Sprite):
     """Spieler-Charakter mit Top-Down-Bewegung"""
     
-    def __init__(self, pos, input_handler, *groups):
+    def __init__(self, pos, input_handler, *groups, performance_monitor=None):
         super().__init__(*groups)
         self.image = pygame.Surface((settings.TILE_SIZE, settings.TILE_SIZE))
         self.image.fill(settings.COLOR_PLAYER)
@@ -17,6 +17,7 @@ class Player(pygame.sprite.Sprite):
         self.input_handler = input_handler
         self.speed = settings.PLAYER_SPEED
         self._layer = settings.LAYER_PLAYER
+        self.performance_monitor = performance_monitor
         
         # Inventar-System (für später)
         self.inventory = {}
@@ -24,6 +25,16 @@ class Player(pygame.sprite.Sprite):
     def update(self, dt):
         """Aktualisiert die Spielerposition basierend auf Input"""
         move = self.input_handler.move_dir * self.speed * dt
+        
+        # Record movement for performance metrics
+        if self.performance_monitor and move.length_squared() > 0:
+            # Determine direction
+            if abs(move.x) > abs(move.y):
+                direction = "right" if move.x > 0 else "left"
+            else:
+                direction = "down" if move.y > 0 else "up"
+            self.performance_monitor.record_movement(direction)
+        
         self.rect.x += move.x
         self.rect.y += move.y
     

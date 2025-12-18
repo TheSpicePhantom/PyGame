@@ -9,7 +9,7 @@ from world.chunk_manager import ChunkManager
 class World:
     """Verwaltet die Spielwelt mit dynamischen Chunks und prozeduralem Terrain"""
     
-    def __init__(self, all_sprites, resource_sprites, save_slot=1, seed=None): 
+    def __init__(self, all_sprites, resource_sprites, save_slot=1, seed=None, performance_monitor=None): 
         self.all_sprites = all_sprites
         self.all_sprites = all_sprites
         self.resource_sprites = resource_sprites
@@ -20,7 +20,7 @@ class World:
         print(f"[World] Terrain generator initialized with seed: {self.terrain_gen.seed}")
         
         # Initialize chunk manager
-        self.chunk_manager = ChunkManager(save_slot, self.terrain_gen)
+        self.chunk_manager = ChunkManager(save_slot, self.terrain_gen, performance_monitor=performance_monitor)
         
         # Load or set seed
         existing_seed = self.chunk_manager.get_seed()
