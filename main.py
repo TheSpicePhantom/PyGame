@@ -15,6 +15,7 @@ from ui.audio_settings import AudioSettings
 from ui.graphics_settings import GraphicsSettings
 from ui.controls_settings import ControlsSettings
 from ui.save_menu import SaveMenu
+from world.player_data_manager import PlayerDataManager
 
 def get_desktop_resolution():
     """Get desktop resolution using OS-specific method"""
@@ -146,14 +147,15 @@ def main():
                     
                     # Welt erstellen mit save_slot Parameter
                     world = World(all_sprites, resource_sprites, save_slot=selected_slot)
+
+                            # Initialize PlayerDataManager for save/load
+                            player_data_manager = PlayerDataManager(selected_slot)
                     
                     # Input & Player
                     input_handler = InputHandler()
                     
-                    # Player startet in der Mitte der Welt
-                    start_world_x = settings.WORLD_SIZE_TILES * settings.TILE_SIZE // 2
-                    start_world_y = settings.WORLD_SIZE_TILES * settings.TILE_SIZE // 2
-                    
+        # Get player spawn position from save or use default
+        start_world_x, start_world_y = player_data_manager.get_spawn_position()                    
                     player = Player(
                         pos=(start_world_x, start_world_y),
                         input_handler=input_handler,
