@@ -65,8 +65,11 @@ class PlayerDataManager:
             pos = player_data['position']
             return (pos['x'], pos['y'])
         
-        # Default spawn at origin
-        return (0, 0)
+        # Default spawn at center of world
+        from core import settings
+        start_x = settings.WORLD_SIZE_TILES * settings.TILE_SIZE // 2
+        start_y = settings.WORLD_SIZE_TILES * settings.TILE_SIZE // 2
+        return (start_x, start_y)
     
     def player_exists(self) -> bool:
         """Check if player data exists for this slot"""

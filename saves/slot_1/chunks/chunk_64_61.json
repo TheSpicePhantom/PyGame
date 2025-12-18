@@ -3,2511 +3,2511 @@
     64,
     61
   ],
-  "seed": 719163,
+  "seed": 7427,
   "tiles": [
     [
       {
-        "biome": "water:shallow",
-        "height": 0.464854370545251,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5730393626512432,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46430738843071984,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5726007561805561,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4641506009225823,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5717624379740873,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4641202845847041,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5701991036210262,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46390435178523826,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5676540565458312,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4632767086431864,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5640481549682471,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46220360020543744,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5595038294762193,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.460829684687484,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5543997775981947,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45928408531422127,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5493856953128022,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4575857851257349,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.544979532980793,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45580884155735424,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5411867455469165,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45407293282039507,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5377368734080054,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45244621961132603,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5343616777184115,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4509601559796873,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5309670544858982,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44959846982357565,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5278055341783163,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.46562706804822274,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5741820558380304,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46499321849412417,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5735909960837444,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46481212528182414,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5725913025431643,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4648692804334173,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5708323616948049,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46483976827935813,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5680180733918907,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46442201887627904,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5640328981996869,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4634667366982835,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5589789685207235,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4620599843259371,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5531680539165663,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46038656093275526,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5472281436734338,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45858408804466927,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5417610826472931,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45680470074046436,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5369762852161126,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4551974419358643,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5328377366818737,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45386488387719354,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5291919999117304,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45281114315858234,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5259197405848299,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45194591824391345,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5230998181216897,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.4665798772384823,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5745084846040275,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4659415685520371,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5736361461342804,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4657246445179848,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5724019748923032,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46580313019775704,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5705340587036066,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4658887507559307,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5677276201384197,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4656581576337123,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.563773140836964,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46489140808551976,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5586385007179353,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46356353593927,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5525647287293142,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4618196195698608,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.546138233473598,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45984481074886563,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.539951295110336,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45785188129297016,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5344063350499622,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4560750139204932,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.529683998279243,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4546809378442142,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5257660919048134,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45369831730226395,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.522539652746469,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45301829096017265,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5199667137651826,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.4675387529841425,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5737639951992544,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46694801848241707,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5725127724830184,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4667202263543077,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5710214465325454,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.466809529509232,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.569138233160351,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4669691858891696,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5665657453201604,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46686982549855754,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.562974193177226,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4662206736883033,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5581560833113061,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4649022889230124,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5522487502491106,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4629898346030384,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5458245033136633,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4606807907418616,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5394440001766339,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4582824369574563,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5335516874313164,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4561069776711094,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5284744536570896,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45437620426000536,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5243418264108902,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4531694687966244,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5211018345346913,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4524258049029659,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5186558417618906,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.46824285168571084,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.571965047037716,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4676690245207313,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5702531337644965,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4673969952506779,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5684787661655597,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46745871321119653,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5666277714135519,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4676298563832259,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5644185455887691,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46750675236750333,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5614361766722169,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4667370220952862,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5573249817421762,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4652214339576986,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5520934168633128,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4630522784850359,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5461633690094743,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46040427558777564,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5400618857985486,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45759965895797494,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5342451980548597,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4550025240048637,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5290733280806791,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4528924967309962,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5247663644516419,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4514003079745783,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5213808918394804,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45051776677494393,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5188830909252976,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.4685708405125506,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5694099011281835,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46791630946555274,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5672100522043124,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4675033651304515,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5651217250366152,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4674254298395291,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5632720143180632,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46739687068498437,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5614478307762933,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4669688131768464,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5591962394545914,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46585012128332753,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5560647482504044,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4640230000598336,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5518987983281224,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4616214564961481,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5468653029967203,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45879432366429695,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5413885738966755,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45580789355738016,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5359474388820018,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45300169669939744,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5308904893297681,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45067587493800826,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5264718537174535,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4490102938444631,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5228429774007475,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4480496714315457,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5200931149784214,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.4685984019622121,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5665240462739402,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46774418865111,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5638876548139062,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4670637010255516,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5614608943558156,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46663045479577514,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5595231649948162,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4661250847736393,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5579688519276762,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4651913907627294,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5563873462852169,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46365931902908103,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5542958605389712,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4615645401407717,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.551316548176078,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45906620827206684,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5473611411442635,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45628368685810716,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5427119220387698,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4534002060011575,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5378376544802808,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45066844997034355,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5330559391633581,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4483512086092192,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.528619868797693,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4466329164507137,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5247667856167126,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4455566787314579,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.52175604797294,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.4684512834389836,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.563605965399318,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4673191346016198,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5606535639195149,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4662708801313581,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5579070892043981,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46531409204756274,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5557795904648453,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4642244540926218,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5543235288804538,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46280075614021376,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5532398695487134,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46095143941840155,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5519934815470112,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45872066136597034,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5500405740584426,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45627006193857733,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5470930005804773,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4537170323458218,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5432909881538893,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4511548397668976,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.539055585162422,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4487038593217572,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5346633710704335,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4465151728970162,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5303642000960622,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44466961849892417,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.526528110256495,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4432604309832723,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5234939347816893,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.46817699934274143,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5606814973519723,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46675937481553326,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5575665189952318,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4653890109967739,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5546350225221318,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4640094714159634,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5523553050525075,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4625025332576547,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5508991689983472,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46077135582231504,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5500478608319388,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45877025550124956,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5492768721303476,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4565299092739004,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.547982573404246,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4541862554578217,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5457725218229643,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4518957615685785,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5426821586188552,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44969557917642194,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5390630960282171,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44754537332424926,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5351437870042508,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44537443168625557,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5312353888149993,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44319775459644684,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5277486612426435,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44126780680749306,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5249372554812528,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.46791798690783765,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5578014086462307,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.466275328312893,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5546590259311469,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46475871981938344,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5518064806928736,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46324834058024594,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.549549288865999,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46162773089995573,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5480444843345418,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45983450405716364,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5471436958811392,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4578347735511876,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5464142763507185,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45564190409893146,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5453173901080617,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.453357332483478,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5434747461926533,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4511718275379593,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5408881571912194,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4491453776958398,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5378230127981932,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4470648570223833,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5344773953255488,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44467467251504544,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5311899278687611,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.442034625911477,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5282672529510457,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.43956085759598307,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5258116564771212,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.4679220041440357,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5553364379294109,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4661442106254404,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5522588467162426,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4645500248261823,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5496889800137448,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4631190494527619,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5476434404728003,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46166413727344147,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.54611850628107,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4600256236094953,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5449566073540193,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4581130524483827,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5438515876850655,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45592316557138984,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5424671693920708,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4535668838932781,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5406091044946926,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45124128916095785,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5383252650351352,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44904536284940394,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5357618386113444,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4466984545036518,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5330612147033792,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44391951845914485,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.530482904292216,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4408333531270054,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5281742729501192,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.43794201802890903,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5261060301778154,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.46830288690563093,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5535165296993778,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4664722757356617,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5506303068699608,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4648734637712828,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5484882476685905,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4635459310822576,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5468115946474058,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4622932864613146,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5453337902587965,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46082399443379274,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5438313017251706,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45893811725947437,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.542103680331776,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45660604719265413,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5400694179331382,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4539919402896268,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5378436408608278,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4513534188760124,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5356590726427437,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4487461171862812,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5335437438298047,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4459156204233958,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5314833802183351,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4426818356425438,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5295734950417749,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4392405077781331,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5278043542088001,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4361359418538194,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.526057205397882,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.46913638566486254,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5522593593761469,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46728642475520343,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5497071139982694,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4657216039401277,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5480996687433547,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4644400303792459,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5469324076446214,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4632468613477392,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5456371027041158,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4617461814009527,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5438730240155766,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45966339920236704,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5415202473346638,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45698072215433105,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5387454472833626,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4539692101810467,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5359854345195093,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45095816917585385,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5336910975372111,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44795094475304986,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.531885008782109,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.444660387211822,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5303822631035043,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4410080127163824,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5290373818883375,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4373047438087876,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5276605100463051,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.434131518841975,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5260619417879329,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.47043093884270737,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5512941315731789,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4685272502309213,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5491585895175602,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4669439882253932,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.548116673111167,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46558077510776125,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5475313728839665,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4642238162989516,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5465861191197713,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46242394568823725,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5447913680705622,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45989634939498547,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5420588504375388,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45672272896607635,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5387296720439779,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4532755917845979,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5355080034003602,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4498711069180992,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5330054759613052,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44652723162139074,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5313496762783921,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44299050061348244,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.530267703476536,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4391674692253563,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5293276941702075,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.43541158210278047,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5281680106809048,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.43231759741318043,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5265223845658876,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ],
     [
       {
-        "biome": "water:shallow",
-        "height": 0.47209004651728526,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.550357157328957,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4700385914042629,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5486050082314728,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46831531794950854,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5480338746213795,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46671068823213113,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5479932441846063,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4649720027908905,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5475264021427642,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.46265050439481015,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5459939800484575,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4595366114344018,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5432402140441758,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.45581233334772653,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5397069263586213,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4518638367958846,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5362366251043146,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44801007532808135,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5335716222956235,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.44437151667171326,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5320035776527663,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4407799503638094,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5312368342552716,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.43709039631333324,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.530590226194239,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.43359150553275627,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5295134495599487,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       },
       {
-        "biome": "water:shallow",
-        "height": 0.4308029376819752,
-        "tile_id": "core:shallow_water",
+        "biome": "terrain:beach",
+        "height": 0.5276815837389591,
+        "tile_id": "core:sand",
         "color": [
-          40,
-          100,
-          180
+          220,
+          200,
+          160
         ],
-        "traversable": false
+        "traversable": true
       }
     ]
   ],

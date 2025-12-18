@@ -147,15 +147,15 @@ def main():
                     
                     # Welt erstellen mit save_slot Parameter
                     world = World(all_sprites, resource_sprites, save_slot=selected_slot)
-
-                            # Initialize PlayerDataManager for save/load
-                            player_data_manager = PlayerDataManager(selected_slot)
+                    
+                    # Initialize PlayerDataManager for save/load
+                    player_data_manager = PlayerDataManager(selected_slot)
                     
                     # Input & Player
                     input_handler = InputHandler()
                     
-        # Get player spawn position from save or use default
-        start_world_x, start_world_y = player_data_manager.get_spawn_position()                    
+                    # Get player spawn position from save or use default
+                    start_world_x, start_world_y = player_data_manager.get_spawn_position()
                     player = Player(
                         pos=(start_world_x, start_world_y),
                         input_handler=input_handler,
@@ -188,16 +188,10 @@ def main():
                     save_menu.active = False
                     game_initialized = True
                     print(f"[Main] Game initialized with slot {selected_slot}")
-                    continue
-        
-        # Once game is initialized, run normal game loop
-        if game_initialized:
-            # Event handling
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                    continue
-                
+                continue
+            
+            # Game is initialized - handle normal game events
+            if game_initialized:
                 # ESC-Handling (hat Priorität)
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
@@ -242,8 +236,22 @@ def main():
                         slot_num = int(result.split("_")[1])
                         world.save_slot = slot_num
                         world.chunk_manager.save_slot = slot_num
+                        
+                        # Update player position in world metadata
+                        world.chunk_manager.update_player_position(player.rect.centerx, player.rect.centery)
+                        
+                        # Save all chunks
                         world.chunk_manager.save_all_chunks()
-                        print(f"[Main] Game saved to slot {slot_num}")
+                        
+                        # Save player data
+                        player_save_manager = PlayerDataManager(slot_num)
+                        player_save_manager.save_player(
+                            position=(player.rect.centerx, player.rect.centery),
+                            inventory={},  # TODO: Implement inventory
+                            faction_data={'policies': [], 'allies': [], 'enemies': []}  # TODO: Implement faction
+                        )
+                        
+                        print(f"[Main] Game saved to slot {slot_num} at position ({player.rect.centerx}, {player.rect.centery})")
                         save_menu.active = False
                         pause_menu.active = True
                 
@@ -273,7 +281,9 @@ def main():
                 else:
                     # Normale Input-Events
                     input_handler.handle_event(event)
-            
+        
+        # Update and Render (outside event loop)
+        if game_initialized:
             # Update (nur wenn kein Menü aktiv ist)
             if not (pause_menu.active or settings_menu.active or save_menu.active):
                 input_handler.update()
@@ -303,7 +313,6 @@ def main():
                 save_menu.draw(screen)
             elif pause_menu.active:
                 pause_menu.draw(screen)
-        
         else:
             # Still in save slot selection
             screen.fill(settings.COLOR_BG)

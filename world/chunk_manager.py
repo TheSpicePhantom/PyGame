@@ -92,6 +92,11 @@ class ChunkManager:
     def get_seed(self) -> Optional[int]:
         """Get the world seed"""
         return self.metadata.get("seed")
+    
+    def update_player_position(self, x: float, y: float):
+        """Update player position in metadata"""
+        self.metadata["player_position"] = [x, y]
+        self.save_metadata()
 
     def world_to_chunk(self, world_x: float, world_y: float) -> Tuple[int, int]:
         """Convert world pixel coordinates to chunk coordinates"""
