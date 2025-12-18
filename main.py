@@ -130,72 +130,67 @@ def main():
                 running = False
                 continue
             
-            # Save menu slot selection
-            if not game_initialized and save_menu.active:
-                result = save_menu.handle_event(event)
-                if result and result.startswith("slot_"):
-                    # Extract slot number
-                    selected_slot = int(result.split("_")[1])
-                    print(f"[Main] Selected save slot: {selected_slot}")
-                    
-                    # Initialize game with selected slot
-                    # Sprite-Gruppen
-                    all_sprites = pygame.sprite.LayeredUpdates()
-                    resource_sprites = pygame.sprite.Group()
-                    building_sprites = pygame.sprite.Group()
-                    
-                    # Welt erstellen mit save_slot Parameter
-                    world = World(all_sprites, resource_sprites, save_slot=selected_slot)
-                    
-                    # Input & Player
-                    input_handler = InputHandler()
-                    
-                    # Player startet in der Mitte der Welt
-                    start_world_x = settings.WORLD_SIZE_TILES * settings.TILE_SIZE // 2
-                    start_world_y = settings.WORLD_SIZE_TILES * settings.TILE_SIZE // 2
-                    
-                    player = Player(
-                        pos=(start_world_x, start_world_y),
-                        input_handler=input_handler,
-                    )
-                    all_sprites.add(player, layer=settings.LAYER_PLAYER)
-                    
-                    # Kamera initialisieren und sofort auf Spielerposition setzen
-                    camera = Camera(target=player, lerp_speed=settings.CAMERA_LERP_SPEED)
-                    camera.x = player.rect.centerx
-                    camera.y = player.rect.centery
-                    
-                    # Pause-Menü und Settings-Menüs
-                    pause_menu = PauseMenu()
-                    settings_menu = SettingsMenu()
-                    
-                    # Menü-Referenzen setzen
-                    pause_menu.set_settings_menu(settings_menu)
-                    pause_menu.set_save_menu(save_menu)
-                    
-                    # Set references for UI refresh
-                    settings_menu.pause_menu = pause_menu
-                    settings_menu.save_menu = save_menu
-                    
-                    # Use submenu instances
-                    audio_settings = settings_menu.audio_menu
-                    graphics_settings = settings_menu.graphics_menu
-                    controls_settings = settings_menu.controls_menu
-                    
-                    # Deactivate save menu and start game
-                    save_menu.active = False
-                    game_initialized = True
-                    print(f"[Main] Game initialized with slot {selected_slot}")
-                    continue
-        
-        # Once game is initialized, run normal game loop
-        if game_initialized:
-            # Event handling
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                    continue
-                
+            # Save menu slot selection (before game is initialized)
+            if not game_initialized:
+                if save_menu.active:
+                    result = save_menu.handle_event(event)
+                    if result and result.startswith("slot_"):
+                        # Extract slot number
+                        selected_slot = int(result.split("_")[1])
+                        print(f"[Main] Selected save slot: {selected_slot}")
+                        
+                        # Initialize game with selected slot
+                        # Sprite-Gruppen
+                        all_sprites = pygame.sprite.LayeredUpdates()
+                        resource_sprites = pygame.sprite.Group()
+                        building_sprites = pygame.sprite.Group()
+                        
+                        # Welt erstellen mit save_slot Parameter
+                        world = World(all_sprites, resource_sprites, save_slot=selected_slot)
+                        
+                        # Input & Player
+                        input_handler = InputHandler()
+                        
+                        # Player startet in der Mitte der Welt
+                        start_world_x = settings.WORLD_SIZE_TILES * settings.TILE_SIZE // 2
+                        start_world_y = settings.WORLD_SIZE_TILES * settings.TILE_SIZE // 2
+                        
+                        player = Player(
+                            pos=(start_world_x, start_world_y),
+                            input_handler=input_handler,
+                        )
+                        all_sprites.add(player, layer=settings.LAYER_PLAYER)
+                        
+                        # Kamera initialisieren und sofort auf Spielerposition setzen
+                        camera = Camera(target=player, lerp_speed=settings.CAMERA_LERP_SPEED)
+                        camera.x = player.rect.centerx
+                        camera.y = player.rect.centery
+                        
+                        # Pause-Menü und Settings-Menüs
+                        pause_menu = PauseMenu()
+                        settings_menu = SettingsMenu()
+                        
+                        # Menü-Referenzen setzen
+                        pause_menu.set_settings_menu(settings_menu)
+                        pause_menu.set_save_menu(save_menu)
+                        
+                        # Set references for UI refresh
+                        settings_menu.pause_menu = pause_menu
+                        settings_menu.save_menu = save_menu
+                        
+                        # Use submenu instances
+                        audio_settings = settings_menu.audio_menu
+                        graphics_settings = settings_menu.graphics_menu
+                        controls_settings = settings_menu.controls_menu
+                        
+                        # Deactivate save menu and start game
+                        save_menu.active = False
+                        game_initialized = True
+                        print(f"[Main] Game initialized with slot {selected_slot}")
+                continue  # Skip to next frame after initialization
+            
+            # Game is initialized - handle normal game events
+            if game_initialized:
                 # ESC-Handling (hat Priorität)
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
@@ -271,7 +266,9 @@ def main():
                 else:
                     # Normale Input-Events
                     input_handler.handle_event(event)
-            
+        
+        # Update and Render (only if game is initialized)
+        if game_initialized:
             # Update (nur wenn kein Menü aktiv ist)
             if not (pause_menu.active or settings_menu.active or save_menu.active):
                 input_handler.update()
