@@ -120,6 +120,9 @@ def main():
     # Game state
     game_initialized = False
     
+    # Font caching (create once, reuse every frame)
+    debug_font = None
+    
     # Main menu loop (save slot selection)
     running = True
     while running:
@@ -187,6 +190,10 @@ def main():
                     # Deactivate save menu and start game
                     save_menu.active = False
                     game_initialized = True
+                    
+                    # Initialize cached fonts
+                    debug_font = pygame.font.Font(None, 24)
+                    
                     print(f"[Main] Game initialized with slot {selected_slot}")
                 continue
             
@@ -212,6 +219,13 @@ def main():
                             pause_menu.toggle()
                         continue
                     
+                    # F8 für Chunk-Grid Toggle (cycles: Off → Chunks → Chunks+Tiles)
+                    elif event.key == pygame.K_F8:
+                        world.grid_mode = (world.grid_mode + 1) % 3
+                        modes = ["OFF", "Chunks Only", "Chunks + Tiles"]
+                        print(f"[Main] Grid overlay: {modes[world.grid_mode]}")
+                        continue
+                    
                     # F11 für Vollbild-Toggle
                     elif event.key == pygame.K_F11:
                         if graphics_settings.display_mode == "windowed":
@@ -223,6 +237,8 @@ def main():
                         pause_menu._init_ui()
                         settings_menu.refresh_all_ui()
                         camera.update_screen_size()
+                        # Refresh visible chunks after screen size change
+                        world.refresh_visible_chunks(player.rect.center)
                         continue
                 
                 # Save-Menü Events
@@ -266,6 +282,8 @@ def main():
                         pause_menu._init_ui()
                         settings_menu.refresh_all_ui()
                         camera.update_screen_size()
+                        # Refresh visible chunks after screen size change
+                        world.refresh_visible_chunks(player.rect.center)
                 
                 # Pause-Menü Events
                 elif pause_menu.active:
@@ -298,13 +316,25 @@ def main():
             for sprite in all_sprites:
                 screen.blit(sprite.image, camera.apply(sprite))
             
+            # Draw chunk grid overlay (F8)
+            if world.grid_mode > 0:
+                world.draw_chunk_grid_overlay(screen, camera, player.rect.center)
+            
             # Debug info
             if not (pause_menu.active or settings_menu.active or save_menu.active):
-                font = pygame.font.Font(None, 24)
-                fps_text = font.render(f"FPS: {int(clock.get_fps())}", True, (255, 255, 255))
-                pos_text = font.render(f"Pos: ({player.rect.x}, {player.rect.y})", True, (255, 255, 255))
+                # Use cached font instead of creating new one every frame
+                fps_text = debug_font.render(f"FPS: {int(clock.get_fps())}", True, (255, 255, 255))
+                pos_text = debug_font.render(f"Pos: ({player.rect.x}, {player.rect.y})", True, (255, 255, 255))
                 screen.blit(fps_text, (10, 10))
                 screen.blit(pos_text, (10, 35))
+                
+                # Show chunk grid status
+                if world.grid_mode == 1:
+                    grid_text = debug_font.render("Grid: Chunks (F8)", True, (100, 255, 100))
+                    screen.blit(grid_text, (10, 60))
+                elif world.grid_mode == 2:
+                    grid_text = debug_font.render("Grid: Chunks + Tiles (F8)", True, (255, 200, 100))
+                    screen.blit(grid_text, (10, 60))
             
             # Menüs zeichnen
             if settings_menu.active:

@@ -62,8 +62,33 @@ PERSPECTIVE_TILE_HEIGHT_RATIO = 0.5  # For 60° view simulation
 CHUNK_SIZE = 15  # Tiles per chunk (15x15)
 WORLD_SIZE_CHUNKS = 128  # Max world size in chunks (128x128 chunks)
 WORLD_SIZE_TILES = CHUNK_SIZE * WORLD_SIZE_CHUNKS  # 1920x1920 tiles total
-CHUNK_LOAD_DISTANCE = 2  # Load chunks within N chunks of player
-CHUNK_UNLOAD_DISTANCE = 4  # Unload chunks farther than N chunks from player
+
+# Base chunk distances (for 1920x1080)
+_BASE_CHUNK_LOAD_DISTANCE = 2
+_BASE_CHUNK_UNLOAD_DISTANCE = 4
+
+def get_chunk_load_distance():
+    """Calculate chunk load distance based on screen size"""
+    screen_width, screen_height = get_screen_size()
+    chunk_size_pixels = CHUNK_SIZE * TILE_SIZE
+    
+    # Calculate how many chunks fit on screen
+    chunks_horizontal = (screen_width // chunk_size_pixels) + 1
+    chunks_vertical = (screen_height // chunk_size_pixels) + 1
+    
+    # Load visible area + 1 chunk buffer to prevent black edges
+    min_distance = max(chunks_horizontal, chunks_vertical) // 2 + 1  # +1 buffer
+    
+    # Cap at maximum for performance
+    return min(max(_BASE_CHUNK_LOAD_DISTANCE, min_distance), 6)  # Max 6 chunks distance
+
+def get_chunk_unload_distance():
+    """Calculate chunk unload distance based on load distance"""
+    return get_chunk_load_distance() + 2
+
+# Legacy constants for backward compatibility
+CHUNK_LOAD_DISTANCE = _BASE_CHUNK_LOAD_DISTANCE
+CHUNK_UNLOAD_DISTANCE = _BASE_CHUNK_UNLOAD_DISTANCE
 
 
 

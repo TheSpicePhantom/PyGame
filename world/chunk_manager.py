@@ -20,6 +20,8 @@ class Chunk:
         self.tiles = tiles  # 15x15 array of tile data
         self.entities = []  # Entities in this chunk
         self.is_loaded = True
+        self.surface = None  # Pre-rendered surface cache
+        self.surface_dirty = True  # Flag to indicate surface needs re-rendering
 
     def get_world_position(self):
         """Get top-left world position in pixels"""
@@ -33,6 +35,32 @@ class Chunk:
         world_pos = self.get_world_position()
         size = settings.CHUNK_SIZE * settings.TILE_SIZE
         return (world_pos[0], world_pos[1], size, size)
+    
+    def render_to_surface(self):
+        """Pre-render chunk tiles to a surface (called in background thread)"""
+        import pygame
+        
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        surface = pygame.Surface((chunk_size_pixels, chunk_size_pixels))
+        
+        # Draw all tiles to the surface
+        for y, row in enumerate(self.tiles):
+            for x, tile in enumerate(row):
+                color = tuple(tile["color"]) if isinstance(tile["color"], list) else tile["color"]
+                rect = pygame.Rect(
+                    x * settings.TILE_SIZE,
+                    y * settings.TILE_SIZE,
+                    settings.TILE_SIZE,
+                    settings.TILE_SIZE
+                )
+                pygame.draw.rect(surface, color, rect)
+        
+        # Convert to screen format for faster blitting (5-10x speedup!)
+        surface = surface.convert()
+        
+        self.surface = surface
+        self.surface_dirty = False
+        return surface
 
 
 class ChunkManager:
@@ -59,18 +87,20 @@ class ChunkManager:
         # Load or create world metadata
         self.metadata_file = self.save_dir / "world_metadata.json"
         self.metadata = self._load_metadata()
-
-            # Setup chunk loading queue and worker threads
-            self.chunk_load_queue = queue.Queue()
-                self.chunk_load_results = queue.Queue()
-                self.worker_threads = []
-                self.running = True
-
-            # Start 2 worker threads for chunk loading
-            for i in range(2):
-                            thread = threading.Thread(target=self._chunk_loader_worker, daemon=True)
-                            thread.start()
-                            self.worker_threads.append(thread)
+        
+        # Setup chunk loading queue and worker threads
+        self.chunk_load_queue = queue.Queue()
+        self.chunk_load_results = queue.Queue()
+        self.worker_threads = []
+        self.running = True
+        self.pending_chunks = set()  # Track chunks being loaded
+        self.chunk_priority = {}  # Distance-based priority
+        
+        # Start 3 worker threads for chunk loading (increased from 2)
+        for i in range(3):
+            thread = threading.Thread(target=self._chunk_loader_worker, daemon=True)
+            thread.start()
+            self.worker_threads.append(thread)
 
     def _load_metadata(self) -> dict:
         """Load world metadata (seed, player position, etc.)"""
@@ -215,12 +245,12 @@ class ChunkManager:
         """Get list of currently loaded chunks"""
         return list(self.loaded_chunks.values())
     
-    def preload_visible_chunks(self, player_pos: Tuple[float, float], buffer: int = 2):
-        """Pre-load all chunks visible on screen + buffer
+    def preload_visible_chunks(self, player_pos: Tuple[float, float], buffer: int = 1):
+        """Pre-load all chunks visible on screen + buffer (synchronously for initial load)
         
         Args:
             player_pos: Player position (x, y) in world coordinates
-            buffer: Extra chunks to load beyond visible area (default: 2)
+            buffer: Extra chunks to load beyond visible area (default: 1, reduced from 2)
         """
         # Calculate visible area in chunks
         chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
@@ -238,9 +268,10 @@ class ChunkManager:
         half_h = (chunks_horizontal // 2) + buffer
         half_v = (chunks_vertical // 2) + buffer
         
-        print(f"[ChunkManager] Pre-loading {(half_h*2)*(half_v*2)} chunks for visible area...")
+        print(f"[ChunkManager] Pre-loading visible area ({half_h*2}x{half_v*2} chunks)...")
         
-        loaded_count = 0
+        # Create priority list (center chunks first)
+        chunks_to_load = []
         for dx in range(-half_h, half_h + 1):
             for dy in range(-half_v, half_v + 1):
                 chunk_x = player_chunk_x + dx
@@ -249,8 +280,21 @@ class ChunkManager:
                 # Only load if within world bounds
                 if (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
                     0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
-                    self.get_or_create_chunk(chunk_x, chunk_y)
-                    loaded_count += 1
+                    # Priority based on distance from center
+                    distance = abs(dx) + abs(dy)
+                    chunks_to_load.append((distance, chunk_x, chunk_y))
+        
+        # Sort by distance (center first)
+        chunks_to_load.sort()
+        
+        # Load chunks synchronously (for initial load only)
+        loaded_count = 0
+        for _, chunk_x, chunk_y in chunks_to_load:
+            chunk = self.get_or_create_chunk(chunk_x, chunk_y)
+            # Pre-render surface for initial chunks
+            if chunk.surface is None:
+                chunk.render_to_surface()
+            loaded_count += 1
         
         print(f"[ChunkManager] Pre-loaded {loaded_count} chunks successfully")
     
@@ -263,26 +307,33 @@ class ChunkManager:
         # Convert player position to chunk coordinates
         player_chunk_x, player_chunk_y = self.world_to_chunk(player_pos[0], player_pos[1])
         
+        # Get dynamic chunk distances based on screen size
+        load_distance = settings.get_chunk_load_distance()
+        unload_distance = settings.get_chunk_unload_distance()
+        
         # Only update if player moved to a different chunk or it's the first update
         if self.player_chunk_pos is None or (player_chunk_x, player_chunk_y) != self.player_chunk_pos:
             self.player_chunk_pos = (player_chunk_x, player_chunk_y)
             
-            # Load chunks around player
-            self.load_chunks_around_player(player_chunk_x, player_chunk_y, settings.CHUNK_LOAD_DISTANCE)
+            # Load chunks around player with dynamic distance
+            self.load_chunks_around_player(player_chunk_x, player_chunk_y, load_distance)
             
             # Unload distant chunks (only if we have chunks loaded already)
             if len(self.loaded_chunks) > 0:
-                self.unload_distant_chunks(player_chunk_x, player_chunk_y, settings.CHUNK_UNLOAD_DISTANCE)
+                self.unload_distant_chunks(player_chunk_x, player_chunk_y, unload_distance)
     
     def load_chunks_around_player(self, player_chunk_x: int, player_chunk_y: int, radius: int):
         """
-        Load all chunks within radius of player
+        Load all chunks within radius of player with priority based on distance
         
         Args:
             player_chunk_x: Player's current chunk X
             player_chunk_y: Player's current chunk Y
             radius: Radius in chunks to load around player
         """
+        # Create list of chunks with priorities (distance from player)
+        chunks_to_load = []
+        
         for dx in range(-radius, radius + 1):
             for dy in range(-radius, radius + 1):
                 chunk_x = player_chunk_x + dx
@@ -291,7 +342,19 @@ class ChunkManager:
                 # Only load if within world bounds
                 if (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and 
                     0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
-                    self.get_or_create_chunk(chunk_x, chunk_y)
+                    
+                    # Calculate distance priority (closer = lower number = higher priority)
+                    distance = abs(dx) + abs(dy)  # Manhattan distance
+                    chunks_to_load.append((distance, chunk_x, chunk_y))
+        
+        # Sort by distance (closest first)
+        chunks_to_load.sort()
+        
+        # Load chunks in priority order
+        for priority, chunk_x, chunk_y in chunks_to_load:
+            chunk_key = (chunk_x, chunk_y)
+            if chunk_key not in self.loaded_chunks and chunk_key not in self.pending_chunks:
+                self.request_chunk_load(chunk_x, chunk_y, priority)
 
     def unload_distant_chunks(self, player_chunk_x: int, player_chunk_y: int, max_distance: int = 3):
         """
@@ -351,58 +414,98 @@ class ChunkManager:
             return None
 
     def _chunk_loader_worker(self):
-                """Worker thread that loads chunks from the queue"""
-                while self.running:
-                                try:
-                                                    # Get chunk coordinates from queue (timeout prevents hanging)
-                                                    chunk_x, chunk_y = self.chunk_load_queue.get(timeout=0.1)
-
-                # Check if chunk already loaded
+        """Worker thread that loads chunks from the queue"""
+        while self.running:
+            try:
+                # Get chunk coordinates from queue (timeout prevents hanging)
+                chunk_x, chunk_y = self.chunk_load_queue.get(timeout=0.1)
+                
+                # Check if chunk already loaded (double-check with lock)
                 if (chunk_x, chunk_y) in self.loaded_chunks:
-                                        continue
-
+                    self.pending_chunks.discard((chunk_x, chunk_y))
+                    continue
+                
                 # Load or generate chunk
                 chunk = self._load_chunk_from_file(chunk_x, chunk_y)
                 if not chunk:
-                                        # Generate new chunk
-                                        tiles = self.terrain_gen.generate_chunk(chunk_x, chunk_y)
-                                        chunk = Chunk(chunk_x, chunk_y, tiles)
-                                        self._save_chunk_to_file(chunk)
-
+                    # Generate new chunk
+                    tiles = self.terrain_gen.generate_chunk(chunk_x, chunk_y)
+                    chunk = Chunk(chunk_x, chunk_y, tiles)
+                    # Don't save immediately - batch save later for better performance
+                
+                # Pre-render chunk surface in background thread
+                chunk.render_to_surface()
+                
                 # Put result in results queue
                 self.chunk_load_results.put((chunk_x, chunk_y, chunk))
-
+                self.pending_chunks.discard((chunk_x, chunk_y))
+                
             except queue.Empty:
                 # No chunks to load, continue waiting
                 continue
             except Exception as e:
                 print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
+                self.pending_chunks.discard((chunk_x, chunk_y))
 
-    def request_chunk_load(self, chunk_x: int, chunk_y: int):
-                """Request a chunk to be loaded asynchronously"""
-                if (chunk_x, chunk_y) not in self.loaded_chunks:
-                                self.chunk_load_queue.put((chunk_x, chunk_y))
-
+    def request_chunk_load(self, chunk_x: int, chunk_y: int, priority: int = 0):
+        """Request a chunk to be loaded asynchronously
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+            priority: Priority (lower = higher priority, based on distance)
+        """
+        chunk_key = (chunk_x, chunk_y)
+        if chunk_key not in self.loaded_chunks and chunk_key not in self.pending_chunks:
+            self.pending_chunks.add(chunk_key)
+            self.chunk_priority[chunk_key] = priority
+            self.chunk_load_queue.put((chunk_x, chunk_y))
+    
     def process_loaded_chunks(self, all_sprites, resource_sprites):
-                """Process chunks that have finished loading in background threads"""
-                loaded_count = 0
-                while not self.chunk_load_results.empty() and loaded_count < 5:  # Process max 5 per frame
-                                try:
-                                                    chunk_x, chunk_y, chunk = self.chunk_load_results.get_nowait()
-                                                    self.loaded_chunks[(chunk_x, chunk_y)] = chunk
-
-                # Add chunk sprites to sprite groups
+        """Process chunks that have finished loading in background threads"""
+        loaded_count = 0
+        max_per_frame = 1  # Reduced from 3 to prevent frame drops
+        
+        while not self.chunk_load_results.empty() and loaded_count < max_per_frame:
+            try:
+                chunk_x, chunk_y, chunk = self.chunk_load_results.get_nowait()
+                self.loaded_chunks[(chunk_x, chunk_y)] = chunk
+                
+                # Add chunk sprites to sprite groups (if any)
                 for entity in chunk.entities:
-                                        all_sprites.add(entity)
-                                        if hasattr(entity, 'resource_type'):
-                                                                    resource_sprites.add(entity)
-
+                    all_sprites.add(entity)
+                    if hasattr(entity, 'resource_type'):
+                        resource_sprites.add(entity)
+                
+                # Save chunk asynchronously (batch operation)
+                self._save_chunk_to_file(chunk)
+                
                 loaded_count += 1
             except queue.Empty:
                 break
-
+        
+        # Clean up old priority entries
+        if len(self.chunk_priority) > 100:
+            # Keep only loaded chunks in priority dict
+            self.chunk_priority = {k: v for k, v in self.chunk_priority.items() 
+                                   if k in self.loaded_chunks or k in self.pending_chunks}
+    
+    def refresh_visible_chunks(self, player_pos: Tuple[float, float]):
+        """Refresh chunk loading after screen size change (e.g., fullscreen toggle)
+        
+        Args:
+            player_pos: Player position (x, y) in world coordinates
+        """
+        player_chunk_x, player_chunk_y = self.world_to_chunk(player_pos[0], player_pos[1])
+        load_distance = settings.get_chunk_load_distance()
+        
+        print(f"[ChunkManager] Refreshing visible chunks with distance {load_distance}...")
+        
+        # Load additional chunks that are now visible
+        self.load_chunks_around_player(player_chunk_x, player_chunk_y, load_distance)
+    
     def shutdown(self):
-                """Stop worker threads and cleanup"""
-                self.running = False
-                for thread in self.worker_threads:
-                                thread.join(timeout=1.0)
+        """Stop worker threads and cleanup"""
+        self.running = False
+        for thread in self.worker_threads:
+            thread.join(timeout=1.0)

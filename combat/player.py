@@ -12,6 +12,7 @@ class Player(pygame.sprite.Sprite):
         super().__init__(*groups)
         self.image = pygame.Surface((settings.TILE_SIZE, settings.TILE_SIZE))
         self.image.fill(settings.COLOR_PLAYER)
+        self.image = self.image.convert()  # Optimize for blitting
         self.rect = self.image.get_rect(center=pos)
         self.input_handler = input_handler
         self.speed = settings.PLAYER_SPEED
