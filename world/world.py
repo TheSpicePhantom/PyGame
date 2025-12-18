@@ -52,6 +52,9 @@ class World:
             print(f"[World] Pre-loaded visible chunks around player position")
         
         self.chunk_manager.update(player_pos)
+
+            # Process chunks that finished loading in background threads
+            self.chunk_manager.process_loaded_chunks(self.all_sprites, self.resource_sprites)
     
     def draw_grid(self, surface, camera):
         """Draw grid and terrain colors for loaded chunks"""
@@ -102,3 +105,8 @@ class World:
             start_screen = camera.world_to_screen(*start_world)
             end_screen = camera.world_to_screen(*end_world)
             pygame.draw.line(surface, settings.COLOR_GRID, start_screen, end_screen, 1)
+
+    def cleanup(self):
+                """Cleanup resources when world is destroyed"""
+                self.chunk_manager.shutdown()
+                print("[World] Chunk loading threads stopped")
