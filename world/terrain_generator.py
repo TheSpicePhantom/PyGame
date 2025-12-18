@@ -27,13 +27,13 @@ class TerrainGenerator:
         
         # Performance: Cache for generated tiles
         self._tile_cache = {}
-
-        def set_seed(self, seed: int):
-                    """Set new seed and reinitialize noise generator"""
-                    self.seed = seed
-                    self.noise = OpenSimplex(seed=self.seed)
-                    self._tile_cache = {}  # Clear cache when seed changes
-                    print(f"[TerrainGen] Seed updated to: {self.seed}")
+    
+    def set_seed(self, seed: int):
+        """Set new seed and reinitialize noise generator"""
+        self.seed = seed
+        self.noise = OpenSimplex(seed=self.seed)
+        self._tile_cache = {}  # Clear cache when seed changes
+        print(f"[TerrainGen] Seed updated to: {self.seed}")
     
     def load_config(self, path):
         """Load biome configuration from JSON"""

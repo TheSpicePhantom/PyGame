@@ -26,7 +26,7 @@ class World:
         existing_seed = self.chunk_manager.get_seed()
         if existing_seed is not None:
             # Load existing world seed
-            self.terrain_gen.set_seed(existing_seed)     
+            self.terrain_gen.set_seed(existing_seed)
             print(f"[World] Loaded existing world with seed: {existing_seed}")
         elif seed is not None:
             # Use provided seed for new world
