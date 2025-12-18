@@ -26,8 +26,7 @@ class World:
         existing_seed = self.chunk_manager.get_seed()
         if existing_seed is not None:
             # Load existing world seed
-            self.terrain_gen.seed = existing_seed
-            print(f"[World] Loaded existing world with seed: {existing_seed}")
+        self.terrain_gen.set_seed(existing_seed)            print(f"[World] Loaded existing world with seed: {existing_seed}")
         elif seed is not None:
             # Use provided seed for new world
             self.chunk_manager.set_seed(seed)
@@ -37,8 +36,7 @@ class World:
             import random
             new_seed = random.randint(0, 999999)
             self.chunk_manager.set_seed(new_seed)
-            self.terrain_gen.seed = new_seed
-            print(f"[World] Created new world with random seed: {new_seed}")
+        self.terrain_gen.set_seed(new_seed)            print(f"[World] Created new world with random seed: {new_seed}")
         
         print(f"[World] ChunkManager initialized for save slot {save_slot}")
     
