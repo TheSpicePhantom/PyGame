@@ -4,6 +4,7 @@ World: Chunk Manager - JSON-based chunk save/load system
 import json
 import os
 import math
+import time
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List, Set
 from core import settings
@@ -88,9 +89,15 @@ class ChunkManager:
         self.pending_chunks = set()  # Track chunks being loaded
         self.chunk_priority = {}  # Distance-based priority
         
-        # Async save system
+        # Async save system - Queue-based for better performance
         self.save_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ChunkSave")
         self.pending_saves = set()  # Track chunks being saved
+        self.save_queue = queue.Queue()  # Queue for chunks to save
+        self.dirty_chunks = set()  # Chunks that need saving (marked as dirty)
+        
+        # Start dedicated save worker thread (runs continuously, saves when queue has items)
+        self.save_worker_thread = threading.Thread(target=self._chunk_save_worker, daemon=True, name="ChunkSaveWorker")
+        self.save_worker_thread.start()
         
         # Start 3 worker threads for chunk loading (increased from 2)
         for i in range(3):
@@ -233,33 +240,71 @@ class ChunkManager:
             await loop.run_in_executor(self.save_executor, self._save_chunk_to_file_sync, chunk)
         finally:
             self.pending_saves.discard(chunk_key)
+            self.dirty_chunks.discard(chunk_key)  # Remove from dirty set after save
+    
+    def _chunk_save_worker(self):
+        """Dedicated worker thread that saves chunks from queue when time is available"""
+        while self.running:
+            try:
+                # Get chunk from queue (with timeout to allow checking if still running)
+                try:
+                    chunk = self.save_queue.get(timeout=0.1)  # Check every 100ms
+                except queue.Empty:
+                    continue
+                
+                chunk_key = (chunk.chunk_x, chunk.chunk_y)
+                
+                # Skip if chunk is no longer loaded or already being saved
+                if chunk_key not in self.loaded_chunks or chunk_key in self.pending_saves:
+                    self.save_queue.task_done()
+                    continue
+                
+                # Mark as saving
+                self.pending_saves.add(chunk_key)
+                
+                # Save chunk asynchronously
+                def run_async_save():
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        new_loop.run_until_complete(self._save_chunk_to_file_async(chunk))
+                    finally:
+                        new_loop.close()
+                
+                # Use executor to limit concurrent saves
+                self.save_executor.submit(run_async_save)
+                
+                self.save_queue.task_done()
+                
+                # Small delay to prevent overwhelming the system
+                time.sleep(0.01)  # 10ms delay between saves
+                
+            except Exception as e:
+                print(f"[ChunkManager] Error in save worker: {e}")
+                import traceback
+                traceback.print_exc()
     
     def _save_chunk_to_file(self, chunk: Chunk):
         """
-        Save a chunk to JSON file (async wrapper, non-blocking)
+        Mark chunk for saving (adds to queue, non-blocking)
+        Chunks are kept in memory and saved asynchronously when the worker thread has time.
         
         Args:
             chunk: Chunk instance to save
         """
         chunk_key = (chunk.chunk_x, chunk.chunk_y)
         
-        # Skip if already saving
-        if chunk_key in self.pending_saves:
+        # Skip if already in queue or being saved
+        if chunk_key in self.pending_saves or chunk_key in self.dirty_chunks:
             return
         
-        self.pending_saves.add(chunk_key)
-        
-        # Schedule async save in background thread
-        def run_async_save():
-            new_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(new_loop)
-            try:
-                new_loop.run_until_complete(self._save_chunk_to_file_async(chunk))
-            finally:
-                new_loop.close()
-        
-        thread = threading.Thread(target=run_async_save, daemon=True)
-        thread.start()
+        # Mark as dirty and add to queue (non-blocking)
+        self.dirty_chunks.add(chunk_key)
+        try:
+            self.save_queue.put(chunk, block=False)  # Non-blocking, fails if queue full
+        except queue.Full:
+            # Queue is full, chunk will be saved later when queue has space
+            pass
 
     def _load_chunk_from_file(self, chunk_x: int, chunk_y: int, retry_count: int = 3) -> Optional[Chunk]:
         """

@@ -2,8 +2,16 @@
 Performance Monitor: Collects detailed performance metrics during gameplay
 """
 import time
+import os
 from collections import deque
 from statistics import mean, median
+
+# Try to import psutil for CPU/GPU monitoring
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 
 
 class PerformanceMonitor:
@@ -36,6 +44,24 @@ class PerformanceMonitor:
         
         # Movement events (direction, delay)
         self.movement_events = []
+        
+        # CPU/GPU usage tracking
+        self.cpu_usage_samples = deque(maxlen=60)  # Last 60 samples (~1 second at 60 FPS)
+        self.gpu_usage_samples = deque(maxlen=60)
+        self.last_cpu_check = time.time()
+        self.last_gpu_check = time.time()
+        
+        # Initialize CPU/GPU monitoring
+        if PSUTIL_AVAILABLE:
+            self.process = psutil.Process(os.getpid())
+            try:
+                # Try to get GPU info (requires nvidia-ml-py or similar)
+                self.gpu_available = False
+            except:
+                self.gpu_available = False
+        else:
+            self.process = None
+            self.gpu_available = False
     
     def start_frame(self):
         """Start timing a new frame"""
@@ -73,6 +99,13 @@ class PerformanceMonitor:
         if self.frame_start_time is not None:
             frame_time = time.perf_counter() - self.frame_start_time
             self.frame_times.append(frame_time * 1000)  # Convert to ms
+        
+        # Update CPU/GPU usage periodically (every ~16ms = 60 times per second)
+        current_time = time.time()
+        if current_time - self.last_cpu_check >= 0.016:  # ~60 Hz
+            self._update_cpu_usage()
+            self._update_gpu_usage()
+            self.last_cpu_check = current_time
     
     def record_chunk_load(self, chunk_x, chunk_y, load_time):
         """Record a chunk load event"""
@@ -153,6 +186,7 @@ class PerformanceMonitor:
                 'median': median(self.render_times) if self.render_times else 0,
             },
             'fps': {
+                'current': 1000.0 / self.frame_times[-1] if self.frame_times and self.frame_times[-1] > 0 else 0,
                 'min': 1000.0 / max(self.frame_times) if self.frame_times and max(self.frame_times) > 0 else 0,
                 'max': 1000.0 / min(self.frame_times) if self.frame_times and min(self.frame_times) > 0 else 0,
                 'avg': 1000.0 / mean(self.frame_times) if self.frame_times and mean(self.frame_times) > 0 else 0,
@@ -168,6 +202,16 @@ class PerformanceMonitor:
                 'median': median(self.chunk_render_times) if self.chunk_render_times else 0,
             },
             'movement_count': len(self.movement_events),
+            'cpu_usage': {
+                'current': self.cpu_usage_samples[-1] if self.cpu_usage_samples else 0,
+                'avg': mean(self.cpu_usage_samples) if self.cpu_usage_samples else 0,
+                'max': max(self.cpu_usage_samples) if self.cpu_usage_samples else 0,
+            },
+            'gpu_usage': {
+                'current': self.gpu_usage_samples[-1] if self.gpu_usage_samples else 0,
+                'avg': mean(self.gpu_usage_samples) if self.gpu_usage_samples else 0,
+                'max': max(self.gpu_usage_samples) if self.gpu_usage_samples else 0,
+            },
         }
         return stats
     
@@ -222,3 +266,104 @@ class PerformanceMonitor:
             print(f"  Median: {render_stats['median']:.2f}")
         
         print(f"Movement Events: {stats['movement_count']}")
+        
+        if self.cpu_usage_samples:
+            cpu_stats = stats['cpu_usage']
+            print(f"\nCPU Usage (%):")
+            print(f"  Current: {cpu_stats['current']:.1f}")
+            print(f"  Avg: {cpu_stats['avg']:.1f}")
+            print(f"  Max: {cpu_stats['max']:.1f}")
+        
+        if self.gpu_usage_samples:
+            gpu_stats = stats['gpu_usage']
+            print(f"\nGPU Usage (%):")
+            print(f"  Current: {gpu_stats['current']:.1f}")
+            print(f"  Avg: {gpu_stats['avg']:.1f}")
+            print(f"  Max: {gpu_stats['max']:.1f}")
+    
+    def _update_cpu_usage(self):
+        """Update CPU usage (process-specific) using psutil"""
+        if PSUTIL_AVAILABLE and self.process:
+            try:
+                # Get CPU usage for this process (non-blocking, uses last call's interval)
+                cpu_percent = self.process.cpu_percent(interval=None)
+                # Also get system-wide CPU usage for context
+                system_cpu = psutil.cpu_percent(interval=None)
+                
+                # Use process CPU, but cap at reasonable values
+                cpu_percent = max(0.0, min(100.0, cpu_percent))
+                self.cpu_usage_samples.append(cpu_percent)
+            except Exception as e:
+                # Fallback: estimate from frame times
+                if self.frame_times:
+                    avg_frame_time = mean(self.frame_times)
+                    # Estimate: if frame time is high relative to target (8.33ms for 120 FPS), CPU might be busy
+                    # But this is just a rough estimate
+                    cpu_estimate = min(100.0, max(0.0, (avg_frame_time / 8.33) * 50.0))  # Cap at 50% for estimate
+                    self.cpu_usage_samples.append(cpu_estimate)
+        else:
+            # Fallback: estimate from frame times (less accurate)
+            if self.frame_times:
+                avg_frame_time = mean(self.frame_times)
+                cpu_estimate = min(100.0, max(0.0, (avg_frame_time / 8.33) * 50.0))
+                self.cpu_usage_samples.append(cpu_estimate)
+            else:
+                self.cpu_usage_samples.append(0.0)
+    
+    def _update_gpu_usage(self):
+        """Update GPU usage - try psutil first, then estimate from render times"""
+        # Try to get GPU usage from psutil (if available and GPU sensors are accessible)
+        gpu_usage = None
+        
+        if PSUTIL_AVAILABLE:
+            try:
+                # psutil can sometimes access GPU info through sensors
+                # Check if GPU sensors are available
+                sensors = psutil.sensors_temperatures()
+                # Note: psutil doesn't directly provide GPU usage, but we can try other methods
+                
+                # For now, we'll estimate based on render time vs available frame budget
+                # This is more accurate than render_time / frame_time
+                if self.render_times and self.frame_times:
+                    avg_render_time = mean(self.render_times)
+                    avg_frame_time = mean(self.frame_times)
+                    
+                    # Target frame time at 120 FPS = 8.33ms
+                    target_frame_time = 8.33
+                    
+                    if avg_frame_time > 0:
+                        # Estimate GPU usage: how much of the frame budget is used for rendering
+                        # But normalize it better: if render time is close to frame time, GPU is busy
+                        # But we need to account for the fact that at high FPS, render time can be small
+                        # relative to frame time, so GPU might not be fully utilized
+                        
+                        # Better estimate: if render time is high relative to target frame time, GPU is busy
+                        # But cap it reasonably - GPU usage shouldn't be 100% just because render time = frame time
+                        render_ratio = avg_render_time / target_frame_time
+                        # Normalize: if render time is 50% of target frame time, GPU is ~50% utilized
+                        # This is still an estimate, but more reasonable
+                        gpu_estimate = min(100.0, max(0.0, render_ratio * 100.0))
+                        self.gpu_usage_samples.append(gpu_estimate)
+                    else:
+                        self.gpu_usage_samples.append(0.0)
+                else:
+                    self.gpu_usage_samples.append(0.0)
+                    
+            except Exception:
+                # Fallback: simple estimate
+                if self.render_times:
+                    avg_render_time = mean(self.render_times)
+                    # Estimate: if render time is high (>5ms), GPU is busy
+                    # This is a very rough estimate
+                    gpu_estimate = min(100.0, max(0.0, (avg_render_time / 8.33) * 80.0))
+                    self.gpu_usage_samples.append(gpu_estimate)
+                else:
+                    self.gpu_usage_samples.append(0.0)
+        else:
+            # No psutil: use simple estimate
+            if self.render_times:
+                avg_render_time = mean(self.render_times)
+                gpu_estimate = min(100.0, max(0.0, (avg_render_time / 8.33) * 80.0))
+                self.gpu_usage_samples.append(gpu_estimate)
+            else:
+                self.gpu_usage_samples.append(0.0)

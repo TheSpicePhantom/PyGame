@@ -538,8 +538,8 @@ class GameWindow(pyglet.window.Window):
         
         self.performance_monitor.end_render()
         
-        # Toggle performance stats with F3
-        if self.show_performance_stats:
+        # Render performance stats (toggle with F3, includes FPS, CPU, GPU, Position, Zoom)
+        if self.show_performance_stats and not (self.pause_menu and self.pause_menu.active):
             self._draw_performance_stats()
     
     def _load_visible_chunks(self, camera_x: float, camera_y: float):
@@ -651,24 +651,70 @@ class GameWindow(pyglet.window.Window):
         self.performance_logger.log_stats(stats)
     
     def _draw_performance_stats(self):
-        """Draw performance statistics on screen"""
+        """Draw performance statistics on screen (F3 menu) - top left corner"""
         stats = self.performance_monitor.get_stats()
         
-        # Create text labels (simple text rendering for now)
-        # TODO: Implement proper text rendering with ModernGL
-        lines = [
-            f"FPS: {stats['fps']['current']:.1f} (min: {stats['fps']['min']:.1f}, max: {stats['fps']['max']:.1f})",
-            f"Frame: {stats['frame_times']['avg']:.2f}ms (p95: {stats['frame_times']['p95']:.2f}ms)",
-            f"Update: {stats['update_times']['avg']:.2f}ms",
-            f"Render: {stats['render_times']['avg']:.2f}ms",
-            f"Chunk Render: {stats['chunk_render_times']['avg']:.2f}ms" if stats['chunk_render_times']['avg'] > 0 else "Chunk Render: N/A",
-        ]
+        # Position: top left corner
+        # In pyglet, Y=0 is bottom, Y=height is top
+        # We render from top to bottom, so start at height and decrease
+        y_start = self.height - 5  # Start 5px from top (closer to corner)
+        line_height = 28  # Increased line spacing to prevent overlap (20pt font + 8pt spacing)
+        x_pos = 5  # 5px from left edge (closer to corner)
+        font_size = 20  # 20pt font
+        text_color = (0, 0, 0)  # Black text
         
-        # For now, just print to console (text rendering will be added later)
-        if hasattr(self, '_last_stats_print') and time.time() - self._last_stats_print < 0.5:
-            return
-        self._last_stats_print = time.time()
-        print("\n".join(lines))
+        # FPS
+        fps_current = stats['fps']['current']
+        self.modern_gl_renderer.render_text(
+            f"FPS: {fps_current:.1f}",
+            x=x_pos,
+            y=y_start,
+            size=font_size,
+            color=text_color
+        )
+        y_start -= line_height
+        
+        # CPU Usage
+        cpu_current = stats['cpu_usage']['current']
+        self.modern_gl_renderer.render_text(
+            f"CPU: {cpu_current:.1f}%",
+            x=x_pos,
+            y=y_start,
+            size=font_size,
+            color=text_color
+        )
+        y_start -= line_height
+        
+        # GPU Usage
+        gpu_current = stats['gpu_usage']['current']
+        self.modern_gl_renderer.render_text(
+            f"GPU: {gpu_current:.1f}%",
+            x=x_pos,
+            y=y_start,
+            size=font_size,
+            color=text_color
+        )
+        y_start -= line_height
+        
+        # Player Position
+        if self.player:
+            self.modern_gl_renderer.render_text(
+                f"Pos: ({self.player.rect.x:.0f}, {self.player.rect.y:.0f})",
+                x=x_pos,
+                y=y_start,
+                size=font_size,
+                color=text_color
+            )
+            y_start -= line_height
+        
+        # Zoom Level
+        self.modern_gl_renderer.render_text(
+            f"Zoom: {self.camera_zoom:.2f}",
+            x=x_pos,
+            y=y_start,
+            size=font_size,
+            color=text_color
+        )
     
     def _render_player(self):
         """Render player as yellow quad (1 tile wide, 2 tiles tall) using chunk shader"""
