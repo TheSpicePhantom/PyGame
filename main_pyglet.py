@@ -6,6 +6,7 @@ from pyglet.window import key, mouse
 import moderngl
 import os
 import time
+import math
 import numpy as np
 from core import settings
 # from core.input import InputHandler  # Pygame version
@@ -518,10 +519,12 @@ class GameWindow(pyglet.window.Window):
         world_max_y = camera_y + visible_world_height / 2.0
         
         # Convert to chunk coordinates (+1 buffer in all directions)
-        chunk_min_x = int(world_min_x // chunk_size_pixels) - 1  # -1 for buffer
-        chunk_max_x = int(world_max_x // chunk_size_pixels) + 1  # +1 for buffer
-        chunk_min_y = int(world_min_y // chunk_size_pixels) - 1  # -1 for buffer
-        chunk_max_y = int(world_max_y // chunk_size_pixels) + 1  # +1 for buffer
+        # Use math.floor for min (round down) and math.ceil for max (round up) to ensure
+        # we include all chunks that intersect with the visible area
+        chunk_min_x = math.floor(world_min_x / chunk_size_pixels) - 1  # -1 for buffer
+        chunk_max_x = math.ceil(world_max_x / chunk_size_pixels) + 1   # +1 for buffer
+        chunk_min_y = math.floor(world_min_y / chunk_size_pixels) - 1  # -1 for buffer
+        chunk_max_y = math.ceil(world_max_y / chunk_size_pixels) + 1   # +1 for buffer
         
         # Calculate visible chunk count (for debug output)
         visible_chunk_count = (chunk_max_x - chunk_min_x + 1) * (chunk_max_y - chunk_min_y + 1)
