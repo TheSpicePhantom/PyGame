@@ -6,6 +6,7 @@ from pyglet.window import key, mouse
 import moderngl
 import os
 import time
+import math
 import numpy as np
 from core import settings
 # from core.input import InputHandler  # Pygame version
@@ -66,8 +67,8 @@ class GameWindow(pyglet.window.Window):
             width, height = default_width, default_height
             fullscreen = False
         
-        # Create window
-        super().__init__(width=width, height=height, caption="PyGame - Factorio Style", fullscreen=fullscreen)
+        # Create window with V-Sync enabled for consistent frame rate
+        super().__init__(width=width, height=height, caption="PyGame - Factorio Style", fullscreen=fullscreen, vsync=True)
         
         # Center window if windowed
         if not fullscreen:
@@ -98,6 +99,17 @@ class GameWindow(pyglet.window.Window):
         self.show_performance_stats = False
         self.stats_update_interval = 0.5  # Update stats every 0.5 seconds
         self.last_stats_update = 0.0
+        
+        # Debug visualization: 0 = off, 1 = chunk boundaries, 2 = chunk boundaries + tile grids
+        self.debug_visualization_mode = 0
+        self._debug_cache = {
+            'mode': -1,
+            'player_chunk': None,
+            'chunks_hash': None,
+            'vbo': None,
+            'vao': None,
+            'line_count': 0
+        }
         self.logger = PerformanceLogger()
         self.logger.start_log()
         print("[Main] Performance monitoring enabled")
@@ -110,6 +122,8 @@ class GameWindow(pyglet.window.Window):
         self.game_initialized = False
         self.clock = pyglet.clock.Clock()
         self.dt = 0.0
+        
+        # FPS limiting: Will be handled by schedule_interval
         
         # Initialize game components (will be set up after save slot selection)
         # TODO: SaveMenu benötigt pygame.font - später migrieren
@@ -132,8 +146,8 @@ class GameWindow(pyglet.window.Window):
         # Initialize game directly (skip save menu for now)
         self._initialize_game(save_slot=1)
         
-        # Schedule update loop
-        pyglet.clock.schedule_interval(self.update, 1.0 / 60.0)
+        # Schedule update loop at 120 FPS (8.33ms per frame)
+        pyglet.clock.schedule_interval(self.update, 1.0 / 120.0)
         
         print(f"[Main] Window created: {width}x{height}, mode: {initial_mode}")
     
@@ -157,9 +171,11 @@ class GameWindow(pyglet.window.Window):
         from world.player_data_manager import PlayerDataManager
         player_data_manager = PlayerDataManager(save_slot)
         
-        # Debug: Set everything to (0, 0) for testing (except test quads)
-        start_world_x = 0.0
-        start_world_y = 0.0
+        # Calculate world center position
+        # World size in pixels: WORLD_SIZE_CHUNKS * CHUNK_SIZE * TILE_SIZE
+        world_size_pixels = settings.WORLD_SIZE_CHUNKS * settings.CHUNK_SIZE * settings.TILE_SIZE
+        start_world_x = world_size_pixels / 2.0
+        start_world_y = world_size_pixels / 2.0
         
         # Player erstellen
         self.player = Player(
@@ -171,6 +187,9 @@ class GameWindow(pyglet.window.Window):
         
         # Kamera initialisieren
         self.camera = Camera(target=self.player, lerp_speed=settings.CAMERA_LERP_SPEED)
+        # Set camera position immediately to player position (no lerp delay on start)
+        self.camera.x = start_world_x
+        self.camera.y = start_world_y
         # Zoom: 1.5 = 150% (nah), 0.75 = 75% (weit weg)
         self.camera_zoom = 1.0  # Start at 100%
         
@@ -180,6 +199,9 @@ class GameWindow(pyglet.window.Window):
     
     def update(self, dt):
         """Update game logic"""
+        # Mark that update was called (for FPS limiting)
+        self._update_called = True
+        
         # Update performance stats display periodically
         current_time = time.time()
         if current_time - self.last_stats_update >= self.stats_update_interval:
@@ -215,6 +237,13 @@ class GameWindow(pyglet.window.Window):
     
     def on_draw(self):
         """Render frame"""
+        # FPS limiting: Only render if update was called (limits to 120 FPS)
+        # schedule_interval calls update() at 120 FPS, so we only render when update runs
+        if not self._update_called:
+            return
+        
+        self._update_called = False  # Reset flag for next frame
+        
         self.performance_monitor.start_frame()
         self.performance_monitor.start_render()
         
@@ -361,14 +390,29 @@ class GameWindow(pyglet.window.Window):
                 camera_y = 0.0
                 self.modern_gl_renderer.update_view(0.0, 0.0, zoom=self.camera_zoom)
             
-            # Step 1.5: Load chunks in visible area + 1 chunk buffer (dynamically based on zoom)
+            # Step 1.5: Load chunks in visible area + buffer (dynamically based on zoom)
             self._load_visible_chunks(camera_x, camera_y)
             
-            # Step 2: Collect all visible chunks (with frustum culling)
+            # Step 2: Collect all visible chunks (with frustum culling based on zoom)
+            # Use the same calculation as _load_visible_chunks for consistency
             chunks_data = []
             screen_width = self.modern_gl_renderer.screen_width
             screen_height = self.modern_gl_renderer.screen_height
             chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+            
+            # Calculate visible area bounds using the same method as _load_visible_chunks
+            # Zoom < 1.0 = rauszoomen (mehr Welt sichtbar), Zoom > 1.0 = reinzoomen (weniger Welt sichtbar)
+            # visible_world_size = screen_size / zoom (größerer Zoom = kleinere sichtbare Welt)
+            visible_world_width = screen_width / self.camera_zoom
+            visible_world_height = screen_height / self.camera_zoom
+            
+            # Visible world bounds (what we can see in world coordinates)
+            # Note: We don't add buffer here because chunks are already loaded with buffer in _load_visible_chunks()
+            # We want to render exactly what's visible on screen
+            world_min_x = camera_x - visible_world_width / 2.0
+            world_max_x = camera_x + visible_world_width / 2.0
+            world_min_y = camera_y - visible_world_height / 2.0
+            world_max_y = camera_y + visible_world_height / 2.0
             
             # Process chunks: visible -> rendering -> active -> rendered
             # Reset "rendered" state first (keep "visible" and "inactive" from _load_visible_chunks)
@@ -376,37 +420,39 @@ class GameWindow(pyglet.window.Window):
                 if chunk.render_state == "rendered":
                     chunk.render_state = None  # Reset for next frame
             
-            # Process all loaded chunks
+            # Process all loaded chunks - render all chunks that are in the visible area
             for chunk in self.world.chunk_manager.loaded_chunks.values():
-                # Mark chunk as being prepared for rendering if it's visible
-                if chunk.render_state == "visible":
-                    chunk.render_state = "rendering"
-                
-                # Calculate chunk world position
+                # Calculate chunk world position and bounds
                 chunk_world_x = chunk.chunk_x * chunk_size_pixels
                 chunk_world_y = chunk.chunk_y * chunk_size_pixels
+                chunk_world_max_x = chunk_world_x + chunk_size_pixels
+                chunk_world_max_y = chunk_world_y + chunk_size_pixels
                 
-                # Calculate chunk screen position (world + camera offset)
-                chunk_screen_x = chunk_world_x + self.modern_gl_renderer.view_matrix[0, 3]
-                chunk_screen_y = chunk_world_y + self.modern_gl_renderer.view_matrix[1, 3]
+                # Frustum culling: Check if chunk overlaps with visible world bounds
+                # A chunk overlaps if: chunk_start <= view_end AND chunk_end >= view_start
+                # This ensures we catch all chunks that are even partially visible (including edge cases)
+                # Check X-axis overlap: chunk overlaps if chunk_x <= world_max_x AND chunk_max_x >= world_min_x
+                x_overlaps = (chunk_world_x <= world_max_x) and (chunk_world_max_x >= world_min_x)
+                # Check Y-axis overlap: chunk overlaps if chunk_y <= world_max_y AND chunk_max_y >= world_min_y
+                y_overlaps = (chunk_world_y <= world_max_y) and (chunk_world_max_y >= world_min_y)
                 
-                # Frustum culling: Skip chunk if completely off-screen
-                if (chunk_screen_x + chunk_size_pixels < 0 or 
-                    chunk_screen_x > screen_width or
-                    chunk_screen_y + chunk_size_pixels < 0 or 
-                    chunk_screen_y > screen_height):
-                    # Chunk is in view field but not visible on screen
+                chunk_overlaps = x_overlaps and y_overlaps
+                
+                if not chunk_overlaps:
+                    # Chunk is outside visible world area
                     if chunk.render_state == "rendering":
                         chunk.render_state = "inactive"
                     elif chunk.render_state == "visible":
                         chunk.render_state = "inactive"
                     continue
                 
-                # Chunk passed frustum culling - mark as active
+                # Chunk passed frustum culling - mark as active/rendering
+                if chunk.render_state == "visible":
+                    chunk.render_state = "rendering"
                 if chunk.render_state == "rendering":
                     chunk.render_state = "active"
                 
-                # Add chunk data for rendering
+                # Add chunk data for rendering (only if it has tiles)
                 if chunk.tiles:
                     chunks_data.append((chunk.chunk_x, chunk.chunk_y, chunk.tiles))
             
@@ -422,12 +468,12 @@ class GameWindow(pyglet.window.Window):
                         if chunk.render_state == "active":
                             chunk.render_state = "rendered"
             
-            # Debug: Print chunk state summary (only occasionally to avoid spam)
-            if not hasattr(self, '_last_chunk_debug') or time.time() - self._last_chunk_debug > 1.0:
-                self._print_chunk_state_summary()
-                self._last_chunk_debug = time.time()
             
-            # Step 4: Render player as yellow quad (1x2 tiles)
+            # Step 4: Render debug visualization (chunk boundaries and tile grids)
+            if self.debug_visualization_mode > 0:
+                self._render_debug_visualization(chunks_data)
+            
+            # Step 5: Render player as yellow quad (1x2 tiles)
             if self.player:
                 self._render_player()
             if self.player:
@@ -497,7 +543,12 @@ class GameWindow(pyglet.window.Window):
             self._draw_performance_stats()
     
     def _load_visible_chunks(self, camera_x: float, camera_y: float):
-        """Load chunks in visible area + 1 chunk buffer based on zoom"""
+        """Load chunks in visible area + buffer based on zoom
+        
+        This ensures that all chunks visible on screen (accounting for zoom) are loaded.
+        - Zoom 0.75 (herausgezoomt): Mehr Welt sichtbar -> mehr Chunks geladen
+        - Zoom 1.5 (herangezoomt): Weniger Welt sichtbar -> weniger Chunks geladen
+        """
         if not self.world or not self.world.chunk_manager:
             return
         
@@ -507,6 +558,8 @@ class GameWindow(pyglet.window.Window):
         
         # Calculate visible area in world coordinates (accounting for zoom)
         # With zoom, we see more/less world: visible_world_size = screen_size / zoom
+        # Zoom < 1.0 = rauszoomen = mehr Welt sichtbar = größere visible_world_size
+        # Zoom > 1.0 = reinzoomen = weniger Welt sichtbar = kleinere visible_world_size
         visible_world_width = screen_width / self.camera_zoom
         visible_world_height = screen_height / self.camera_zoom
         
@@ -517,37 +570,45 @@ class GameWindow(pyglet.window.Window):
         world_min_y = camera_y - visible_world_height / 2.0
         world_max_y = camera_y + visible_world_height / 2.0
         
-        # Convert to chunk coordinates (+1 buffer in all directions)
-        chunk_min_x = int(world_min_x // chunk_size_pixels) - 1  # -1 for buffer
-        chunk_max_x = int(world_max_x // chunk_size_pixels) + 1  # +1 for buffer
-        chunk_min_y = int(world_min_y // chunk_size_pixels) - 1  # -1 for buffer
-        chunk_max_y = int(world_max_y // chunk_size_pixels) + 1  # +1 for buffer
+        # Add buffer to ensure edge chunks are loaded (1 chunk buffer in all directions)
+        buffer_pixels = chunk_size_pixels * 1.5  # 1.5 chunks buffer for safety
+        world_min_x -= buffer_pixels
+        world_max_x += buffer_pixels
+        world_min_y -= buffer_pixels
+        world_max_y += buffer_pixels
         
-        # Calculate visible chunk count (for debug output)
-        visible_chunk_count = (chunk_max_x - chunk_min_x + 1) * (chunk_max_y - chunk_min_y + 1)
+        # Convert to chunk coordinates
+        # Use floor for min to include chunks that start before world_min
+        # Use ceil for max to include chunks that extend beyond world_max
+        chunk_min_x = int(math.floor(world_min_x / chunk_size_pixels))
+        chunk_max_x = int(math.ceil(world_max_x / chunk_size_pixels))
+        chunk_min_y = int(math.floor(world_min_y / chunk_size_pixels))
+        chunk_max_y = int(math.ceil(world_max_y / chunk_size_pixels))
         
-        # Debug output on zoom change
-        if not hasattr(self, '_last_zoom_debug') or self._last_zoom_debug != self.camera_zoom:
-            print(f"[Chunk Debug] Zoom: {self.camera_zoom:.2f} | Visible area: {visible_world_width:.1f}x{visible_world_height:.1f} px")
-            print(f"[Chunk Debug] Chunk range: X[{chunk_min_x}..{chunk_max_x}] Y[{chunk_min_y}..{chunk_max_y}]")
-            print(f"[Chunk Debug] Visible chunks: {visible_chunk_count}")
-            self._last_zoom_debug = self.camera_zoom
         
         # Load all chunks in visible area + buffer
         chunks_to_load = set()
+        chunks_out_of_bounds = 0
         for chunk_x in range(chunk_min_x, chunk_max_x + 1):
             for chunk_y in range(chunk_min_y, chunk_max_y + 1):
                 # Check world bounds
                 if (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
                     0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
                     chunks_to_load.add((chunk_x, chunk_y))
+                else:
+                    chunks_out_of_bounds += 1
         
         # Load chunks that aren't already loaded
         chunk_manager = self.world.chunk_manager
+        newly_loaded = 0
+        already_loaded = 0
         for chunk_x, chunk_y in chunks_to_load:
             chunk_key = (chunk_x, chunk_y)
             if chunk_key not in chunk_manager.loaded_chunks:
                 chunk_manager.get_or_create_chunk(chunk_x, chunk_y)
+                newly_loaded += 1
+            else:
+                already_loaded += 1
         
         # Mark chunks in visible area as "visible" (in view field)
         # First, reset states for chunks not in visible area
@@ -558,6 +619,7 @@ class GameWindow(pyglet.window.Window):
                     chunk.render_state = "inactive"
         
         # Mark chunks in visible area as "visible"
+        visible_marked = 0
         for chunk_x, chunk_y in chunks_to_load:
             chunk_key = (chunk_x, chunk_y)
             if chunk_key in chunk_manager.loaded_chunks:
@@ -565,6 +627,7 @@ class GameWindow(pyglet.window.Window):
                 # Only set to "visible" if not already in a rendering state
                 if chunk.render_state not in ["rendering", "rendered", "active"]:
                     chunk.render_state = "visible"
+                    visible_marked += 1
         
         # Unload chunks that are too far away (optional, for memory management)
         # Keep a larger buffer to avoid frequent loading/unloading
@@ -581,36 +644,6 @@ class GameWindow(pyglet.window.Window):
         
         for chunk_key in chunks_to_unload:
             chunk_manager.unload_chunk(chunk_key[0], chunk_key[1])
-    
-    def _print_chunk_state_summary(self):
-        """Print summary of chunk states for debugging"""
-        if not self.world or not self.world.chunk_manager:
-            return
-        
-        chunk_manager = self.world.chunk_manager
-        state_counts = {
-            "rendering": 0,
-            "rendered": 0,
-            "visible": 0,
-            "active": 0,
-            "inactive": 0,
-            None: 0
-        }
-        
-        for chunk in chunk_manager.loaded_chunks.values():
-            state = chunk.render_state
-            if state in state_counts:
-                state_counts[state] += 1
-            else:
-                state_counts[None] += 1
-        
-        total_loaded = len(chunk_manager.loaded_chunks)
-        print(f"[Chunk Debug] Loaded: {total_loaded} | "
-              f"Rendering: {state_counts['rendering']} | "
-              f"Rendered: {state_counts['rendered']} | "
-              f"Visible: {state_counts['visible']} | "
-              f"Active: {state_counts['active']} | "
-              f"Inactive: {state_counts['inactive']}")
     
     def _update_performance_stats(self):
         """Update performance statistics"""
@@ -686,13 +719,126 @@ class GameWindow(pyglet.window.Window):
         vao.release()
         vbo.release()
     
+    def _render_debug_visualization(self, chunks_data):
+        """Render debug visualization: chunk boundaries and tile grids (optimized with caching)"""
+        if not chunks_data or not self.world or not self.player:
+            # Cleanup cache if visualization is disabled
+            if self.debug_visualization_mode == 0 and self._debug_cache['vbo']:
+                self._debug_cache['vbo'].release()
+                self._debug_cache['vao'].release()
+                self._debug_cache['vbo'] = None
+                self._debug_cache['vao'] = None
+            return
+        
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        tile_size_pixels = settings.TILE_SIZE
+        
+        # Calculate player's chunk position
+        player_world_x = self.player.rect.center[0]
+        player_world_y = self.player.rect.center[1]
+        player_chunk_x = int(player_world_x // chunk_size_pixels)
+        player_chunk_y = int(player_world_y // chunk_size_pixels)
+        player_chunk = (player_chunk_x, player_chunk_y)
+        
+        # Create hash of visible chunks for cache invalidation
+        chunks_hash = hash(tuple(sorted((x, y) for x, y, _ in chunks_data)))
+        
+        # Check if cache is still valid
+        cache_valid = (
+            self._debug_cache['mode'] == self.debug_visualization_mode and
+            self._debug_cache['player_chunk'] == player_chunk and
+            self._debug_cache['chunks_hash'] == chunks_hash and
+            self._debug_cache['vbo'] is not None
+        )
+        
+        if not cache_valid:
+            # Release old buffers if they exist
+            if self._debug_cache['vbo']:
+                self._debug_cache['vbo'].release()
+                self._debug_cache['vao'].release()
+            
+            # Calculate 5x5 area centered on player's chunk
+            grid_radius = 2  # 5x5 = radius 2 (2 chunks in each direction from center)
+            grid_min_x = player_chunk_x - grid_radius
+            grid_max_x = player_chunk_x + grid_radius
+            grid_min_y = player_chunk_y - grid_radius
+            grid_max_y = player_chunk_y + grid_radius
+            
+            # Collect all lines to render
+            lines = []
+            
+            for chunk_x, chunk_y, _ in chunks_data:
+                # Calculate chunk world position
+                chunk_world_x = chunk_x * chunk_size_pixels
+                chunk_world_y = chunk_y * chunk_size_pixels
+                chunk_world_max_x = chunk_world_x + chunk_size_pixels
+                chunk_world_max_y = chunk_world_y + chunk_size_pixels
+                
+                # Mode 1 or 2: Render chunk boundaries (red lines) for all visible chunks
+                if self.debug_visualization_mode >= 1:
+                    # Top edge
+                    lines.append([chunk_world_x, chunk_world_y, chunk_world_max_x, chunk_world_y, 1.0, 0.0, 0.0])
+                    # Bottom edge
+                    lines.append([chunk_world_x, chunk_world_max_y, chunk_world_max_x, chunk_world_max_y, 1.0, 0.0, 0.0])
+                    # Left edge
+                    lines.append([chunk_world_x, chunk_world_y, chunk_world_x, chunk_world_max_y, 1.0, 0.0, 0.0])
+                    # Right edge
+                    lines.append([chunk_world_max_x, chunk_world_y, chunk_world_max_x, chunk_world_max_y, 1.0, 0.0, 0.0])
+                
+                # Mode 2: Render tile grids (blue lines) for 5x5 area around player
+                # Only render when zoomed in (zoom > 1.0) to avoid performance issues when zoomed out
+                if self.debug_visualization_mode >= 2 and self.camera_zoom > 1.0:
+                    # Check if chunk is in the 5x5 grid area
+                    if grid_min_x <= chunk_x <= grid_max_x and grid_min_y <= chunk_y <= grid_max_y:
+                        # Vertical tile lines
+                        for tile_x in range(1, settings.CHUNK_SIZE):
+                            tile_world_x = chunk_world_x + tile_x * tile_size_pixels
+                            lines.append([tile_world_x, chunk_world_y, tile_world_x, chunk_world_max_y, 0.0, 0.0, 1.0])
+                        
+                        # Horizontal tile lines
+                        for tile_y in range(1, settings.CHUNK_SIZE):
+                            tile_world_y = chunk_world_y + tile_y * tile_size_pixels
+                            lines.append([chunk_world_x, tile_world_y, chunk_world_max_x, tile_world_y, 0.0, 0.0, 1.0])
+            
+            if lines:
+                # Create vertices for all lines (each line = 2 vertices)
+                vertices = []
+                for x1, y1, x2, y2, r, g, b in lines:
+                    vertices.extend([
+                        [x1, y1, r, g, b],
+                        [x2, y2, r, g, b]
+                    ])
+                
+                vertices_array = np.array(vertices, dtype=np.float32)
+                
+                # Create buffer and VAO (use chunk shader for transformation)
+                self._debug_cache['vbo'] = self.modern_gl_renderer.ctx.buffer(vertices_array.tobytes())
+                self._debug_cache['vao'] = self.modern_gl_renderer.ctx.vertex_array(
+                    self.modern_gl_renderer.chunk_program,
+                    [(self._debug_cache['vbo'], "2f 3f", "in_position", "in_color")]
+                )
+                self._debug_cache['line_count'] = len(lines)
+            else:
+                self._debug_cache['vbo'] = None
+                self._debug_cache['vao'] = None
+                self._debug_cache['line_count'] = 0
+            
+            # Update cache metadata
+            self._debug_cache['mode'] = self.debug_visualization_mode
+            self._debug_cache['player_chunk'] = player_chunk
+            self._debug_cache['chunks_hash'] = chunks_hash
+        
+        # Render cached lines if available
+        if self._debug_cache['vao']:
+            self._debug_cache['vao'].render(moderngl.LINES)
+    
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
         """Handle mouse wheel for zoom"""
-        # Zoom: scroll up = zoom in (150%), scroll down = zoom out (75%)
+        # Zoom: scroll down = zoom out (rauszoomen), scroll up = zoom in (reinzoomen)
         zoom_speed = 0.05  # 5% per scroll step
-        if scroll_y > 0:  # Scroll up = zoom out (weiter weg)
+        if scroll_y < 0:  # Scroll down = zoom out (rauszoomen, mehr Welt sichtbar)
             self.camera_zoom = max(0.75, self.camera_zoom - zoom_speed)
-        elif scroll_y < 0:  # Scroll down = zoom in (näher dran)
+        elif scroll_y > 0:  # Scroll up = zoom in (reinzoomen, weniger Welt sichtbar)
             self.camera_zoom = min(1.5, self.camera_zoom + zoom_speed)
     
     def on_key_press(self, symbol, modifiers):
@@ -706,6 +852,12 @@ class GameWindow(pyglet.window.Window):
         if symbol == key.F3:
             self.show_performance_stats = not self.show_performance_stats
             print(f"[Performance] Stats display: {'ON' if self.show_performance_stats else 'OFF'}")
+        
+        # Toggle debug visualization with F8
+        if symbol == key.F8:
+            self.debug_visualization_mode = (self.debug_visualization_mode + 1) % 3
+            modes = ["OFF", "Chunk Boundaries", "Chunk Boundaries + Tile Grids"]
+            print(f"[Debug] Visualization mode: {modes[self.debug_visualization_mode]}")
         
         # Store key state for input handler
         if not hasattr(self, '_keys_pressed'):

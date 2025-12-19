@@ -131,8 +131,10 @@ class ModernGLRenderer:
             vec2 screen_pos = in_position + view_translation;
             
             // Apply zoom: translate to center, scale, translate back
+            // Zoom < 1.0 = rauszoomen (mehr Welt sichtbar), Zoom > 1.0 = reinzoomen (weniger Welt sichtbar)
+            // Multiply by zoom: smaller zoom = smaller screen position = more world visible
             vec2 screen_center = screen_size * 0.5;
-            screen_pos = (screen_pos - screen_center) / zoom + screen_center;
+            screen_pos = (screen_pos - screen_center) * zoom + screen_center;
             
             // Convert screen coordinates to NDC
             vec2 ndc = vec2(
@@ -280,6 +282,8 @@ class ModernGLRenderer:
             # Set zoom
             if 'zoom' in self.chunk_program:
                 self.chunk_program['zoom'].value = zoom
+                # Store current zoom for render_chunks
+                self.current_zoom = zoom
         
         # Sprite shader still uses view matrix
         if self.sprite_program and 'view' in self.sprite_program:
@@ -396,6 +400,16 @@ class ModernGLRenderer:
         chunk_render_start = time.perf_counter()
         
         # Render chunks
+        
+        # IMPORTANT: Ensure shader uniforms are up-to-date before rendering
+        # The uniforms (screen_size, view_translation, zoom) are set in update_view(),
+        # but we verify they're set here to ensure zoom changes are applied
+        if self.chunk_program:
+            if 'screen_size' in self.chunk_program:
+                self.chunk_program['screen_size'].value = (float(self.screen_width), float(self.screen_height))
+            if 'zoom' in self.chunk_program:
+                # Ensure zoom is current (should already be set in update_view, but double-check)
+                self.chunk_program['zoom'].value = self.current_zoom
         
         # Enable blending for transparency (like test_render.py)
         self.ctx.enable(moderngl.BLEND)

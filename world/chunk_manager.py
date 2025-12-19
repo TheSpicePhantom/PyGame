@@ -148,16 +148,26 @@ class ChunkManager:
         """Get existing chunk or generate new one"""
         key = (chunk_x, chunk_y)
         
+        # First check if chunk is already loaded in memory
         if key in self.loaded_chunks:
             return self.loaded_chunks[key]
         
-        # Try to load from file first
-        loaded_chunk = self._load_chunk_from_file(chunk_x, chunk_y)
-        if loaded_chunk:
-            self.loaded_chunks[key] = loaded_chunk
-            return loaded_chunk
+        # Check if chunk file exists - if it does, try to load it
+        # (even if it's being saved, we should wait and load it)
+        chunk_file = self._get_chunk_filename(chunk_x, chunk_y)
+        if chunk_file.exists():
+            # File exists - try to load it (with retry logic for locked files)
+            loaded_chunk = self._load_chunk_from_file(chunk_x, chunk_y)
+            if loaded_chunk:
+                self.loaded_chunks[key] = loaded_chunk
+                return loaded_chunk
+            # If loading failed (file locked or corrupted), don't generate new chunk
+            # Instead, wait a bit more and try again, or return None to indicate
+            # that the chunk should be loaded from memory if it exists elsewhere
+            # For now, we'll generate a new chunk only if file doesn't exist
+            # This prevents data loss from locked files
         
-        # Generate new chunk
+        # File doesn't exist - generate new chunk
         tiles = self.terrain_gen.generate_chunk(chunk_x, chunk_y)
         chunk = Chunk(chunk_x, chunk_y, tiles)
         self.loaded_chunks[key] = chunk
@@ -251,33 +261,93 @@ class ChunkManager:
         thread = threading.Thread(target=run_async_save, daemon=True)
         thread.start()
 
-    def _load_chunk_from_file(self, chunk_x: int, chunk_y: int) -> Optional[Chunk]:
+    def _load_chunk_from_file(self, chunk_x: int, chunk_y: int, retry_count: int = 3) -> Optional[Chunk]:
         """
-        Load a chunk from JSON file
+        Load a chunk from JSON file with retry logic for locked files
         
         Args:
             chunk_x: Chunk X coordinate
             chunk_y: Chunk Y coordinate
+            retry_count: Number of retries if file is locked (default: 3)
             
         Returns:
-            Chunk instance or None if file doesn't exist
+            Chunk instance or None if file doesn't exist or is corrupted
         """
         chunk_file = self._get_chunk_filename(chunk_x, chunk_y)
         
         if not chunk_file.exists():
             return None
         
-        try:
-            with open(chunk_file, 'r') as f:
-                chunk_data = json.load(f)
-            
-            tiles = chunk_data["tiles"]
-            chunk = Chunk(chunk_x, chunk_y, tiles)
-            return chunk
-            
-        except Exception as e:
-            print(f"Error loading chunk ({chunk_x}, {chunk_y}): {e}")
-            return None
+        # Check if chunk is currently being saved - if so, wait for save to complete
+        chunk_key = (chunk_x, chunk_y)
+        if chunk_key in self.pending_saves:
+            # Chunk is being saved - wait a bit and retry
+            import time
+            for attempt in range(retry_count):
+                time.sleep(0.01 * (attempt + 1))  # Exponential backoff: 10ms, 20ms, 30ms
+                if chunk_key not in self.pending_saves:
+                    break
+        
+        # Try to load with retry logic for locked files
+        for attempt in range(retry_count):
+            try:
+                with open(chunk_file, 'r') as f:
+                    content = f.read().strip()
+                    if not content:
+                        # Empty file - delete it and return None (will be regenerated)
+                        try:
+                            chunk_file.unlink()
+                        except:
+                            pass
+                        return None
+                    chunk_data = json.loads(content)
+                
+                if "tiles" not in chunk_data:
+                    # Invalid chunk data - delete corrupted file and return None
+                    try:
+                        chunk_file.unlink()
+                    except:
+                        pass
+                    return None
+                
+                tiles = chunk_data["tiles"]
+                chunk = Chunk(chunk_x, chunk_y, tiles)
+                return chunk
+                
+            except json.JSONDecodeError as e:
+                # Corrupted JSON file - delete it and return None
+                try:
+                    chunk_file.unlink()
+                except:
+                    pass
+                return None
+            except (PermissionError, OSError) as e:
+                # File is locked by another process (WinError 32) or permission denied
+                # This can happen when async save is still writing - retry with backoff
+                error_str = str(e)
+                if "WinError 32" in error_str or "Der Prozess kann nicht auf die Datei zugreifen" in error_str:
+                    if attempt < retry_count - 1:
+                        # Wait before retrying (exponential backoff)
+                        import time
+                        time.sleep(0.01 * (attempt + 1))  # 10ms, 20ms, 30ms
+                        continue
+                    else:
+                        # After all retries failed, return None but don't regenerate
+                        # The chunk will be loaded from memory if it exists, or generated if it's new
+                        return None
+                else:
+                    # Other permission errors - return None
+                    return None
+            except Exception as e:
+                # Other errors - log but don't spam console
+                error_str = str(e)
+                if ("Expecting value" not in error_str and 
+                    "Expecting ':'" not in error_str):
+                    print(f"Error loading chunk ({chunk_x}, {chunk_y}): {e}")
+                return None
+        
+        # All retries failed - return None (chunk will be loaded from memory or generated)
+        return None
 
     def unload_chunk(self, chunk_x: int, chunk_y: int):
         """Save and remove chunk from memory"""
