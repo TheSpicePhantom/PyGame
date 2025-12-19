@@ -529,21 +529,41 @@ class GameWindow(pyglet.window.Window):
         # Calculate visible chunk count (for debug output)
         visible_chunk_count = (chunk_max_x - chunk_min_x + 1) * (chunk_max_y - chunk_min_y + 1)
         
-        # Debug output on zoom change
-        if not hasattr(self, '_last_zoom_debug') or self._last_zoom_debug != self.camera_zoom:
+        # Debug output on zoom change with detailed calculation
+        # Always output when zoom changes to track the issue
+        if not hasattr(self, '_last_zoom_debug') or abs(self._last_zoom_debug - self.camera_zoom) > 0.01:
             print(f"[Chunk Debug] Zoom: {self.camera_zoom:.2f} | Visible area: {visible_world_width:.1f}x{visible_world_height:.1f} px")
+            print(f"[Chunk Debug] World bounds: X[{world_min_x:.1f}..{world_max_x:.1f}] Y[{world_min_y:.1f}..{world_max_y:.1f}]")
+            print(f"[Chunk Debug] Chunk size: {chunk_size_pixels} px")
             print(f"[Chunk Debug] Chunk range: X[{chunk_min_x}..{chunk_max_x}] Y[{chunk_min_y}..{chunk_max_y}]")
             print(f"[Chunk Debug] Visible chunks: {visible_chunk_count}")
+            print(f"[Chunk Debug] Calculation: min_x=floor({world_min_x:.1f}/{chunk_size_pixels})={math.floor(world_min_x / chunk_size_pixels)}-1={chunk_min_x}, max_x=ceil({world_max_x:.1f}/{chunk_size_pixels})={math.ceil(world_max_x / chunk_size_pixels)}+1={chunk_max_x}")
             self._last_zoom_debug = self.camera_zoom
         
         # Load all chunks in visible area + buffer
         chunks_to_load = set()
+        chunks_filtered = 0
         for chunk_x in range(chunk_min_x, chunk_max_x + 1):
             for chunk_y in range(chunk_min_y, chunk_max_y + 1):
                 # Check world bounds
                 if (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
                     0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
                     chunks_to_load.add((chunk_x, chunk_y))
+                else:
+                    chunks_filtered += 1
+        
+        # Debug: Show how many chunks were filtered by world bounds
+        # Update debug flag AFTER calculating actual range
+        debug_zoom_changed = not hasattr(self, '_last_zoom_debug') or abs(self._last_zoom_debug - self.camera_zoom) > 0.01
+        
+        if debug_zoom_changed:
+            actual_range_x = [cx for cx, cy in chunks_to_load] if chunks_to_load else []
+            actual_range_y = [cy for cx, cy in chunks_to_load] if chunks_to_load else []
+            if actual_range_x and actual_range_y:
+                print(f"[Chunk Debug] After world bounds filter: X[{min(actual_range_x)}..{max(actual_range_x)}] Y[{min(actual_range_y)}..{max(actual_range_y)}]")
+                print(f"[Chunk Debug] Filtered chunks: {chunks_filtered}, Loaded chunks: {len(chunks_to_load)}")
+            else:
+                print(f"[Chunk Debug] WARNING: No chunks to load after world bounds filter!")
         
         # Load chunks that aren't already loaded
         chunk_manager = self.world.chunk_manager
