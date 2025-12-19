@@ -19,6 +19,8 @@ from world.player_data_manager import PlayerDataManager
 from world.auto_save import AutoSaveSystem
 from analytics.performance_monitor import PerformanceMonitor
 from analytics.logger import PerformanceLogger
+from view.modern_gl_renderer import ModernGLRenderer
+import moderngl
 import time
 
 def get_desktop_resolution():
@@ -36,12 +38,13 @@ def get_desktop_resolution():
     display_info = pygame.display.Info()
     return display_info.current_w, display_info.current_h
 
-def apply_display_mode(mode, is_initial=False):
+def apply_display_mode(mode, is_initial=False, use_opengl=True):
     """Apply display mode change and return new screen surface
     
     Args:
         mode: Display mode ('windowed', 'fullscreen_window', 'fullscreen')
         is_initial: If True, this is the first window creation (pygame not yet initialized)
+        use_opengl: If True, create OpenGL context for ModernGL
     """
     # Save default windowed size
     default_width = 1920
@@ -58,20 +61,25 @@ def apply_display_mode(mode, is_initial=False):
             del os.environ['SDL_VIDEO_WINDOW_POS']
         os.environ['SDL_VIDEO_CENTERED'] = '1'
     
+    # OpenGL flags for ModernGL
+    opengl_flags = pygame.DOUBLEBUF | pygame.OPENGL if use_opengl else 0
+    
     # Now create the window
     if mode == "fullscreen":
         # True fullscreen with native resolution
-        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        flags = pygame.FULLSCREEN | opengl_flags if use_opengl else pygame.FULLSCREEN
+        screen = pygame.display.set_mode((0, 0), flags)
         print(f"[Display] Fullscreen mode: {screen.get_width()}x{screen.get_height()}")
     elif mode == "fullscreen_window":
         # Borderless windowed fullscreen - get desktop resolution
         desktop_width, desktop_height = get_desktop_resolution()
         print(f"[Display] Desktop resolution: {desktop_width}x{desktop_height}")
-        screen = pygame.display.set_mode((desktop_width, desktop_height), pygame.NOFRAME)
+        flags = pygame.NOFRAME | opengl_flags if use_opengl else pygame.NOFRAME
+        screen = pygame.display.set_mode((desktop_width, desktop_height), flags)
         print(f"[Display] Borderless mode: {screen.get_width()}x{screen.get_height()} at (0,0)")
     else:  # windowed
         # Regular windowed mode with default resolution
-        screen = pygame.display.set_mode((default_width, default_height))
+        screen = pygame.display.set_mode((default_width, default_height), opengl_flags)
         print(f"[Display] Windowed mode: {default_width}x{default_height} (centered)")
     
     # Update settings module with actual screen size
@@ -96,9 +104,37 @@ def main():
     settings_manager.load_settings()
     initial_mode = settings_manager.graphics.get('display_mode', 'windowed')
     
-    screen = apply_display_mode(initial_mode, is_initial=True)
+    # Create window WITHOUT OpenGL (ModernGL deaktiviert)
+    screen = apply_display_mode(initial_mode, is_initial=True, use_opengl=False)
     pygame.display.set_caption("PyGame - Factorio Style")
     clock = pygame.time.Clock()
+    
+    # Initialize ModernGL context
+    use_modern_gl = False
+    modern_gl_renderer = None
+    
+    # ModernGL temporär deaktiviert - Rendering funktioniert nicht mit Pygame
+    # TODO: Framebuffer-Ansatz implementieren oder ModernGL komplett migrieren
+    use_modern_gl = False
+    modern_gl_renderer = None
+    print("[Main] ModernGL temporär deaktiviert - Rendering-Problem mit Pygame")
+    print("[Main] Verwende Pygame Rendering (funktioniert)")
+    
+    # ModernGL Code (deaktiviert):
+    # try:
+    #     ctx = moderngl.create_context()
+    #     print(f"[Main] ModernGL context created successfully")
+    #     modern_gl_renderer = ModernGLRenderer(ctx, settings.SCREEN_WIDTH, settings.SCREEN_HEIGHT)
+    #     use_modern_gl = True
+    #     print("[Main] Using ModernGL for GPU-accelerated rendering")
+    # except Exception as e:
+    #     import traceback
+    #     print(f"[Main] Failed to create ModernGL context: {e}")
+    #     traceback.print_exc()
+    #     print("[Main] Falling back to Pygame rendering")
+    #     modern_gl_renderer = None
+    #     use_modern_gl = False
+    #     screen = apply_display_mode(initial_mode, is_initial=False, use_opengl=False)
     
     # Update settings to reflect actual screen size
     actual_width, actual_height = screen.get_size()
@@ -271,12 +307,15 @@ def main():
                         else:
                             graphics_settings.display_mode = "windowed"
                         graphics_settings.save_settings()
-                        screen = apply_display_mode(graphics_settings.display_mode)
+                        screen = apply_display_mode(graphics_settings.display_mode, use_opengl=use_modern_gl)
                         pause_menu._init_ui()
                         settings_menu.refresh_all_ui()
                         camera.update_screen_size()
                         # Refresh visible chunks after screen size change
                         world.refresh_visible_chunks(player.rect.center)
+                        # Update ModernGL renderer if using it
+                        if use_modern_gl and modern_gl_renderer:
+                            modern_gl_renderer.resize(settings.SCREEN_WIDTH, settings.SCREEN_HEIGHT)
                         continue
                 
                 # Save-Menü Events
@@ -316,12 +355,15 @@ def main():
                         settings_menu.active = False
                         pause_menu.active = True
                     elif result == "display_mode_changed":
-                        screen = apply_display_mode(graphics_settings.display_mode)
+                        screen = apply_display_mode(graphics_settings.display_mode, use_opengl=use_modern_gl)
                         pause_menu._init_ui()
                         settings_menu.refresh_all_ui()
                         camera.update_screen_size()
                         # Refresh visible chunks after screen size change
                         world.refresh_visible_chunks(player.rect.center)
+                        # Update ModernGL renderer if using it
+                        if use_modern_gl and modern_gl_renderer:
+                            modern_gl_renderer.resize(settings.SCREEN_WIDTH, settings.SCREEN_HEIGHT)
                     elif result == "auto_save_changed":
                         # Restart auto-save with new settings
                         if 'auto_save' in locals():
@@ -356,31 +398,148 @@ def main():
             
             # Render
             performance_monitor.start_render()
-            screen.fill(settings.COLOR_BG)
-            world.draw_grid(screen, camera)
             
-            for sprite in all_sprites:
-                screen.blit(sprite.image, camera.apply(sprite))
-            
-            # Draw chunk grid overlay (F8)
-            if world.grid_mode > 0:
-                world.draw_chunk_grid_overlay(screen, camera, player.rect.center)
-            
-            # Debug info
-            if not (pause_menu.active or settings_menu.active or save_menu.active):
-                # Use cached font instead of creating new one every frame
-                fps_text = debug_font.render(f"FPS: {int(clock.get_fps())}", True, (255, 255, 255))
-                pos_text = debug_font.render(f"Pos: ({player.rect.x}, {player.rect.y})", True, (255, 255, 255))
-                screen.blit(fps_text, (10, 10))
-                screen.blit(pos_text, (10, 35))
+            if use_modern_gl:
+                # Clear screen with ModernGL (use bright color to see if clearing works)
+                # Try a very bright color to verify clearing works
+                modern_gl_renderer.clear(0.5, 0.3, 0.8)  # Bright purple background for testing
                 
-                # Show chunk grid status
-                if world.grid_mode == 1:
-                    grid_text = debug_font.render("Grid: Chunks (F8)", True, (100, 255, 100))
-                    screen.blit(grid_text, (10, 60))
-                elif world.grid_mode == 2:
-                    grid_text = debug_font.render("Grid: Chunks + Tiles (F8)", True, (255, 200, 100))
-                    screen.blit(grid_text, (10, 60))
+                # Debug: Check if clear worked
+                if not hasattr(main, '_clear_debug'):
+                    print(f"[Debug] Cleared screen with color (0.5, 0.3, 0.8) - should be bright purple")
+                    main._clear_debug = True
+                
+                # Render test quad EVERY FRAME to verify rendering works
+                import numpy as np
+                # moderngl is already imported at the top of the file
+                
+                # Use identity matrices for test
+                identity_proj = np.eye(4, dtype=np.float32)
+                identity_view = np.eye(4, dtype=np.float32)
+                modern_gl_renderer.chunk_program['projection'].write(identity_proj.tobytes())
+                modern_gl_renderer.chunk_program['view'].write(identity_view.tobytes())
+                
+                # Create a simple test quad directly in NDC coordinates
+                # Shader expects colors in [0,255] range
+                # NDC: (-1,-1) bottom-left, (1,1) top-right
+                test_vertices = np.array([
+                    # x, y, r, g, b, offset_x, offset_y
+                    [-0.5, -0.5, 255.0, 0.0, 0.0, 0.0, 0.0],  # Red quad covering half screen
+                    [0.5, -0.5, 255.0, 0.0, 0.0, 0.0, 0.0],
+                    [0.5, 0.5, 255.0, 0.0, 0.0, 0.0, 0.0],
+                    [-0.5, -0.5, 255.0, 0.0, 0.0, 0.0, 0.0],
+                    [0.5, 0.5, 255.0, 0.0, 0.0, 0.0, 0.0],
+                    [-0.5, 0.5, 255.0, 0.0, 0.0, 0.0, 0.0],
+                ], dtype=np.float32)
+                
+                test_vbo = modern_gl_renderer.ctx.buffer(test_vertices.tobytes())
+                test_vao = modern_gl_renderer.ctx.simple_vertex_array(
+                    modern_gl_renderer.chunk_program,
+                    test_vbo,
+                    'in_position', 'in_color', 'in_chunk_offset'
+                )
+                
+                # Make sure shader is bound and enabled
+                modern_gl_renderer.chunk_program.use()
+                modern_gl_renderer.ctx.enable(moderngl.BLEND)
+                modern_gl_renderer.ctx.disable(moderngl.DEPTH_TEST)
+                
+                test_vao.render(moderngl.TRIANGLES)
+                test_vao.release()
+                test_vbo.release()
+                
+                # Restore projection for actual rendering
+                modern_gl_renderer._setup_projection()
+                
+                if not hasattr(main, '_test_rendered'):
+                    print("[Debug] Test quad rendered EVERY FRAME with identity matrices")
+                    main._test_rendered = True
+                
+                # Temporarily use identity view matrix for debugging
+                import numpy as np
+                identity_view = np.eye(4, dtype=np.float32)
+                modern_gl_renderer.chunk_program['view'].write(identity_view.tobytes())
+                if modern_gl_renderer.sprite_program:
+                    modern_gl_renderer.sprite_program['view'].write(identity_view.tobytes())
+                
+                # Debug: Print camera position
+                if not hasattr(main, '_debug_printed'):
+                    print(f"[Debug] Camera position: ({camera.x}, {camera.y})")
+                    print(f"[Debug] Screen size: {modern_gl_renderer.screen_width}x{modern_gl_renderer.screen_height}")
+                    print(f"[Debug] Player position: ({player.rect.x}, {player.rect.y})")
+                    main._debug_printed = True
+                
+                # Render chunks with ModernGL
+                world.draw_grid(screen, camera, modern_gl_renderer)
+                
+                # Render sprites with ModernGL
+                modern_gl_renderer.render_sprites(list(all_sprites), camera)
+                
+                # Collect UI surfaces for rendering
+                ui_surfaces = []
+                
+                # Debug info
+                if not (pause_menu.active or settings_menu.active or save_menu.active):
+                    fps_text = debug_font.render(f"FPS: {int(clock.get_fps())}", True, (255, 255, 255))
+                    pos_text = debug_font.render(f"Pos: ({player.rect.x}, {player.rect.y})", True, (255, 255, 255))
+                    ui_surfaces.append((fps_text, (10, 10)))
+                    ui_surfaces.append((pos_text, (10, 35)))
+                    
+                    if world.grid_mode == 1:
+                        grid_text = debug_font.render("Grid: Chunks (F8)", True, (100, 255, 100))
+                        ui_surfaces.append((grid_text, (10, 60)))
+                    elif world.grid_mode == 2:
+                        grid_text = debug_font.render("Grid: Chunks + Tiles (F8)", True, (255, 200, 100))
+                        ui_surfaces.append((grid_text, (10, 60)))
+                
+                # Render UI with ModernGL
+                if ui_surfaces:
+                    modern_gl_renderer.render_ui(ui_surfaces)
+                
+                # Chunk grid overlay (temporarily still Pygame - will migrate)
+                if world.grid_mode > 0:
+                    # For now, skip grid overlay with ModernGL
+                    # TODO: Implement grid overlay in ModernGL
+                    pass
+                
+                # Present frame (ModernGL renders directly to OpenGL buffer)
+                pygame.display.flip()
+                # Debug output (only if game is initialized)
+                if game_initialized and not hasattr(main, '_modern_gl_debug_printed'):
+                    print(f"[Debug] ModernGL renderer initialized")
+                    print(f"[Debug] Screen size: {modern_gl_renderer.screen_width}x{modern_gl_renderer.screen_height}")
+                    if player:
+                        print(f"[Debug] Player position: ({player.rect.x}, {player.rect.y})")
+                    if camera:
+                        print(f"[Debug] Camera position: ({camera.x}, {camera.y})")
+                    main._modern_gl_debug_printed = True
+            else:
+                # Fallback to Pygame rendering
+                screen.fill(settings.COLOR_BG)
+                world.draw_grid(screen, camera)
+                
+                for sprite in all_sprites:
+                    screen.blit(sprite.image, camera.apply(sprite))
+                
+                # Draw chunk grid overlay (F8) - Pygame fallback
+                if world.grid_mode > 0:
+                    world.draw_chunk_grid_overlay(screen, camera, player.rect.center)
+                
+                # Debug info - Pygame fallback
+                if not (pause_menu.active or settings_menu.active or save_menu.active):
+                    # Use cached font instead of creating new one every frame
+                    fps_text = debug_font.render(f"FPS: {int(clock.get_fps())}", True, (255, 255, 255))
+                    pos_text = debug_font.render(f"Pos: ({player.rect.x}, {player.rect.y})", True, (255, 255, 255))
+                    screen.blit(fps_text, (10, 10))
+                    screen.blit(pos_text, (10, 35))
+                    
+                    # Show chunk grid status
+                    if world.grid_mode == 1:
+                        grid_text = debug_font.render("Grid: Chunks (F8)", True, (100, 255, 100))
+                        screen.blit(grid_text, (10, 60))
+                    elif world.grid_mode == 2:
+                        grid_text = debug_font.render("Grid: Chunks + Tiles (F8)", True, (255, 200, 100))
+                        screen.blit(grid_text, (10, 60))
             
             # Menüs zeichnen
             if settings_menu.active:
@@ -395,11 +554,23 @@ def main():
             save_menu.draw(screen)
         
         performance_monitor.end_render()  # End render timing
-        pygame.display.flip()
+        
+        # Only flip if not using ModernGL (ModernGL flips automatically)
+        if not use_modern_gl:
+            pygame.display.flip()
+            print("[Main] Frame rendered with Pygame")
+        else:
+            # ModernGL renders directly to OpenGL buffer, flip to present
+            pygame.display.flip()
+            print("[Main] Frame rendered with ModernGL")
     
     # Stop auto-save before quitting
     if 'auto_save' in locals():
         auto_save.stop()
+    
+    # Cleanup ModernGL renderer
+    if use_modern_gl and modern_gl_renderer:
+        modern_gl_renderer.cleanup()
     
     # Save performance logs before quitting
     print("\n" + "="*60)

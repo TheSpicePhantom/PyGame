@@ -1,7 +1,8 @@
-pygame>=2.5.0
+pygame>=2.5.0  # Wird durch pyglet ersetzt
 opensimplex~=0.4.5
 numpy~=1.24.0
-moderngl>=5.8.0  # Für GPU-beschleunigtes Rendering (optional)
+moderngl>=5.8.0  # Für GPU-beschleunigtes Rendering
+pyglet>=2.0.0  # Window-Management, Events, Input (ersetzt Pygame)
 
 
 

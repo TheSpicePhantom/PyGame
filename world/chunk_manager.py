@@ -24,6 +24,9 @@ class Chunk:
         self.is_loaded = True
         self.surface = None  # Pre-rendered surface cache
         self.surface_dirty = True  # Flag to indicate surface needs re-rendering
+        
+        # Debug flags for chunk state tracking
+        self.render_state = None  # "rendering", "rendered", "visible", "active", "inactive"
 
     def get_world_position(self):
         """Get top-left world position in pixels"""
@@ -39,30 +42,15 @@ class Chunk:
         return (world_pos[0], world_pos[1], size, size)
     
     def render_to_surface(self):
-        """Pre-render chunk tiles to a surface (called in background thread)"""
-        import pygame
-        
-        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
-        surface = pygame.Surface((chunk_size_pixels, chunk_size_pixels))
-        
-        # Draw all tiles to the surface
-        for y, row in enumerate(self.tiles):
-            for x, tile in enumerate(row):
-                color = tuple(tile["color"]) if isinstance(tile["color"], list) else tile["color"]
-                rect = pygame.Rect(
-                    x * settings.TILE_SIZE,
-                    y * settings.TILE_SIZE,
-                    settings.TILE_SIZE,
-                    settings.TILE_SIZE
-                )
-                pygame.draw.rect(surface, color, rect)
-        
-        # Convert to screen format for faster blitting (5-10x speedup!)
-        surface = surface.convert()
-        
-        self.surface = surface
+        """
+        Pre-render chunk tiles to a surface (called in background thread)
+        NOTE: This method is deprecated - chunks are now rendered directly via ModernGL.
+        Kept for compatibility but does nothing.
+        """
+        # No longer needed - chunks are rendered directly via ModernGL
+        # Surface caching was for Pygame blitting, but ModernGL renders directly from tile data
         self.surface_dirty = False
-        return surface
+        return None
 
 
 class ChunkManager:
@@ -349,9 +337,8 @@ class ChunkManager:
         loaded_count = 0
         for _, chunk_x, chunk_y in chunks_to_load:
             chunk = self.get_or_create_chunk(chunk_x, chunk_y)
-            # Pre-render surface for initial chunks
-            if chunk.surface is None:
-                chunk.render_to_surface()
+            # Surface pre-rendering no longer needed (ModernGL renders directly)
+            # chunk.render_to_surface()  # Deprecated - ModernGL renders directly
             loaded_count += 1
         
         print(f"[ChunkManager] Pre-loaded {loaded_count} chunks successfully")
@@ -502,8 +489,8 @@ class ChunkManager:
                     if self.performance_monitor:
                         self.performance_monitor.record_chunk_generation(chunk_x, chunk_y, generation_time)
                 
-                # Pre-render chunk surface in background thread
-                chunk.render_to_surface()
+                # Surface pre-rendering no longer needed (ModernGL renders directly)
+                # chunk.render_to_surface()  # Deprecated - ModernGL renders directly
                 
                 # Record chunk load time (includes generation if chunk was new)
                 load_time = time.perf_counter() - load_start_time

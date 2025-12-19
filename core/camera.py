@@ -2,8 +2,8 @@
 Camera: Follows player with smooth lerp and perspective offset
 Designed for 60° angled view (Factorio-style)
 """
-import pygame
 from core import settings
+from core.sprite import Rect
 
 
 class Camera:
@@ -51,7 +51,7 @@ class Camera:
     
     def apply(self, entity):
         """Apply camera offset to an entity's rect"""
-        return pygame.Rect(
+        return Rect(
             entity.rect.x - self.x + self.offset_x,
             entity.rect.y - self.y + self.offset_y + self.perspective_offset_y,
             entity.rect.width,
@@ -66,8 +66,8 @@ class Camera:
         )
     
     def apply_rect(self, rect):
-        """Apply camera offset to a pygame.Rect"""
-        return pygame.Rect(
+        """Apply camera offset to a Rect"""
+        return Rect(
             rect.x - self.x + self.offset_x,
             rect.y - self.y + self.offset_y + self.perspective_offset_y,
             rect.width,

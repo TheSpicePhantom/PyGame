@@ -82,3 +82,7 @@ Die Spielparameter können in `config/game_config.json` angepasst werden:
 
 
 
+
+
+
+

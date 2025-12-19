@@ -1,7 +1,6 @@
 """
 Core: Spiel-Einstellungen und Konfiguration
 """
-import pygame
 
 # Fenster - Default Werte für Windowed Mode
 SCREEN_WIDTH = 1920
@@ -9,22 +8,17 @@ SCREEN_HEIGHT = 1080
 FPS = 60
 
 def get_screen_size():
-    """Get current screen size (works even if display mode changed)"""
-    try:
-        screen = pygame.display.get_surface()
-        if screen:
-            return screen.get_size()
-    except:
-        pass
+    """Get current screen size"""
+    # Return default values (screen size is managed by window system)
     return (SCREEN_WIDTH, SCREEN_HEIGHT)
 
 def get_screen_width():
     """Get current screen width"""
-    return get_screen_size()[0]
+    return SCREEN_WIDTH
 
 def get_screen_height():
     """Get current screen height"""
-    return get_screen_size()[1]
+    return SCREEN_HEIGHT
 
 # Tiles
 TILE_SIZE = 16
@@ -41,13 +35,14 @@ LAYER_FLOOR = 0
 LAYER_BUILDINGS = 1
 LAYER_PLAYER = 2
 
-# Controls
-KEY_MOVE_UP = pygame.K_w
-KEY_MOVE_DOWN = pygame.K_s
-KEY_MOVE_LEFT = pygame.K_a
-KEY_MOVE_RIGHT = pygame.K_d
-KEY_BUILD_MODE = pygame.K_b
-KEY_ROTATE = pygame.K_r
+# Controls (key codes - pyglet uses different constants, handled in input_pyglet.py)
+# These are kept for reference but not used in pyglet version
+KEY_MOVE_UP = ord('W')
+KEY_MOVE_DOWN = ord('S')
+KEY_MOVE_LEFT = ord('A')
+KEY_MOVE_RIGHT = ord('D')
+KEY_BUILD_MODE = ord('B')
+KEY_ROTATE = ord('R')
 
 # Gameplay
 PLAYER_SPEED = 200  # pixels per second
@@ -89,6 +84,7 @@ def get_chunk_unload_distance():
 # Legacy constants for backward compatibility
 CHUNK_LOAD_DISTANCE = _BASE_CHUNK_LOAD_DISTANCE
 CHUNK_UNLOAD_DISTANCE = _BASE_CHUNK_UNLOAD_DISTANCE
+
 
 
 
