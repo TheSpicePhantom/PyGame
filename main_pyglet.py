@@ -365,11 +365,18 @@ class GameWindow(pyglet.window.Window):
             # Step 1.5: Load chunks in visible area + 1 chunk buffer (dynamically based on zoom)
             self._load_visible_chunks(camera_x, camera_y)
             
-            # Step 2: Collect all visible chunks (with frustum culling)
+            # Step 2: Collect visible chunks from the calculated range (with frustum culling)
             chunks_data = []
             screen_width = self.modern_gl_renderer.screen_width
             screen_height = self.modern_gl_renderer.screen_height
             chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+            
+            # Get visible chunk range from _load_visible_chunks
+            if not hasattr(self, 'visible_chunk_range'):
+                # Fallback: use all loaded chunks if range not set
+                visible_chunks_to_render = set(self.world.chunk_manager.loaded_chunks.keys())
+            else:
+                visible_chunks_to_render = self.visible_chunk_range.get('chunks_to_load', set())
             
             # Process chunks: visible -> rendering -> active -> rendered
             # Reset "rendered" state first (keep "visible" and "inactive" from _load_visible_chunks)
@@ -377,8 +384,19 @@ class GameWindow(pyglet.window.Window):
                 if chunk.render_state == "rendered":
                     chunk.render_state = None  # Reset for next frame
             
-            # Process all loaded chunks
-            for chunk in self.world.chunk_manager.loaded_chunks.values():
+            # Process only chunks in visible range
+            chunk_manager = self.world.chunk_manager
+            for chunk_x, chunk_y in visible_chunks_to_render:
+                chunk_key = (chunk_x, chunk_y)
+                
+                # Ensure chunk is loaded (should already be loaded by _load_visible_chunks)
+                if chunk_key not in chunk_manager.loaded_chunks:
+                    chunk_manager.get_or_create_chunk(chunk_x, chunk_y)
+                
+                chunk = chunk_manager.loaded_chunks.get(chunk_key)
+                if not chunk:
+                    continue
+                
                 # Mark chunk as being prepared for rendering if it's visible
                 if chunk.render_state == "visible":
                     chunk.render_state = "rendering"
@@ -407,9 +425,12 @@ class GameWindow(pyglet.window.Window):
                 if chunk.render_state == "rendering":
                     chunk.render_state = "active"
                 
-                # Add chunk data for rendering
-                if chunk.tiles:
-                    chunks_data.append((chunk.chunk_x, chunk.chunk_y, chunk.tiles))
+                # Add chunk data for rendering (ensure tiles are generated)
+                if not chunk.tiles:
+                    # Chunk exists but tiles not generated yet - this shouldn't happen, but handle it
+                    continue
+                
+                chunks_data.append((chunk.chunk_x, chunk.chunk_y, chunk.tiles))
             
             # Step 3: Render all visible chunks
             if chunks_data:
@@ -564,6 +585,15 @@ class GameWindow(pyglet.window.Window):
                 print(f"[Chunk Debug] Filtered chunks: {chunks_filtered}, Loaded chunks: {len(chunks_to_load)}")
             else:
                 print(f"[Chunk Debug] WARNING: No chunks to load after world bounds filter!")
+        
+        # Store visible chunk range for rendering
+        self.visible_chunk_range = {
+            'min_x': chunk_min_x,
+            'max_x': chunk_max_x,
+            'min_y': chunk_min_y,
+            'max_y': chunk_max_y,
+            'chunks_to_load': chunks_to_load
+        }
         
         # Load chunks that aren't already loaded
         chunk_manager = self.world.chunk_manager
