@@ -94,6 +94,8 @@ class GameWindow(pyglet.window.Window):
         self.performance_monitor = PerformanceMonitor()
         self.performance_logger = PerformanceLogger()
         self.performance_logger.start_log()
+        # Connect logger to monitor for automatic event logging
+        self.performance_monitor.logger = self.performance_logger
         
         # Performance stats display
         self.show_performance_stats = False
@@ -168,21 +170,55 @@ class GameWindow(pyglet.window.Window):
         )
         
         # Initialize PlayerDataManager
-        from world.player_data_manager import PlayerDataManager
-        player_data_manager = PlayerDataManager(save_slot)
+        self.player_data_manager = PlayerDataManager(save_slot)
         
-        # Calculate world center position
-        # World size in pixels: WORLD_SIZE_CHUNKS * CHUNK_SIZE * TILE_SIZE
-        world_size_pixels = settings.WORLD_SIZE_CHUNKS * settings.CHUNK_SIZE * settings.TILE_SIZE
-        start_world_x = world_size_pixels / 2.0
-        start_world_y = world_size_pixels / 2.0
+        # Load player data from save (required - no fallback to default spawn)
+        player_data = self.player_data_manager.load_player()
         
-        # Player erstellen
+        if not player_data:
+            # No save exists - create initial save at world center
+            print(f"[Main] No existing player data found for slot {save_slot}, creating initial save...")
+            world_size_pixels = settings.WORLD_SIZE_CHUNKS * settings.CHUNK_SIZE * settings.TILE_SIZE
+            initial_x = world_size_pixels / 2.0
+            initial_y = world_size_pixels / 2.0
+            
+            # Create initial player data
+            self.player_data_manager.save_player(
+                position=(initial_x, initial_y),
+                inventory={},
+                faction_data={'policies': [], 'allies': [], 'enemies': []}
+            )
+            
+            # Reload to get the newly created data
+            player_data = self.player_data_manager.load_player()
+            if not player_data:
+                raise RuntimeError(f"Failed to create initial player data for slot {save_slot}")
+        
+        # Extract player data from save
+        spawn_pos = self.player_data_manager.get_spawn_position()
+        if not spawn_pos:
+            raise RuntimeError(f"Failed to get spawn position from save slot {save_slot}")
+        
+        start_world_x, start_world_y = spawn_pos
+        player_inventory = player_data.get('inventory', {})
+        player_faction = player_data.get('faction', {'policies': [], 'allies': [], 'enemies': []})
+        
+        print(f"[Main] Loaded player data from save slot {save_slot}")
+        print(f"[Main] Player spawn position: ({start_world_x:.0f}, {start_world_y:.0f})")
+        print(f"[Main] Player inventory: {len(player_inventory)} items")
+        print(f"[Main] Player faction: {len(player_faction.get('policies', []))} policies")
+        
+        # Player erstellen mit Daten aus PlayerDataManager
         self.player = Player(
             pos=(start_world_x, start_world_y),
             input_handler=self.input_handler,
             performance_monitor=self.performance_monitor
         )
+        
+        # Set player inventory and faction from save
+        self.player.inventory = player_inventory
+        self.player.faction = player_faction
+        
         self.all_sprites.add(self.player, layer=settings.LAYER_PLAYER)
         
         # Kamera initialisieren
@@ -193,9 +229,59 @@ class GameWindow(pyglet.window.Window):
         # Zoom: 1.5 = 150% (nah), 0.75 = 75% (weit weg)
         self.camera_zoom = 1.0  # Start at 100%
         
+        # Initialize Auto-Save System
+        def get_player_position():
+            """Get current player position for auto-save"""
+            if self.player:
+                return (self.player.rect.x, self.player.rect.y)
+            return (0, 0)
+        
+        def get_game_state():
+            """Get current game state for auto-save"""
+            return {
+                'can_save': self.game_initialized and not self._is_menu_active(),
+                'is_paused': self.pause_menu and self.pause_menu.active if self.pause_menu else False,
+                'menu_active': self._is_menu_active()
+            }
+        
+        def save_game():
+            """Save game callback for auto-save"""
+            if not self.game_initialized or not self.world or not self.player:
+                return
+            
+            try:
+                # Save world (chunks are saved automatically by ChunkManager)
+                # Save player data using the instance variable
+                if hasattr(self, 'player_data_manager') and self.player_data_manager:
+                    self.player_data_manager.save_player(
+                        position=(self.player.rect.x, self.player.rect.y),
+                        inventory=getattr(self.player, 'inventory', {}),
+                        faction_data=getattr(self.player, 'faction', {'policies': [], 'allies': [], 'enemies': []})
+                    )
+                    print(f"[Main] Game saved (slot {save_slot})")
+                else:
+                    print(f"[Main] Warning: PlayerDataManager not available for saving")
+            except Exception as e:
+                print(f"[Main] Error saving game: {e}")
+                raise
+        
+        self.auto_save = AutoSaveSystem(
+            save_callback=save_game,
+            get_player_pos=get_player_position,
+            get_game_state=get_game_state
+        )
+        self.auto_save.start()
+        
         # Mark game as initialized
         self.game_initialized = True
-        print(f"[Main] Game initialized - Player at ({start_world_x}, {start_world_y})")
+        
+        # Log spawn information
+        print(f"[Main] Game initialized - Player spawned at position ({start_world_x:.0f}, {start_world_y:.0f})")
+        
+        # Log spawn chunk for debugging
+        spawn_chunk = self.player_data_manager.get_spawn_chunk()
+        if spawn_chunk:
+            print(f"[Main] Player spawn chunk: {spawn_chunk}")
     
     def update(self, dt):
         """Update game logic"""
@@ -221,11 +307,7 @@ class GameWindow(pyglet.window.Window):
         
         if self.game_initialized:
             # Update game (only if no menu is active)
-            menu_active = (self.pause_menu and self.pause_menu.active) or \
-                         (self.settings_menu and self.settings_menu.active) or \
-                         (self.save_menu and self.save_menu.active)
-            
-            if not menu_active:
+            if not self._is_menu_active():
                 self.performance_monitor.start_update()
                 if self.all_sprites:
                     self.all_sprites.update(dt)
@@ -932,8 +1014,48 @@ class GameWindow(pyglet.window.Window):
         """Get set of currently pressed keys"""
         return getattr(self, '_keys_pressed', set())
     
+    def _is_menu_active(self):
+        """Check if any menu is currently active"""
+        return (self.pause_menu and self.pause_menu.active) or \
+               (self.settings_menu and self.settings_menu.active) or \
+               (self.save_menu and self.save_menu.active)
+    
     def on_close(self):
-        """Handle window close"""
+        """Handle window close - perform cleanup before exiting"""
+        print("[Main] Window closing, performing cleanup...")
+        
+        # Mark that cleanup is in progress to prevent double cleanup
+        if hasattr(self, '_cleanup_done'):
+            return  # Already cleaning up
+        self._cleanup_done = True
+        
+        # Final save before shutdown (save current player position and data)
+        if hasattr(self, 'player_data_manager') and self.player_data_manager:
+            if hasattr(self, 'player') and self.player and hasattr(self, 'game_initialized') and self.game_initialized:
+                try:
+                    print("[Main] Performing final save before shutdown...")
+                    self.player_data_manager.save_player(
+                        position=(self.player.rect.x, self.player.rect.y),
+                        inventory=getattr(self.player, 'inventory', {}),
+                        faction_data=getattr(self.player, 'faction', {'policies': [], 'allies': [], 'enemies': []})
+                    )
+                    print("[Main] Final save completed")
+                except Exception as e:
+                    print(f"[Main] Warning: Failed to save player data during shutdown: {e}")
+        
+        # Stop Auto-Save system (final save already done above, so skip it here)
+        if hasattr(self, 'auto_save') and self.auto_save:
+            self.auto_save.stop(final_save=False)
+        
+        # Shutdown World (saves chunks, stops worker threads, closes file handles)
+        if hasattr(self, 'world') and self.world:
+            self.world.cleanup()
+        
+        # Cleanup ModernGL renderer
+        if hasattr(self, 'modern_gl_renderer') and self.modern_gl_renderer:
+            self.modern_gl_renderer.cleanup()
+        
+        # Exit application
         pyglet.app.exit()
 
 def main():
@@ -942,9 +1064,36 @@ def main():
     print("[Main] Starting pyglet application...")
     pyglet.app.run()
     
-    # Cleanup
-    if window.modern_gl_renderer:
-        window.modern_gl_renderer.cleanup()
+    # Additional cleanup (in case on_close wasn't called)
+    # Check if cleanup was already done in on_close() to prevent double cleanup
+    if not hasattr(window, '_cleanup_done') or not window._cleanup_done:
+        print("[Main] Performing fallback cleanup (on_close was not called)...")
+        
+        # Final save before shutdown (save current player position and data)
+        if hasattr(window, 'player_data_manager') and window.player_data_manager:
+            if hasattr(window, 'player') and window.player and hasattr(window, 'game_initialized') and window.game_initialized:
+                try:
+                    print("[Main] Performing final save before shutdown...")
+                    window.player_data_manager.save_player(
+                        position=(window.player.rect.x, window.player.rect.y),
+                        inventory=getattr(window.player, 'inventory', {}),
+                        faction_data=getattr(window.player, 'faction', {'policies': [], 'allies': [], 'enemies': []})
+                    )
+                    print("[Main] Final save completed")
+                except Exception as e:
+                    print(f"[Main] Warning: Failed to save player data during shutdown: {e}")
+        
+        if hasattr(window, 'auto_save') and window.auto_save:
+            # Final save already done above, so skip it here
+            window.auto_save.stop(final_save=False)
+        
+        if hasattr(window, 'world') and window.world:
+            window.world.cleanup()
+        
+        if hasattr(window, 'modern_gl_renderer') and window.modern_gl_renderer:
+            window.modern_gl_renderer.cleanup()
+    else:
+        print("[Main] Cleanup already performed in on_close()")
     
     print("[Main] Application closed")
 

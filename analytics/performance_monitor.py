@@ -39,8 +39,20 @@ class PerformanceMonitor:
         # Chunk save events
         self.chunk_save_events = []
         
+        # Chunk modification events (chunks marked as dirty)
+        self.chunk_modified_events = []
+        
+        # Chunk loaded from disk events (separate from generation)
+        self.chunk_loaded_from_disk_events = []
+        
+        # Chunk migrated from legacy format events
+        self.chunk_migrated_legacy_events = []
+        
         # Chunk render times (per frame)
         self.chunk_render_times = deque(maxlen=300)
+        
+        # Optional logger reference for automatic event logging
+        self.logger = None
         
         # Movement events (direction, delay)
         self.movement_events = []
@@ -111,34 +123,104 @@ class PerformanceMonitor:
         """Record a chunk load event"""
         if not self.enabled:
             return
-        self.chunk_load_events.append({
+        event = {
             'chunk_x': chunk_x,
             'chunk_y': chunk_y,
             'load_time': load_time * 1000,  # Convert to ms
             'timestamp': time.time()
-        })
+        }
+        self.chunk_load_events.append(event)
+        # Automatically log to logger if available
+        if self.logger:
+            self.logger.log_chunk_load_event(event)
     
     def record_chunk_generation(self, chunk_x, chunk_y, generation_time):
         """Record a chunk generation event (separate from load)"""
         if not self.enabled:
             return
-        self.chunk_generation_events.append({
+        event = {
             'chunk_x': chunk_x,
             'chunk_y': chunk_y,
             'generation_time': generation_time * 1000,  # Convert to ms
             'timestamp': time.time()
-        })
+        }
+        self.chunk_generation_events.append(event)
+        # Automatically log to logger if available
+        if self.logger:
+            self.logger.log_chunk_generation_event(event)
     
     def record_chunk_save(self, chunk_x, chunk_y, save_time):
         """Record a chunk save event"""
         if not self.enabled:
             return
-        self.chunk_save_events.append({
+        event = {
             'chunk_x': chunk_x,
             'chunk_y': chunk_y,
             'save_time': save_time * 1000,  # Convert to ms
             'timestamp': time.time()
-        })
+        }
+        self.chunk_save_events.append(event)
+        # Automatically log to logger if available
+        if self.logger:
+            self.logger.log_chunk_save_event(event)
+    
+    def record_chunk_modified(self, chunk_x, chunk_y):
+        """Record a chunk modification event (chunk marked as dirty)"""
+        if not self.enabled:
+            return
+        event = {
+            'chunk_x': chunk_x,
+            'chunk_y': chunk_y,
+            'timestamp': time.time()
+        }
+        self.chunk_modified_events.append(event)
+        # Automatically log to logger if available
+        if self.logger:
+            self.logger.log_chunk_modified_event(event)
+    
+    def record_chunk_loaded_from_disk(self, chunk_x, chunk_y, load_time):
+        """
+        Record a chunk loaded from disk event (IO operation, separate from generation)
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+            load_time: Time taken to load chunk from disk (in seconds)
+        """
+        if not self.enabled:
+            return
+        event = {
+            'chunk_x': chunk_x,
+            'chunk_y': chunk_y,
+            'load_time': load_time * 1000,  # Convert to ms
+            'timestamp': time.time()
+        }
+        self.chunk_loaded_from_disk_events.append(event)
+        # Automatically log to logger if available
+        if self.logger:
+            self.logger.log_chunk_loaded_from_disk_event(event)
+    
+    def record_chunk_migrated_legacy(self, chunk_x, chunk_y, migration_time):
+        """
+        Record a chunk migrated from legacy JSON format to region format
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+            migration_time: Time taken to migrate chunk (in seconds)
+        """
+        if not self.enabled:
+            return
+        event = {
+            'chunk_x': chunk_x,
+            'chunk_y': chunk_y,
+            'migration_time': migration_time * 1000,  # Convert to ms
+            'timestamp': time.time()
+        }
+        self.chunk_migrated_legacy_events.append(event)
+        # Automatically log to logger if available
+        if self.logger:
+            self.logger.log_chunk_migrated_legacy_event(event)
     
     def record_chunk_render_time(self, render_time):
         """Record chunk rendering time for a frame"""
@@ -195,6 +277,7 @@ class PerformanceMonitor:
             'chunk_load_count': len(self.chunk_load_events),
             'chunk_generation_count': len(self.chunk_generation_events),
             'chunk_save_count': len(self.chunk_save_events),
+            'chunk_modified_count': len(self.chunk_modified_events),
             'chunk_render_times': {
                 'min': min(self.chunk_render_times) if self.chunk_render_times else 0,
                 'max': max(self.chunk_render_times) if self.chunk_render_times else 0,
@@ -256,6 +339,7 @@ class PerformanceMonitor:
         print(f"\nChunk Loads: {stats['chunk_load_count']}")
         print(f"Chunk Generations: {stats['chunk_generation_count']}")
         print(f"Chunk Saves: {stats['chunk_save_count']}")
+        print(f"Chunk Modifications: {stats['chunk_modified_count']}")
         
         if self.chunk_render_times:
             render_stats = stats['chunk_render_times']

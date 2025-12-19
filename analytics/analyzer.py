@@ -42,6 +42,9 @@ class PerformanceAnalyzer:
             'chunk_loading': self._analyze_chunk_loading(),
             'chunk_generation': self._analyze_chunk_generation(),
             'chunk_saving': self._analyze_chunk_saving(),
+            'chunk_modification': self._analyze_chunk_modification(),
+            'chunk_loaded_from_disk': self._analyze_chunk_loaded_from_disk(),
+            'chunk_migrated_legacy': self._analyze_chunk_migrated_legacy(),
             'movement': self._analyze_movement(),
             'insights': []
         }
@@ -256,6 +259,237 @@ class PerformanceAnalyzer:
             'events_per_second': len(chunk_events) / session_duration if session_duration > 0 else 0,
         }
     
+    def _analyze_chunk_modification(self) -> Dict:
+        """Analysiert Chunk-Modifikations-Performance (geänderte Chunks)"""
+        chunk_events = self.data.get('chunk_modified_events', [])
+        
+        if not chunk_events:
+            return {
+                'total_events': 0,
+                'events_per_second': 0,
+                'unique_chunks': 0
+            }
+        
+        # Zähle eindeutige Chunks
+        unique_chunks = set((e['chunk_x'], e['chunk_y']) for e in chunk_events)
+        
+        session_duration = self._analyze_session()['duration_seconds']
+        return {
+            'total_events': len(chunk_events),
+            'unique_chunks': len(unique_chunks),
+            'events_per_second': len(chunk_events) / session_duration if session_duration > 0 else 0,
+        }
+    
+    def _analyze_chunk_loaded_from_disk(self) -> Dict:
+        """Analysiert Chunk-Loading von Disk (IO-Operationen, getrennt von Generation)"""
+        chunk_events = self.data.get('chunk_loaded_from_disk_events', [])
+        
+        if not chunk_events:
+            return {
+                'total_events': 0,
+                'load_times': None,
+                'distribution': None,
+                'slowest_chunks': [],
+                'events_per_second': 0
+            }
+        
+        load_times = [e['load_time'] for e in chunk_events if 'load_time' in e]
+        
+        if not load_times:
+            return {
+                'total_events': len(chunk_events),
+                'load_times': None,
+                'distribution': None,
+                'slowest_chunks': [],
+                'events_per_second': 0
+            }
+        
+        # Verteilung
+        fast_loads = [t for t in load_times if t < 2.0]
+        medium_loads = [t for t in load_times if 2.0 <= t < 5.0]
+        slow_loads = [t for t in load_times if t >= 5.0]
+        
+        # Langsamste Chunks
+        sorted_events = sorted(chunk_events, key=lambda x: x.get('load_time', 0), reverse=True)
+        slowest = [
+            {
+                'chunk': (e['chunk_x'], e['chunk_y']),
+                'load_time_ms': e.get('load_time', 0),
+            }
+            for e in sorted_events[:10]
+        ]
+        
+        session_duration = self._analyze_session()['duration_seconds']
+        return {
+            'total_events': len(chunk_events),
+            'load_times': {
+                'min_ms': min(load_times),
+                'max_ms': max(load_times),
+                'avg_ms': mean(load_times),
+                'median_ms': median(load_times),
+            },
+            'distribution': {
+                'fast_count': len(fast_loads),
+                'fast_percent': len(fast_loads) / len(load_times) * 100,
+                'medium_count': len(medium_loads),
+                'medium_percent': len(medium_loads) / len(load_times) * 100,
+                'slow_count': len(slow_loads),
+                'slow_percent': len(slow_loads) / len(load_times) * 100,
+            },
+            'slowest_chunks': slowest,
+            'events_per_second': len(chunk_events) / session_duration if session_duration > 0 else 0,
+        }
+    
+    def _analyze_chunk_migrated_legacy(self) -> Dict:
+        """Analysiert Legacy-Migration-Performance (Migration von JSON zu Region-Format)"""
+        chunk_events = self.data.get('chunk_migrated_legacy_events', [])
+        
+        if not chunk_events:
+            return {
+                'total_events': 0,
+                'migration_times': None,
+                'slowest_chunks': [],
+                'events_per_second': 0
+            }
+        
+        migration_times = [e['migration_time'] for e in chunk_events if 'migration_time' in e]
+        
+        if not migration_times:
+            return {
+                'total_events': len(chunk_events),
+                'migration_times': None,
+                'slowest_chunks': [],
+                'events_per_second': 0
+            }
+        
+        # Langsamste Migrationen
+        sorted_events = sorted(chunk_events, key=lambda x: x.get('migration_time', 0), reverse=True)
+        slowest = [
+            {
+                'chunk': (e['chunk_x'], e['chunk_y']),
+                'migration_time_ms': e.get('migration_time', 0),
+            }
+            for e in sorted_events[:10]
+        ]
+        
+        session_duration = self._analyze_session()['duration_seconds']
+        return {
+            'total_events': len(chunk_events),
+            'migration_times': {
+                'min_ms': min(migration_times),
+                'max_ms': max(migration_times),
+                'avg_ms': mean(migration_times),
+                'median_ms': median(migration_times),
+            },
+            'slowest_chunks': slowest,
+            'events_per_second': len(chunk_events) / session_duration if session_duration > 0 else 0,
+        }
+    
+    def _analyze_chunk_loaded_from_disk(self) -> Dict:
+        """Analysiert Chunk-Loading von Disk (IO-Operationen, getrennt von Generation)"""
+        chunk_events = self.data.get('chunk_loaded_from_disk_events', [])
+        
+        if not chunk_events:
+            return {
+                'total_events': 0,
+                'load_times': None,
+                'distribution': None,
+                'slowest_chunks': [],
+                'events_per_second': 0
+            }
+        
+        load_times = [e['load_time'] for e in chunk_events if 'load_time' in e]
+        
+        if not load_times:
+            return {
+                'total_events': len(chunk_events),
+                'load_times': None,
+                'distribution': None,
+                'slowest_chunks': [],
+                'events_per_second': 0
+            }
+        
+        # Verteilung
+        fast_loads = [t for t in load_times if t < 2.0]
+        medium_loads = [t for t in load_times if 2.0 <= t < 5.0]
+        slow_loads = [t for t in load_times if t >= 5.0]
+        
+        # Langsamste Chunks
+        sorted_events = sorted(chunk_events, key=lambda x: x.get('load_time', 0), reverse=True)
+        slowest = [
+            {
+                'chunk': (e['chunk_x'], e['chunk_y']),
+                'load_time_ms': e.get('load_time', 0),
+            }
+            for e in sorted_events[:10]
+        ]
+        
+        session_duration = self._analyze_session()['duration_seconds']
+        return {
+            'total_events': len(chunk_events),
+            'load_times': {
+                'min_ms': min(load_times),
+                'max_ms': max(load_times),
+                'avg_ms': mean(load_times),
+                'median_ms': median(load_times),
+            },
+            'distribution': {
+                'fast_count': len(fast_loads),
+                'fast_percent': len(fast_loads) / len(load_times) * 100,
+                'medium_count': len(medium_loads),
+                'medium_percent': len(medium_loads) / len(load_times) * 100,
+                'slow_count': len(slow_loads),
+                'slow_percent': len(slow_loads) / len(load_times) * 100,
+            },
+            'slowest_chunks': slowest,
+            'events_per_second': len(chunk_events) / session_duration if session_duration > 0 else 0,
+        }
+    
+    def _analyze_chunk_migrated_legacy(self) -> Dict:
+        """Analysiert Legacy-Migration-Performance (Migration von JSON zu Region-Format)"""
+        chunk_events = self.data.get('chunk_migrated_legacy_events', [])
+        
+        if not chunk_events:
+            return {
+                'total_events': 0,
+                'migration_times': None,
+                'slowest_chunks': [],
+                'events_per_second': 0
+            }
+        
+        migration_times = [e['migration_time'] for e in chunk_events if 'migration_time' in e]
+        
+        if not migration_times:
+            return {
+                'total_events': len(chunk_events),
+                'migration_times': None,
+                'slowest_chunks': [],
+                'events_per_second': 0
+            }
+        
+        # Langsamste Migrationen
+        sorted_events = sorted(chunk_events, key=lambda x: x.get('migration_time', 0), reverse=True)
+        slowest = [
+            {
+                'chunk': (e['chunk_x'], e['chunk_y']),
+                'migration_time_ms': e.get('migration_time', 0),
+            }
+            for e in sorted_events[:10]
+        ]
+        
+        session_duration = self._analyze_session()['duration_seconds']
+        return {
+            'total_events': len(chunk_events),
+            'migration_times': {
+                'min_ms': min(migration_times),
+                'max_ms': max(migration_times),
+                'avg_ms': mean(migration_times),
+                'median_ms': median(migration_times),
+            },
+            'slowest_chunks': slowest,
+            'events_per_second': len(chunk_events) / session_duration if session_duration > 0 else 0,
+        }
+    
     def _analyze_movement(self) -> Dict:
         """Analysiert Movement-Performance"""
         movement_events = self.data.get('movement_events', [])
@@ -345,6 +579,53 @@ class PerformanceAnalyzer:
                 insights.append("[INFO] Hohe Chunk-Load-Rate ({:.1f} Chunks/Sekunde) - moeglicherweise schnelle Bewegung".format(events_per_sec))
             elif events_per_sec < 1:
                 insights.append("[INFO] Niedrige Chunk-Load-Rate ({:.1f} Chunks/Sekunde)".format(events_per_sec))
+        
+        # IO vs Generation Analysis
+        chunk_loaded_from_disk = analysis['chunk_loaded_from_disk']
+        chunk_generation = analysis['chunk_generation']
+        
+        total_io_ops = chunk_loaded_from_disk['total_events']
+        total_gen_ops = chunk_generation['total_events']
+        total_chunk_ops = total_io_ops + total_gen_ops
+        
+        if total_chunk_ops > 0:
+            io_percent = (total_io_ops / total_chunk_ops) * 100
+            gen_percent = (total_gen_ops / total_chunk_ops) * 100
+            
+            if io_percent > 50:
+                insights.append("[INFO] Mehr IO-Operationen ({:.1f}%) als Generation ({:.1f}%) - Chunks werden hauptsaechlich von Disk geladen".format(io_percent, gen_percent))
+            elif gen_percent > 50:
+                insights.append("[INFO] Mehr Generation ({:.1f}%) als IO ({:.1f}%) - viele neue Chunks werden generiert".format(gen_percent, io_percent))
+            else:
+                insights.append("[INFO] Ausgewogene Verteilung: IO ({:.1f}%) vs Generation ({:.1f}%)".format(io_percent, gen_percent))
+            
+            # Disk Load Performance
+            if chunk_loaded_from_disk['total_events'] > 0 and chunk_loaded_from_disk['load_times']:
+                avg_disk_load = chunk_loaded_from_disk['load_times']['avg_ms']
+                if avg_disk_load > 5.0:
+                    insights.append("[WARN] Durchschnittliche Disk-Load-Zeit ({:.2f}ms) ist hoch - moeglicher IO-Bottleneck".format(avg_disk_load))
+                elif avg_disk_load > 2.0:
+                    insights.append("[INFO] Durchschnittliche Disk-Load-Zeit ({:.2f}ms) ist moderat".format(avg_disk_load))
+            
+            # Generation Performance
+            if chunk_generation['total_events'] > 0 and chunk_generation['generation_times']:
+                avg_gen_time = chunk_generation['generation_times']['avg_ms']
+                if avg_gen_time > 1.0:
+                    insights.append("[WARN] Durchschnittliche Generierungs-Zeit ({:.2f}ms) ist hoch - moeglicher CPU-Bottleneck".format(avg_gen_time))
+                elif avg_gen_time > 0.7:
+                    insights.append("[INFO] Durchschnittliche Generierungs-Zeit ({:.2f}ms) ist moderat".format(avg_gen_time))
+        
+        # Legacy Migration Insights
+        chunk_migrated_legacy = analysis['chunk_migrated_legacy']
+        if chunk_migrated_legacy['total_events'] > 0:
+            insights.append("[INFO] {:.0f} Chunks wurden von Legacy-Format migriert ({:.2f} Chunks/Sekunde)".format(
+                chunk_migrated_legacy['total_events'],
+                chunk_migrated_legacy['events_per_second']
+            ))
+            if chunk_migrated_legacy['migration_times']:
+                avg_migration = chunk_migrated_legacy['migration_times']['avg_ms']
+                if avg_migration > 10.0:
+                    insights.append("[WARN] Durchschnittliche Migrations-Zeit ({:.2f}ms) ist hoch".format(avg_migration))
         
         # Movement Insights
         if movement['total_events'] > 0 and movement['delays']:
@@ -478,6 +759,66 @@ class PerformanceAnalyzer:
                 print(f"\nLangsamste 10 Chunk-Saves:")
                 for i, chunk_info in enumerate(chunk_saving['slowest_chunks'][:10], 1):
                     print(f"  {i:>2}. Chunk ({chunk_info['chunk'][0]:>4}, {chunk_info['chunk'][1]:>4}): {chunk_info['save_time_ms']:>6.2f}ms")
+        
+        # Chunk Modification
+        chunk_modification = analysis['chunk_modification']
+        print(f"\n{'=' * 80}")
+        print("CHUNK MODIFICATION")
+        print(f"{'=' * 80}")
+        print(f"Gesamt Events: {chunk_modification['total_events']}")
+        print(f"Eindeutige Chunks: {chunk_modification['unique_chunks']}")
+        print(f"Modifikations-Rate: {chunk_modification['events_per_second']:.2f} Events/Sekunde")
+        
+        # Chunk Loaded from Disk (IO Operations)
+        chunk_loaded_from_disk = analysis['chunk_loaded_from_disk']
+        print(f"\n{'=' * 80}")
+        print("CHUNK LOADED FROM DISK (IO)")
+        print(f"{'=' * 80}")
+        print(f"Gesamt Events: {chunk_loaded_from_disk['total_events']}")
+        
+        if chunk_loaded_from_disk['load_times']:
+            load_times = chunk_loaded_from_disk['load_times']
+            print(f"\nDisk-Load-Zeiten (ms):")
+            print(f"  Minimum:  {load_times['min_ms']:>8.2f}")
+            print(f"  Maximum:  {load_times['max_ms']:>8.2f}")
+            print(f"  Durchschnitt: {load_times['avg_ms']:>8.2f}")
+            print(f"  Median:   {load_times['median_ms']:>8.2f}")
+            
+            if chunk_loaded_from_disk['distribution']:
+                dist = chunk_loaded_from_disk['distribution']
+                print(f"\nVerteilung:")
+                print(f"  Schnell (<2ms):   {dist['fast_count']:>4} ({dist['fast_percent']:>5.1f}%)")
+                print(f"  Mittel (2-5ms):   {dist['medium_count']:>4} ({dist['medium_percent']:>5.1f}%)")
+                print(f"  Langsam (>=5ms):  {dist['slow_count']:>4} ({dist['slow_percent']:>5.1f}%)")
+            
+            print(f"\nDisk-Load-Rate: {chunk_loaded_from_disk['events_per_second']:.2f} Chunks/Sekunde")
+            
+            if chunk_loaded_from_disk['slowest_chunks']:
+                print(f"\nLangsamste 10 Disk-Loads:")
+                for i, chunk_info in enumerate(chunk_loaded_from_disk['slowest_chunks'][:10], 1):
+                    print(f"  {i:>2}. Chunk ({chunk_info['chunk'][0]:>4}, {chunk_info['chunk'][1]:>4}): {chunk_info['load_time_ms']:>6.2f}ms")
+        
+        # Chunk Migrated Legacy
+        chunk_migrated_legacy = analysis['chunk_migrated_legacy']
+        print(f"\n{'=' * 80}")
+        print("CHUNK MIGRATED FROM LEGACY (JSON -> Region)")
+        print(f"{'=' * 80}")
+        print(f"Gesamt Events: {chunk_migrated_legacy['total_events']}")
+        
+        if chunk_migrated_legacy['migration_times']:
+            migration_times = chunk_migrated_legacy['migration_times']
+            print(f"\nMigration-Zeiten (ms):")
+            print(f"  Minimum:  {migration_times['min_ms']:>8.2f}")
+            print(f"  Maximum:  {migration_times['max_ms']:>8.2f}")
+            print(f"  Durchschnitt: {migration_times['avg_ms']:>8.2f}")
+            print(f"  Median:   {migration_times['median_ms']:>8.2f}")
+            
+            print(f"\nMigration-Rate: {chunk_migrated_legacy['events_per_second']:.2f} Chunks/Sekunde")
+            
+            if chunk_migrated_legacy['slowest_chunks']:
+                print(f"\nLangsamste 10 Migrationen:")
+                for i, chunk_info in enumerate(chunk_migrated_legacy['slowest_chunks'][:10], 1):
+                    print(f"  {i:>2}. Chunk ({chunk_info['chunk'][0]:>4}, {chunk_info['chunk'][1]:>4}): {chunk_info['migration_time_ms']:>6.2f}ms")
         
         # Chunk Render Times (from stats)
         stats = self.data.get('stats', {})

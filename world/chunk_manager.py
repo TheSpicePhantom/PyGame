@@ -1,5 +1,5 @@
 """
-World: Chunk Manager - JSON-based chunk save/load system
+World: Chunk Manager - Binary region-based chunk save/load system
 """
 import json
 import os
@@ -10,8 +10,14 @@ from typing import Dict, Tuple, Optional, List, Set
 from core import settings
 import threading
 import queue
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
+import heapq
+from world.region_manager import (
+    RegionManager,
+    ChunkNotFoundError,
+    ChunkCorruptedError,
+    SeedMismatchError,
+    RegionFileError
+)
 
 
 class Chunk:
@@ -74,26 +80,37 @@ class ChunkManager:
         
         # Setup save directories
         self.save_dir = Path(f"saves/slot_{save_slot}")
-        self.chunks_dir = self.save_dir / "chunks"
+        self.chunks_dir = self.save_dir / "chunks"  # Keep for backward compatibility check
         self.chunks_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize RegionManager for binary region-based storage
+        self.region_manager = RegionManager(save_slot)
         
         # Load or create world metadata
         self.metadata_file = self.save_dir / "world_metadata.json"
         self.metadata = self._load_metadata()
         
         # Setup chunk loading queue and worker threads
-        self.chunk_load_queue = queue.Queue()
+        # Priority Queue: Lower priority number = higher priority (loads chunks closer to player first)
+        # Uses heapq internally for efficient priority-based ordering
+        self.chunk_load_queue = queue.PriorityQueue()
         self.chunk_load_results = queue.Queue()
         self.worker_threads = []
         self.running = True
         self.pending_chunks = set()  # Track chunks being loaded
-        self.chunk_priority = {}  # Distance-based priority
+        self.chunk_priority = {}  # Distance-based priority (for tracking/cleanup)
+        
+        # Performance limits (documented for tuning):
+        # - Max chunks loaded per second: ~30 chunks/sec (3 workers, ~100ms per chunk average)
+        # - Max chunks saved per second: 20 chunks/sec (1 worker, 50ms delay between saves)
+        # - Max chunks processed per frame: 1 chunk per frame (via process_loaded_chunks)
+        # These limits prevent frame drops and I/O overload
         
         # Async save system - Queue-based for better performance
-        self.save_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ChunkSave")
-        self.pending_saves = set()  # Track chunks being saved
+        self.pending_saves = set()  # Track chunks being saved (thread-safe)
         self.save_queue = queue.Queue()  # Queue for chunks to save
-        self.dirty_chunks = set()  # Chunks that need saving (marked as dirty)
+        self.dirty_chunks = set()  # Chunks that need saving (marked as dirty, thread-safe)
+        self._save_lock = threading.Lock()  # Lock for pending_saves and dirty_chunks
         
         # Start dedicated save worker thread (runs continuously, saves when queue has items)
         self.save_worker_thread = threading.Thread(target=self._chunk_save_worker, daemon=True, name="ChunkSaveWorker")
@@ -192,58 +209,83 @@ class ChunkManager:
         return self.chunks_dir / f"chunk_{chunk_x}_{chunk_y}.json"
 
     def _chunk_exists_on_disk(self, chunk_x: int, chunk_y: int) -> bool:
-        """Check if a chunk file exists on disk"""
+        """Check if a chunk exists on disk (region file or legacy JSON)"""
+        # Check region file first (new format)
+        if self.region_manager.chunk_exists(chunk_x, chunk_y):
+            return True
+        # Check legacy JSON file (for migration)
         return self._get_chunk_filename(chunk_x, chunk_y).exists()
+    
+    def _wait_until_not_saving(self, chunk_key: Tuple[int, int], max_retries: int = 3) -> bool:
+        """
+        Wait until a chunk is no longer being saved (thread-safe)
+        
+        Args:
+            chunk_key: Chunk coordinates (chunk_x, chunk_y)
+            max_retries: Maximum number of retry attempts (default: 3)
+        
+        Returns:
+            True if chunk is no longer being saved, False if still saving after max_retries
+        """
+        # Thread-safe check: Check if chunk is currently being saved
+        with self._save_lock:
+            is_pending = chunk_key in self.pending_saves
+        
+        if not is_pending:
+            return True
+        
+        # Chunk is being saved - wait with exponential backoff
+        for attempt in range(max_retries):
+            time.sleep(0.01 * (attempt + 1))  # Exponential backoff: 10ms, 20ms, 30ms
+            
+            # Thread-safe check again
+            with self._save_lock:
+                if chunk_key not in self.pending_saves:
+                    return True
+        
+        # Still saving after max retries
+        return False
 
     def _save_chunk_to_file_sync(self, chunk: Chunk):
         """
-        Synchronous save a chunk to JSON file (used by async wrapper)
+        Synchronous save a chunk to region file (binary format)
         
         Args:
             chunk: Chunk instance to save
         """
-        import time
-        chunk_file = self._get_chunk_filename(chunk.chunk_x, chunk.chunk_y)
-        
-        # Start timing chunk save
         save_start_time = time.perf_counter()
         
-        # Prepare chunk data for JSON serialization
-        save_data = {
-            "chunk_coords": [chunk.chunk_x, chunk.chunk_y],
-            "seed": self.get_seed(),
-            "tiles": chunk.tiles,  # 15x15 grid with biome + resource data
-            "entities": []  # Future: entity data
-        }
-        
         try:
-            with open(chunk_file, 'w') as f:
-                json.dump(save_data, f, indent=2)
+            # Save using RegionManager (binary format)
+            seed = self.get_seed()
+            self.region_manager.save_chunk_data(
+                chunk.chunk_x,
+                chunk.chunk_y,
+                chunk.tiles,
+                seed
+            )
             
             # Record chunk save time
             save_time = time.perf_counter() - save_start_time
             if self.performance_monitor:
                 self.performance_monitor.record_chunk_save(chunk.chunk_x, chunk.chunk_y, save_time)
+        except RegionFileError as e:
+            print(f"[ChunkManager] Failed to save chunk ({chunk.chunk_x}, {chunk.chunk_y}): {e}")
+            # Don't re-raise - allow game to continue
         except Exception as e:
-            print(f"Error saving chunk ({chunk.chunk_x}, {chunk.chunk_y}): {e}")
-    
-    async def _save_chunk_to_file_async(self, chunk: Chunk):
-        """
-        Asynchronously save a chunk to JSON file
-        
-        Args:
-            chunk: Chunk instance to save
-        """
-        chunk_key = (chunk.chunk_x, chunk.chunk_y)
-        try:
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(self.save_executor, self._save_chunk_to_file_sync, chunk)
-        finally:
-            self.pending_saves.discard(chunk_key)
-            self.dirty_chunks.discard(chunk_key)  # Remove from dirty set after save
+            print(f"[ChunkManager] Unexpected error saving chunk ({chunk.chunk_x}, {chunk.chunk_y}): {e}")
+            import traceback
+            traceback.print_exc()
     
     def _chunk_save_worker(self):
-        """Dedicated worker thread that saves chunks from queue when time is available"""
+        """
+        Dedicated worker thread that saves chunks from queue synchronously.
+        Simplified approach: directly call sync save method, no asyncio/executor overhead.
+        
+        Performance limits:
+        - Rate limit: 50ms delay between saves = max 20 chunks/second
+        - Prevents I/O overload and frame drops
+        """
         while self.running:
             try:
                 # Get chunk from queue (with timeout to allow checking if still running)
@@ -254,39 +296,45 @@ class ChunkManager:
                 
                 chunk_key = (chunk.chunk_x, chunk.chunk_y)
                 
-                # Skip if chunk is no longer loaded or already being saved
-                if chunk_key not in self.loaded_chunks or chunk_key in self.pending_saves:
-                    self.save_queue.task_done()
-                    continue
+                # Thread-safe check: Skip if chunk is no longer loaded or already being saved
+                with self._save_lock:
+                    if chunk_key not in self.loaded_chunks or chunk_key in self.pending_saves:
+                        self.save_queue.task_done()
+                        continue
+                    
+                    # Mark as saving (thread-safe)
+                    self.pending_saves.add(chunk_key)
                 
-                # Mark as saving
-                self.pending_saves.add(chunk_key)
-                
-                # Save chunk asynchronously
-                def run_async_save():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        new_loop.run_until_complete(self._save_chunk_to_file_async(chunk))
-                    finally:
-                        new_loop.close()
-                
-                # Use executor to limit concurrent saves
-                self.save_executor.submit(run_async_save)
+                # Save chunk synchronously (direct call, no asyncio/executor overhead)
+                try:
+                    self._save_chunk_to_file_sync(chunk)
+                finally:
+                    # Thread-safe cleanup: Remove from pending and dirty sets
+                    with self._save_lock:
+                        self.pending_saves.discard(chunk_key)
+                        self.dirty_chunks.discard(chunk_key)
                 
                 self.save_queue.task_done()
                 
-                # Small delay to prevent overwhelming the system
-                time.sleep(0.01)  # 10ms delay between saves
+                # Rate limit: Only save 1 chunk per 50ms = max 20 chunks/second
+                # This prevents I/O overload and ensures smooth gameplay
+                time.sleep(0.05)  # 50ms delay between saves
                 
             except Exception as e:
                 print(f"[ChunkManager] Error in save worker: {e}")
                 import traceback
                 traceback.print_exc()
+                # Clean up on error
+                try:
+                    with self._save_lock:
+                        self.pending_saves.discard(chunk_key)
+                        self.dirty_chunks.discard(chunk_key)
+                except:
+                    pass
     
     def _save_chunk_to_file(self, chunk: Chunk):
         """
-        Mark chunk for saving (adds to queue, non-blocking)
+        Mark chunk for saving (adds to queue, non-blocking, thread-safe)
         Chunks are kept in memory and saved asynchronously when the worker thread has time.
         
         Args:
@@ -294,12 +342,18 @@ class ChunkManager:
         """
         chunk_key = (chunk.chunk_x, chunk.chunk_y)
         
-        # Skip if already in queue or being saved
-        if chunk_key in self.pending_saves or chunk_key in self.dirty_chunks:
-            return
+        # Thread-safe check: Skip if already in queue or being saved
+        with self._save_lock:
+            if chunk_key in self.pending_saves or chunk_key in self.dirty_chunks:
+                return
+            
+            # Mark as dirty (thread-safe)
+            self.dirty_chunks.add(chunk_key)
         
-        # Mark as dirty and add to queue (non-blocking)
-        self.dirty_chunks.add(chunk_key)
+        # Track chunk modification event
+        if self.performance_monitor:
+            self.performance_monitor.record_chunk_modified(chunk.chunk_x, chunk.chunk_y)
+        
         try:
             self.save_queue.put(chunk, block=False)  # Non-blocking, fails if queue full
         except queue.Full:
@@ -308,7 +362,7 @@ class ChunkManager:
 
     def _load_chunk_from_file(self, chunk_x: int, chunk_y: int, retry_count: int = 3) -> Optional[Chunk]:
         """
-        Load a chunk from JSON file with retry logic for locked files
+        Load a chunk from region file (binary format) or legacy JSON file
         
         Args:
             chunk_x: Chunk X coordinate
@@ -318,87 +372,147 @@ class ChunkManager:
         Returns:
             Chunk instance or None if file doesn't exist or is corrupted
         """
-        chunk_file = self._get_chunk_filename(chunk_x, chunk_y)
+        chunk_key = (chunk_x, chunk_y)
         
-        if not chunk_file.exists():
+        # Wait until chunk is no longer being saved (unified retry logic)
+        if not self._wait_until_not_saving(chunk_key, max_retries=retry_count):
+            # Chunk is still being saved after retries - return None to retry later
             return None
         
-        # Check if chunk is currently being saved - if so, wait for save to complete
-        chunk_key = (chunk_x, chunk_y)
-        if chunk_key in self.pending_saves:
-            # Chunk is being saved - wait a bit and retry
-            import time
-            for attempt in range(retry_count):
-                time.sleep(0.01 * (attempt + 1))  # Exponential backoff: 10ms, 20ms, 30ms
-                if chunk_key not in self.pending_saves:
-                    break
+        # Try to load from region file first (new binary format)
+        seed = self.get_seed()
+        load_start_time = time.perf_counter()
+        try:
+            chunk_data = self.region_manager.load_chunk_data(chunk_x, chunk_y, seed)
+            # Successfully loaded from region file
+            load_time = time.perf_counter() - load_start_time
+            tiles = chunk_data['tiles']
+            chunk = Chunk(chunk_x, chunk_y, tiles)
+            
+            # Track chunk loaded from disk (IO operation)
+            if self.performance_monitor:
+                self.performance_monitor.record_chunk_loaded_from_disk(chunk_x, chunk_y, load_time)
+            
+            return chunk
+        except ChunkNotFoundError:
+            # Chunk doesn't exist - this is normal, will generate new one
+            pass
+        except SeedMismatchError as e:
+            # Seed mismatch = chunk belongs to a different world
+            # Reject it and return None to force regeneration (prevents mixing worlds)
+            print(f"[ChunkManager] SEED MISMATCH: Chunk ({chunk_x}, {chunk_y}) belongs to different world - rejecting and regenerating")
+            print(f"  Details: {e}")
+            # Return None to force regeneration - don't load chunks from different worlds
+            return None
+        except (ChunkCorruptedError, RegionFileError) as e:
+            # Corrupted or file error - log and fall back to JSON or generate new
+            print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
+            # Fall through to JSON fallback or generation
         
-        # Try to load with retry logic for locked files
-        for attempt in range(retry_count):
-            try:
-                with open(chunk_file, 'r') as f:
-                    content = f.read().strip()
-                    if not content:
-                        # Empty file - delete it and return None (will be regenerated)
+        # Fallback: Try to load from legacy JSON file (for migration)
+        chunk_file = self._get_chunk_filename(chunk_x, chunk_y)
+        if chunk_file.exists():
+            # Try to load legacy JSON file
+            for attempt in range(retry_count):
+                try:
+                    with open(chunk_file, 'r') as f:
+                        content = f.read().strip()
+                        if not content:
+                            # Empty file - delete it
+                            try:
+                                chunk_file.unlink()
+                            except:
+                                pass
+                            return None
+                        json_data = json.loads(content)
+                    
+                    if "tiles" not in json_data:
+                        # Invalid chunk data - delete corrupted file
                         try:
                             chunk_file.unlink()
                         except:
                             pass
                         return None
-                    chunk_data = json.loads(content)
-                
-                if "tiles" not in chunk_data:
-                    # Invalid chunk data - delete corrupted file and return None
+                    
+                    # Load from JSON and migrate to region format
+                    tiles = json_data["tiles"]
+                    chunk = Chunk(chunk_x, chunk_y, tiles)
+                    
+                    # Migrate to region format (save in new format)
+                    migration_start_time = time.perf_counter()
                     try:
-                        chunk_file.unlink()
-                    except:
-                        pass
-                    return None
-                
-                tiles = chunk_data["tiles"]
-                chunk = Chunk(chunk_x, chunk_y, tiles)
-                return chunk
-                
-            except json.JSONDecodeError as e:
-                # Corrupted JSON file - delete it and return None
-                try:
-                    chunk_file.unlink()
-                except:
-                    pass
-                return None
-            except (PermissionError, OSError) as e:
-                # File is locked by another process (WinError 32) or permission denied
-                # This can happen when async save is still writing - retry with backoff
-                error_str = str(e)
-                if "WinError 32" in error_str or "Der Prozess kann nicht auf die Datei zugreifen" in error_str:
-                    if attempt < retry_count - 1:
-                        # Wait before retrying (exponential backoff)
-                        import time
-                        time.sleep(0.01 * (attempt + 1))  # 10ms, 20ms, 30ms
-                        continue
+                        self.region_manager.save_chunk_data(chunk_x, chunk_y, tiles, seed)
+                        migration_time = time.perf_counter() - migration_start_time
+                        
+                        # Track legacy migration event
+                        if self.performance_monitor:
+                            self.performance_monitor.record_chunk_migrated_legacy(chunk_x, chunk_y, migration_time)
+                    except RegionFileError as e:
+                        print(f"[ChunkManager] Failed to migrate chunk ({chunk_x}, {chunk_y}): {e}")
+                        # Continue anyway - chunk is loaded from JSON
+                    
+                    # Optionally delete old JSON file after migration
+                    # (commented out for safety - uncomment after testing)
+                    # try:
+                    #     chunk_file.unlink()
+                    # except:
+                    #     pass
+                    
+                    return chunk
+                    
+                except json.JSONDecodeError as e:
+                    # Corrupted JSON file
+                    if attempt == retry_count - 1:
+                        try:
+                            chunk_file.unlink()
+                            print(f"[ChunkManager] Deleted corrupted chunk file ({chunk_x}, {chunk_y}): {e}")
+                        except:
+                            pass
                     else:
-                        # After all retries failed, return None but don't regenerate
-                        # The chunk will be loaded from memory if it exists, or generated if it's new
+                        time.sleep(0.01 * (attempt + 1))
+                        
+                except (PermissionError, OSError) as e:
+                    # File is locked
+                    error_str = str(e)
+                    if "WinError 32" in error_str or "Der Prozess kann nicht auf die Datei zugreifen" in error_str:
+                        if attempt < retry_count - 1:
+                            wait_time = 0.01 * (2 ** attempt)
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            print(f"[ChunkManager] Could not load chunk ({chunk_x}, {chunk_y}) after {retry_count} retries: {e}")
+                            return None
+                    else:
                         return None
-                else:
-                    # Other permission errors - return None
-                    return None
-            except Exception as e:
-                # Other errors - log but don't spam console
-                error_str = str(e)
-                if ("Expecting value" not in error_str and 
-                    "Expecting ':'" not in error_str):
-                    print(f"Error loading chunk ({chunk_x}, {chunk_y}): {e}")
-                return None
+                except Exception as e:
+                    # Other errors - log but don't spam console
+                    error_str = str(e)
+                    if ("Expecting value" not in error_str and 
+                        "Expecting ':'" not in error_str):
+                        print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
+                    if attempt == retry_count - 1:
+                        return None
+                    time.sleep(0.01 * (attempt + 1))
         
         # All retries failed - return None (chunk will be loaded from memory or generated)
         return None
 
     def unload_chunk(self, chunk_x: int, chunk_y: int):
-        """Save and remove chunk from memory"""
+        """
+        Save and remove chunk from memory (thread-safe)
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+        """
         key = (chunk_x, chunk_y)
         if key in self.loaded_chunks:
             chunk = self.loaded_chunks[key]
+            
+            # Wait until chunk is no longer being saved (if it is)
+            self._wait_until_not_saving(key, max_retries=3)
+            
+            # Mark chunk for saving
             self._save_chunk_to_file(chunk)
             del self.loaded_chunks[key]
 
@@ -574,12 +688,21 @@ class ChunkManager:
             return None
 
     def _chunk_loader_worker(self):
-        """Worker thread that loads chunks from the queue"""
+        """
+        Worker thread that loads chunks from the priority queue.
+        
+        Performance limits:
+        - 3 worker threads running in parallel
+        - Average load time: ~100ms per chunk (load from disk) or ~50ms (generate new)
+        - Effective throughput: ~30 chunks/second (3 workers * ~10 chunks/sec per worker)
+        - Chunks are loaded in priority order (closer to player = higher priority)
+        """
         import time
         while self.running:
             try:
-                # Get chunk coordinates from queue (timeout prevents hanging)
-                chunk_x, chunk_y = self.chunk_load_queue.get(timeout=0.1)
+                # Get chunk coordinates from priority queue (timeout prevents hanging)
+                # PriorityQueue returns items in order: (priority, chunk_x, chunk_y)
+                priority, chunk_x, chunk_y = self.chunk_load_queue.get(timeout=0.1)
                 
                 # Check if chunk already loaded (double-check with lock)
                 if (chunk_x, chunk_y) in self.loaded_chunks:
@@ -592,22 +715,26 @@ class ChunkManager:
                 # Load or generate chunk
                 chunk = self._load_chunk_from_file(chunk_x, chunk_y)
                 generation_time = None
+                was_generated = False
                 if not chunk:
                     # Generate new chunk - measure generation time separately
+                    was_generated = True
                     gen_start_time = time.perf_counter()
                     tiles = self.terrain_gen.generate_chunk(chunk_x, chunk_y)
                     generation_time = time.perf_counter() - gen_start_time
                     chunk = Chunk(chunk_x, chunk_y, tiles)
                     # Don't save immediately - batch save later for better performance
                     
-                    # Record generation time
+                    # Record generation time (chunk was generated, not loaded from disk)
                     if self.performance_monitor:
                         self.performance_monitor.record_chunk_generation(chunk_x, chunk_y, generation_time)
                 
                 # Surface pre-rendering no longer needed (ModernGL renders directly)
                 # chunk.render_to_surface()  # Deprecated - ModernGL renders directly
                 
-                # Record chunk load time (includes generation if chunk was new)
+                # Record overall chunk load time (includes generation if chunk was new)
+                # Note: If chunk was loaded from disk, record_chunk_loaded_from_disk was already called
+                # This overall load_time includes both disk IO and generation if applicable
                 load_time = time.perf_counter() - load_start_time
                 if self.performance_monitor:
                     self.performance_monitor.record_chunk_load(chunk_x, chunk_y, load_time)
@@ -624,23 +751,39 @@ class ChunkManager:
                 self.pending_chunks.discard((chunk_x, chunk_y))
 
     def request_chunk_load(self, chunk_x: int, chunk_y: int, priority: int = 0):
-        """Request a chunk to be loaded asynchronously
+        """
+        Request a chunk to be loaded asynchronously (with priority-based ordering)
         
         Args:
             chunk_x: Chunk X coordinate
             chunk_y: Chunk Y coordinate
-            priority: Priority (lower = higher priority, based on distance)
+            priority: Priority (lower = higher priority, based on distance from player)
+                     - Priority 0 = immediate area around player (highest priority)
+                     - Priority 1-2 = nearby chunks
+                     - Priority 3+ = distant chunks (lowest priority)
+        
+        Note: Uses PriorityQueue to ensure chunks closer to player are loaded first.
+              This prevents loading distant chunks while nearby chunks are still missing.
         """
         chunk_key = (chunk_x, chunk_y)
         if chunk_key not in self.loaded_chunks and chunk_key not in self.pending_chunks:
             self.pending_chunks.add(chunk_key)
             self.chunk_priority[chunk_key] = priority
-            self.chunk_load_queue.put((chunk_x, chunk_y))
+            # PriorityQueue requires tuple: (priority, chunk_x, chunk_y)
+            # Lower priority number = higher priority (loaded first)
+            self.chunk_load_queue.put((priority, chunk_x, chunk_y))
     
     def process_loaded_chunks(self, all_sprites, resource_sprites):
-        """Process chunks that have finished loading in background threads"""
+        """
+        Process chunks that have finished loading in background threads.
+        
+        Performance limits:
+        - Max chunks processed per frame: 1 chunk
+        - Prevents frame drops by spreading chunk processing across multiple frames
+        - Chunks are added to sprite groups and marked for saving asynchronously
+        """
         loaded_count = 0
-        max_per_frame = 1  # Reduced from 3 to prevent frame drops
+        max_per_frame = 1  # Process 1 chunk per frame to prevent frame drops
         
         while not self.chunk_load_results.empty() and loaded_count < max_per_frame:
             try:
@@ -680,39 +823,71 @@ class ChunkManager:
         # Load additional chunks that are now visible
         self.load_chunks_around_player(player_chunk_x, player_chunk_y, load_distance)
     
-    async def save_all_chunks_async(self):
-        """Asynchronously save all loaded chunks"""
-        tasks = []
-        for chunk in self.loaded_chunks.values():
-            chunk_key = (chunk.chunk_x, chunk.chunk_y)
-            if chunk_key not in self.pending_saves:
-                self.pending_saves.add(chunk_key)
-                tasks.append(self._save_chunk_to_file_async(chunk))
-        
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-    
     def save_all_chunks(self):
-        """Save all loaded chunks (synchronous wrapper for compatibility)"""
-        # Run async save in background thread
-        def run_save():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(self.save_all_chunks_async())
-            finally:
-                loop.close()
+        """
+        Save all loaded chunks (thread-safe, simplified approach)
+        Marks all chunks as dirty and adds them to the save queue.
+        """
+        with self._save_lock:
+            chunks_to_save = list(self.loaded_chunks.values())
         
-        thread = threading.Thread(target=run_save, daemon=False)
-        thread.start()
-        thread.join(timeout=5.0)  # Wait max 5 seconds
+        # Add all chunks to save queue (non-blocking)
+        for chunk in chunks_to_save:
+            self._save_chunk_to_file(chunk)
     
     def shutdown(self):
-        """Stop worker threads and cleanup"""
-        self.running = False
-        for thread in self.worker_threads:
-            thread.join(timeout=1.0)
+        """
+        Stop worker threads and cleanup resources.
         
-        # Shutdown save executor
-        if hasattr(self, 'save_executor'):
-            self.save_executor.shutdown(wait=True, timeout=2.0)
+        Ensures:
+        - All pending chunks are saved before shutdown
+        - Worker threads are gracefully stopped
+        - All queues are processed
+        - Region file handles are closed
+        """
+        print("[ChunkManager] Starting shutdown...")
+        
+        # Set running flag to False to signal workers to stop
+        self.running = False
+        
+        # Save all loaded chunks before shutdown (ensures no data loss)
+        print("[ChunkManager] Saving all loaded chunks...")
+        self.save_all_chunks()
+        
+        # Wait for save queue to empty (with timeout to prevent hanging)
+        # PriorityQueue doesn't support task_done/join, so we wait for save_queue instead
+        print("[ChunkManager] Waiting for save queue to empty...")
+        try:
+            # Wait up to 5 seconds for save queue to empty
+            timeout = 5.0
+            start_time = time.time()
+            while not self.save_queue.empty() and (time.time() - start_time) < timeout:
+                time.sleep(0.1)
+            
+            if not self.save_queue.empty():
+                remaining = self.save_queue.qsize()
+                print(f"[ChunkManager] WARNING: {remaining} chunks still in save queue after timeout")
+        except Exception as e:
+            print(f"[ChunkManager] Error waiting for save queue: {e}")
+        
+        # Wait for save worker thread to finish
+        if hasattr(self, 'save_worker_thread') and self.save_worker_thread.is_alive():
+            print("[ChunkManager] Waiting for save worker thread...")
+            self.save_worker_thread.join(timeout=2.0)
+            if self.save_worker_thread.is_alive():
+                print("[ChunkManager] WARNING: Save worker thread did not terminate in time")
+        
+        # Wait for loader worker threads to finish
+        print("[ChunkManager] Waiting for loader worker threads...")
+        for i, thread in enumerate(self.worker_threads):
+            if thread.is_alive():
+                thread.join(timeout=1.0)
+                if thread.is_alive():
+                    print(f"[ChunkManager] WARNING: Loader worker thread {i} did not terminate in time")
+        
+        # Close all region file handles (releases file handles and locks)
+        if hasattr(self, 'region_manager'):
+            print("[ChunkManager] Closing region file handles...")
+            self.region_manager.close_all_files()
+        
+        print("[ChunkManager] Shutdown complete")

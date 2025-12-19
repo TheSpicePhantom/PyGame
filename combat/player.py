@@ -25,6 +25,13 @@ class Player(Sprite):
         
         # Inventar-System (für später)
         self.inventory = {}
+        
+        # Faction-System (für später)
+        self.faction = {
+            'policies': [],
+            'allies': [],
+            'enemies': []
+        }
     
     def update(self, dt):
         """Aktualisiert die Spielerposition basierend auf Input"""

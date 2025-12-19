@@ -21,6 +21,9 @@ class PerformanceLogger:
             'chunk_load_events': [],
             'chunk_generation_events': [],
             'chunk_save_events': [],
+            'chunk_modified_events': [],
+            'chunk_loaded_from_disk_events': [],
+            'chunk_migrated_legacy_events': [],
             'movement_events': []
         }
     
@@ -44,6 +47,18 @@ class PerformanceLogger:
     def log_chunk_save_event(self, event):
         """Log a chunk save event"""
         self.session_data['chunk_save_events'].append(event)
+    
+    def log_chunk_modified_event(self, event):
+        """Log a chunk modification event"""
+        self.session_data['chunk_modified_events'].append(event)
+    
+    def log_chunk_loaded_from_disk_event(self, event):
+        """Log a chunk loaded from disk event"""
+        self.session_data['chunk_loaded_from_disk_events'].append(event)
+    
+    def log_chunk_migrated_legacy_event(self, event):
+        """Log a chunk migrated from legacy format event"""
+        self.session_data['chunk_migrated_legacy_events'].append(event)
     
     def log_movement_event(self, event):
         """Log a movement event"""
