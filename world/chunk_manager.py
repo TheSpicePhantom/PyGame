@@ -126,40 +126,219 @@ class ChunkManager:
         """Load world metadata (seed, player position, etc.)"""
         if self.metadata_file.exists():
             try:
-                with open(self.metadata_file, 'r') as f:
-                    return json.load(f)
+                with open(self.metadata_file, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+                    # Migrate old format to new format if needed
+                    if "version" not in metadata or metadata.get("version") == "1.0":
+                        metadata = self._migrate_metadata(metadata)
+                    return metadata
             except Exception as e:
                 print(f"Error loading metadata: {e}")
         
-        # Default metadata for new world
+        # Default metadata for new world (new structure)
+        from datetime import datetime
+        world_id = f"slot_{self.save_slot}"
         return {
-            "seed": None,
-            "player_position": [0, 0],
-            "playtime_seconds": 0,
-            "chunks_generated": 0,
-            "version": "1.0"
+            "version": 1,
+            "world_id": world_id,
+            "name": f"World {self.save_slot}",
+            "created_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "last_played_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "seed": {
+                "world_seed": None,
+                "generator_version": "terrain_v1",
+                "params": {
+                    "biome_config": "biomes_v1",
+                    "noise_profile": "default"
+                }
+            },
+            "multiplayer": {
+                "enabled": False,
+                "max_players": 4,
+                "last_host": None,
+                "last_host_id": None,
+                "permissions": {
+                    "public": False,
+                    "allow_guests_build": True
+                }
+            },
+            "size": {
+                "world_size_mb": 0.0,
+                "region_files": 0,
+                "chunks_generated": 0,
+                "chunks_saved": 0
+            },
+            "factions": {
+                "list": [],
+                "alliances": []
+            },
+            "resources": {
+                "summary": {},
+                "by_region": []
+            },
+            "chunks": {
+                "claimed": [],
+                "loaded_last_session": [],
+                "spawn_chunk": None
+            },
+            "flags": {
+                "hardcore": False,
+                "mods_used": []
+            }
+        }
+    
+    def _migrate_metadata(self, old_metadata: dict) -> dict:
+        """Migrate old metadata format to new format"""
+        from datetime import datetime
+        
+        # Extract old values
+        old_seed = old_metadata.get("seed")
+        old_playtime = old_metadata.get("playtime_seconds", 0)
+        old_chunks = old_metadata.get("chunks_generated", 0)
+        old_player_pos = old_metadata.get("player_position", [0, 0])
+        
+        # Calculate spawn chunk from player position
+        spawn_chunk = None
+        if old_player_pos:
+            from core import settings
+            chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+            spawn_chunk_x = int(old_player_pos[0] // chunk_size_pixels)
+            spawn_chunk_y = int(old_player_pos[1] // chunk_size_pixels)
+            spawn_chunk = [spawn_chunk_x, spawn_chunk_y]
+        
+        # Count region files
+        region_files = 0
+        regions_dir = self.save_dir / "regions"
+        if regions_dir.exists():
+            region_files = len(list(regions_dir.glob("*.mcr")))
+        
+        # Calculate world size (approximate)
+        world_size_mb = 0.0
+        if regions_dir.exists():
+            for region_file in regions_dir.glob("*.mcr"):
+                try:
+                    world_size_mb += region_file.stat().st_size / (1024 * 1024)
+                except:
+                    pass
+        
+        # Create new metadata structure
+        world_id = f"slot_{self.save_slot}"
+        return {
+            "version": 1,
+            "world_id": world_id,
+            "name": old_metadata.get("world_name", f"World {self.save_slot}"),
+            "created_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),  # Approximate
+            "last_played_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "seed": {
+                "world_seed": old_seed,
+                "generator_version": "terrain_v1",
+                "params": {
+                    "biome_config": "biomes_v1",
+                    "noise_profile": "default"
+                }
+            },
+            "multiplayer": {
+                "enabled": False,
+                "max_players": 4,
+                "last_host": None,
+                "last_host_id": None,
+                "permissions": {
+                    "public": False,
+                    "allow_guests_build": True
+                }
+            },
+            "size": {
+                "world_size_mb": round(world_size_mb, 2),
+                "region_files": region_files,
+                "chunks_generated": old_chunks,
+                "chunks_saved": old_chunks  # Approximate
+            },
+            "factions": {
+                "list": [],
+                "alliances": []
+            },
+            "resources": {
+                "summary": {},
+                "by_region": []
+            },
+            "chunks": {
+                "claimed": [],
+                "loaded_last_session": [],
+                "spawn_chunk": spawn_chunk
+            },
+            "flags": {
+                "hardcore": False,
+                "mods_used": []
+            }
         }
 
     def save_metadata(self):
         """Save world metadata to file"""
         try:
-            with open(self.metadata_file, 'w') as f:
-                json.dump(self.metadata, f, indent=2)
+            # Update last_played_at timestamp
+            from datetime import datetime
+            self.metadata["last_played_at"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            
+            # Update size information
+            regions_dir = self.save_dir / "regions"
+            if regions_dir.exists():
+                region_files = len(list(regions_dir.glob("*.mcr")))
+                world_size_mb = 0.0
+                for region_file in regions_dir.glob("*.mcr"):
+                    try:
+                        world_size_mb += region_file.stat().st_size / (1024 * 1024)
+                    except:
+                        pass
+                
+                self.metadata["size"]["region_files"] = region_files
+                self.metadata["size"]["world_size_mb"] = round(world_size_mb, 2)
+                self.metadata["size"]["chunks_generated"] = len(self.loaded_chunks) + self.metadata["size"].get("chunks_generated", 0)
+            
+            with open(self.metadata_file, 'w', encoding='utf-8') as f:
+                json.dump(self.metadata, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"Error saving metadata: {e}")
 
     def set_seed(self, seed: int):
         """Set the world seed"""
-        self.metadata["seed"] = seed
+        if "seed" in self.metadata and isinstance(self.metadata["seed"], dict):
+            self.metadata["seed"]["world_seed"] = seed
+        else:
+            # Fallback for old format
+            self.metadata["seed"] = seed
         self.save_metadata()
 
     def get_seed(self) -> Optional[int]:
         """Get the world seed"""
-        return self.metadata.get("seed")
+        seed_data = self.metadata.get("seed")
+        if isinstance(seed_data, dict):
+            return seed_data.get("world_seed")
+        return seed_data  # Old format fallback
+    
+    def get_world_name(self) -> str:
+        """Get the world name"""
+        return self.metadata.get("name", f"World {self.save_slot}")
+    
+    def set_world_name(self, name: str):
+        """Set the world name"""
+        self.metadata["name"] = name
+        self.save_metadata()
     
     def update_player_position(self, x: float, y: float):
-        """Update player position in metadata"""
-        self.metadata["player_position"] = [x, y]
+        """Update player position in metadata (legacy support)"""
+        # Update spawn chunk in new format
+        from core import settings
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        spawn_chunk_x = int(x // chunk_size_pixels)
+        spawn_chunk_y = int(y // chunk_size_pixels)
+        
+        if "chunks" not in self.metadata:
+            self.metadata["chunks"] = {}
+        self.metadata["chunks"]["spawn_chunk"] = [spawn_chunk_x, spawn_chunk_y]
+        
+        # Keep old format for backward compatibility
+        if "player_position" not in self.metadata:
+            self.metadata["player_position"] = [x, y]
         self.save_metadata()
 
     def world_to_chunk(self, world_x: float, world_y: float) -> Tuple[int, int]:
@@ -199,7 +378,12 @@ class ChunkManager:
         # Save newly generated chunk
         self._save_chunk_to_file(chunk)
         
-        self.metadata["chunks_generated"] += 1
+        # Update chunks_generated in new metadata structure
+        if "size" not in self.metadata:
+            self.metadata["size"] = {}
+        if "chunks_generated" not in self.metadata["size"]:
+            self.metadata["size"]["chunks_generated"] = 0
+        self.metadata["size"]["chunks_generated"] += 1
         self.save_metadata()
         
         return chunk
@@ -283,15 +467,21 @@ class ChunkManager:
         Simplified approach: directly call sync save method, no asyncio/executor overhead.
         
         Performance limits:
-        - Rate limit: 50ms delay between saves = max 20 chunks/second
-        - Prevents I/O overload and frame drops
+        - Rate limit: 50ms delay between saves = max 20 chunks/second (during normal operation)
+        - During shutdown: No delay, saves as fast as possible
+        - Prevents I/O overload and frame drops during gameplay
         """
-        while self.running:
+        while self.running or not self.save_queue.empty():
             try:
                 # Get chunk from queue (with timeout to allow checking if still running)
                 try:
-                    chunk = self.save_queue.get(timeout=0.1)  # Check every 100ms
+                    # During shutdown, use shorter timeout to process queue faster
+                    timeout = 0.01 if not self.running else 0.1
+                    chunk = self.save_queue.get(timeout=timeout)
                 except queue.Empty:
+                    # If not running and queue is empty, exit
+                    if not self.running:
+                        break
                     continue
                 
                 chunk_key = (chunk.chunk_x, chunk.chunk_y)
@@ -317,8 +507,11 @@ class ChunkManager:
                 self.save_queue.task_done()
                 
                 # Rate limit: Only save 1 chunk per 50ms = max 20 chunks/second
-                # This prevents I/O overload and ensures smooth gameplay
-                time.sleep(0.05)  # 50ms delay between saves
+                # During shutdown (self.running = False), skip delay to save faster
+                # This prevents I/O overload and ensures smooth gameplay during normal operation
+                if self.running:
+                    time.sleep(0.05)  # 50ms delay between saves (only during normal operation)
+                # During shutdown, no delay - save as fast as possible
                 
             except Exception as e:
                 print(f"[ChunkManager] Error in save worker: {e}")
@@ -854,21 +1047,48 @@ class ChunkManager:
         print("[ChunkManager] Saving all loaded chunks...")
         self.save_all_chunks()
         
-        # Wait for save queue to empty (with timeout to prevent hanging)
-        # PriorityQueue doesn't support task_done/join, so we wait for save_queue instead
-        print("[ChunkManager] Waiting for save queue to empty...")
+        # Calculate timeout based on queue size (50ms per chunk + buffer)
+        queue_size = self.save_queue.qsize()
+        # Estimate: 50ms per chunk + 2 seconds buffer
+        estimated_time = (queue_size * 0.05) + 2.0
+        timeout = max(10.0, estimated_time)  # Minimum 10 seconds, more if needed
+        print(f"[ChunkManager] Waiting for save queue to empty ({queue_size} chunks, timeout: {timeout:.1f}s)...")
+        
+        # Wait for save queue to empty (with dynamic timeout based on queue size)
         try:
-            # Wait up to 5 seconds for save queue to empty
-            timeout = 5.0
             start_time = time.time()
+            last_size = queue_size
             while not self.save_queue.empty() and (time.time() - start_time) < timeout:
+                current_size = self.save_queue.qsize()
+                # Log progress every second or when queue size changes significantly
+                elapsed = time.time() - start_time
+                if elapsed > 1.0 and (current_size != last_size or int(elapsed) % 2 == 0):
+                    remaining = current_size
+                    print(f"[ChunkManager] Save queue: {remaining} chunks remaining ({elapsed:.1f}s elapsed)")
+                    last_size = current_size
                 time.sleep(0.1)
             
             if not self.save_queue.empty():
                 remaining = self.save_queue.qsize()
                 print(f"[ChunkManager] WARNING: {remaining} chunks still in save queue after timeout")
+                # Force save remaining chunks synchronously (last resort)
+                print(f"[ChunkManager] Force-saving {remaining} remaining chunks synchronously...")
+                force_saved = 0
+                while not self.save_queue.empty():
+                    try:
+                        chunk = self.save_queue.get_nowait()
+                        try:
+                            self._save_chunk_to_file_sync(chunk)
+                            force_saved += 1
+                        except Exception as e:
+                            print(f"[ChunkManager] Error force-saving chunk ({chunk.chunk_x}, {chunk.chunk_y}): {e}")
+                    except queue.Empty:
+                        break
+                print(f"[ChunkManager] Force-saved {force_saved} chunks")
         except Exception as e:
             print(f"[ChunkManager] Error waiting for save queue: {e}")
+            import traceback
+            traceback.print_exc()
         
         # Wait for save worker thread to finish
         if hasattr(self, 'save_worker_thread') and self.save_worker_thread.is_alive():

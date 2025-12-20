@@ -132,7 +132,9 @@ class RegionManager:
     COMPRESSION_LZ4 = 2
     
     # Maximum number of open region files (LRU cache)
-    MAX_OPEN_REGIONS = 64
+    # Increased from 64 to 128 to reduce file open/close overhead
+    # Each region file is ~5-50KB, so 128 files = ~6.4MB memory (acceptable)
+    MAX_OPEN_REGIONS = 128
     
     def __init__(self, save_slot: int, auto_repair_corrupted: bool = False, backup_corrupted: bool = True):
         """
@@ -253,9 +255,12 @@ class RegionManager:
                 else:
                     return None
             
-            # Open file
+            # Open file (use buffering for better performance)
             try:
-                handle = open(region_file, 'r+b')
+                # Use buffered I/O (8KB buffer) for better performance
+                # This reduces system calls and improves read/write performance
+                # Buffering helps especially when reading multiple chunks from same region
+                handle = open(region_file, 'r+b', buffering=8192)  # 8KB buffer
             except Exception as e:
                 print(f"[RegionManager] Error opening region file ({region_x}, {region_y}): {e}")
                 return None
@@ -269,6 +274,9 @@ class RegionManager:
                 oldest_key, oldest_handle = self.region_files.popitem(last=False)
                 try:
                     oldest_handle.close()
+                    # Also remove header cache for closed region (optional optimization)
+                    # This prevents stale cache entries
+                    self.region_headers.pop(oldest_key, None)
                 except Exception:
                     pass
             
@@ -630,6 +638,9 @@ class RegionManager:
             ChunkNotFoundError: If chunk doesn't exist
             RegionFileError: If file operations fail
         """
+        import time
+        perf_start = time.perf_counter()
+        
         region_x, region_y = self._get_region_coords(chunk_x, chunk_y)
         local_x, local_y = self._get_local_chunk_coords(chunk_x, chunk_y)
         chunk_index = self._get_chunk_index(local_x, local_y)
@@ -639,8 +650,11 @@ class RegionManager:
         if not region_file.exists():
             raise ChunkNotFoundError(f"Chunk ({chunk_x}, {chunk_y}) not found: region file doesn't exist")
         
-        # Read header (with caching)
+        # Read header (with caching) - this is usually fast if cached
+        header_start = time.perf_counter()
         header = self._read_region_header(region_file, region_x, region_y)
+        header_time = time.perf_counter() - header_start
+        
         if not header:
             raise RegionFileError(f"Failed to read header for chunk ({chunk_x}, {chunk_y})")
         
@@ -651,17 +665,24 @@ class RegionManager:
         if chunk_entry['offset'] == 0:
             raise ChunkNotFoundError(f"Chunk ({chunk_x}, {chunk_y}) not found: no data in region file")
         
-        # Use cached file handle
+        # Use cached file handle (optimized: check cache first, then open if needed)
+        file_handle_start = time.perf_counter()
         f = self._get_region_file_handle(region_x, region_y, create_if_missing=False)
+        file_handle_time = time.perf_counter() - file_handle_start
+        
         if f is None:
             raise RegionFileError(f"Failed to open region file for chunk ({chunk_x}, {chunk_y})")
         
         try:
-            # Seek to chunk data
+            # Seek to chunk data (usually fast if file is in OS cache)
+            seek_start = time.perf_counter()
             f.seek(chunk_entry['offset'])
+            seek_time = time.perf_counter() - seek_start
             
-            # Read compressed data
+            # Read compressed data (can be slow if file not in OS cache)
+            read_start = time.perf_counter()
             compressed_data = f.read(chunk_entry['length'])
+            read_time = time.perf_counter() - read_start
             
             if len(compressed_data) != chunk_entry['length']:
                 raise ChunkCorruptedError(
@@ -669,18 +690,33 @@ class RegionManager:
                     f"read {len(compressed_data)} bytes"
                 )
             
-            # Decompress
+            # Decompress (usually fast, but can be slow for large chunks)
+            decompress_start = time.perf_counter()
             try:
                 if chunk_entry['compression'] == self.COMPRESSION_ZLIB:
-                    return zlib.decompress(compressed_data)
+                    result = zlib.decompress(compressed_data)
                 elif chunk_entry['compression'] == self.COMPRESSION_NONE:
-                    return compressed_data
+                    result = compressed_data
                 else:
                     raise ChunkCorruptedError(
                         f"Chunk ({chunk_x}, {chunk_y}) corrupted: unsupported compression type {chunk_entry['compression']}"
                     )
             except zlib.error as e:
                 raise ChunkCorruptedError(f"Chunk ({chunk_x}, {chunk_y}) corrupted: decompression failed - {e}")
+            decompress_time = time.perf_counter() - decompress_start
+            
+            # Log slow operations for debugging (only if total time > 5ms)
+            total_time = time.perf_counter() - perf_start
+            if total_time > 0.005:  # 5ms threshold
+                print(f"[RegionManager] Slow chunk load ({chunk_x}, {chunk_y}): "
+                      f"total={total_time*1000:.2f}ms "
+                      f"(header={header_time*1000:.2f}ms, "
+                      f"file_handle={file_handle_time*1000:.2f}ms, "
+                      f"seek={seek_time*1000:.2f}ms, "
+                      f"read={read_time*1000:.2f}ms, "
+                      f"decompress={decompress_time*1000:.2f}ms)")
+            
+            return result
         except (ChunkNotFoundError, ChunkCorruptedError, RegionFileError):
             raise
         except Exception as e:

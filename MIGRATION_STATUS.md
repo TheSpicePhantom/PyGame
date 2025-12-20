@@ -138,3 +138,5 @@
 Die Kern-Funktionalität (Window, Events, Input, Chunk-Rendering) ist migriert und funktioniert.
 UI und Text-Rendering müssen noch migriert werden, damit das Spiel vollständig funktionsfähig ist.
 
+
+

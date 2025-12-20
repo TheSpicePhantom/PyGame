@@ -21,6 +21,8 @@ from ui.audio_settings import AudioSettings
 from ui.graphics_settings import GraphicsSettings
 from ui.controls_settings import ControlsSettings
 from ui.save_menu import SaveMenu
+from ui.world_select_menu import WorldSelectMenu
+from ui.create_world_menu import CreateWorldMenu
 from world.player_data_manager import PlayerDataManager
 from world.auto_save import AutoSaveSystem
 from analytics.performance_monitor import PerformanceMonitor
@@ -136,24 +138,91 @@ class GameWindow(pyglet.window.Window):
         self.input_handler = None
         self.pause_menu = None
         self.settings_menu = None
+        # Initialize World Select Menu (Minecraft-style)
+        self.world_select_menu = WorldSelectMenu(width, height, self.modern_gl_renderer)
+        self.create_world_menu = CreateWorldMenu(width, height, self.modern_gl_renderer)
+        self.world_select_menu.show()  # Show on startup
+        
         # self.save_menu = SaveMenu()  # Temporär deaktiviert - benötigt pygame.font
-        # self.save_menu.active = True
-        # self.save_menu.mode = "select"
         self.selected_slot = None
         self.save_menu = None  # Wird später initialisiert
         
         # Initialize input handler
         self.input_handler = InputHandler(self)
         
-        # Initialize game directly (skip save menu for now)
-        self._initialize_game(save_slot=1)
+        # Don't initialize game yet - wait for world selection
+        self.game_initialized = False
         
         # Schedule update loop at 120 FPS (8.33ms per frame)
         pyglet.clock.schedule_interval(self.update, 1.0 / 120.0)
         
         print(f"[Main] Window created: {width}x{height}, mode: {initial_mode}")
     
-    def _initialize_game(self, save_slot=1):
+    def _find_next_available_slot(self) -> int:
+        """Find next available save slot number"""
+        from pathlib import Path
+        saves_dir = Path("saves")
+        if not saves_dir.exists():
+            return 1
+        
+        # Find highest slot number
+        max_slot = 0
+        for save_dir in saves_dir.iterdir():
+            if save_dir.is_dir() and save_dir.name.startswith("slot_"):
+                try:
+                    slot_num = int(save_dir.name.split("_")[1])
+                    max_slot = max(max_slot, slot_num)
+                except (ValueError, IndexError):
+                    pass
+        
+        return max_slot + 1
+    
+    def _find_traversable_spawn_position(self, start_x: float, start_y: float) -> tuple:
+        """
+        Find nearest traversable position starting from given coordinates.
+        Uses spiral search pattern to find closest traversable tile.
+        
+        Args:
+            start_x: Starting X coordinate in pixels
+            start_y: Starting Y coordinate in pixels
+            
+        Returns:
+            (x, y) tuple of traversable position in pixels
+        """
+        from core import settings
+        
+        # Convert pixel coordinates to tile coordinates
+        start_tile_x = int(start_x // settings.TILE_SIZE)
+        start_tile_y = int(start_y // settings.TILE_SIZE)
+        
+        # Check if starting position is traversable
+        tile = self.world.terrain_gen.generate_tile(start_tile_x, start_tile_y)
+        if tile.get('traversable', True):
+            return (start_x, start_y)
+        
+        # Spiral search for nearest traversable tile
+        max_search_radius = 50  # Maximum tiles to search in each direction
+        for radius in range(1, max_search_radius + 1):
+            # Check all tiles in a square around the start position
+            for dy in range(-radius, radius + 1):
+                for dx in range(-radius, radius + 1):
+                    # Only check tiles on the edge of the current radius
+                    if abs(dx) == radius or abs(dy) == radius:
+                        check_tile_x = start_tile_x + dx
+                        check_tile_y = start_tile_y + dy
+                        
+                        tile = self.world.terrain_gen.generate_tile(check_tile_x, check_tile_y)
+                        if tile.get('traversable', True):
+                            # Found traversable tile - convert back to pixel coordinates
+                            found_x = check_tile_x * settings.TILE_SIZE + settings.TILE_SIZE / 2.0
+                            found_y = check_tile_y * settings.TILE_SIZE + settings.TILE_SIZE / 2.0
+                            return (found_x, found_y)
+        
+        # Fallback: return original position if no traversable tile found
+        print(f"[Main] Warning: Could not find traversable position near ({start_x:.0f}, {start_y:.0f}), using original position")
+        return (start_x, start_y)
+    
+    def _initialize_game(self, save_slot=1, world_name=None, seed=None):
         """Initialize game components"""
         # Sprite-Gruppen (ohne Pygame)
         from core.sprite import LayeredUpdates, SpriteGroup
@@ -166,8 +235,13 @@ class GameWindow(pyglet.window.Window):
             self.all_sprites, 
             self.resource_sprites, 
             save_slot=save_slot, 
+            seed=seed,
             performance_monitor=self.performance_monitor
         )
+        
+        # Set world name if provided
+        if world_name:
+            self.world.chunk_manager.set_world_name(world_name)
         
         # Initialize PlayerDataManager
         self.player_data_manager = PlayerDataManager(save_slot)
@@ -199,7 +273,18 @@ class GameWindow(pyglet.window.Window):
         if not spawn_pos:
             raise RuntimeError(f"Failed to get spawn position from save slot {save_slot}")
         
-        start_world_x, start_world_y = spawn_pos
+        # Check if spawn position is traversable, if not find nearest traversable position
+        start_world_x, start_world_y = self._find_traversable_spawn_position(spawn_pos[0], spawn_pos[1])
+        
+        # Update spawn position if it was changed
+        if (start_world_x, start_world_y) != spawn_pos:
+            print(f"[Main] Spawn position adjusted from {spawn_pos} to ({start_world_x:.0f}, {start_world_y:.0f}) - original was not traversable")
+            # Update saved position to traversable position
+            self.player_data_manager.save_player(
+                position=(start_world_x, start_world_y),
+                inventory=player_data.get('inventory', {}),
+                faction_data=player_data.get('faction', {'policies': [], 'allies': [], 'enemies': []})
+            )
         player_inventory = player_data.get('inventory', {})
         player_faction = player_data.get('faction', {'policies': [], 'allies': [], 'enemies': []})
         
@@ -212,7 +297,8 @@ class GameWindow(pyglet.window.Window):
         self.player = Player(
             pos=(start_world_x, start_world_y),
             input_handler=self.input_handler,
-            performance_monitor=self.performance_monitor
+            performance_monitor=self.performance_monitor,
+            terrain_gen=self.world.terrain_gen  # Pass terrain generator for traversability checks
         )
         
         # Set player inventory and faction from save
@@ -620,6 +706,24 @@ class GameWindow(pyglet.window.Window):
         
         self.performance_monitor.end_render()
         
+        # Render Create World Menu if active
+        if hasattr(self, 'create_world_menu') and self.create_world_menu.active:
+            self.create_world_menu.draw()
+            return  # Don't render game when menu is active
+        
+        # Render World Select Menu if active
+        if hasattr(self, 'world_select_menu') and self.world_select_menu.active:
+            # Draw semi-transparent overlay using pyglet shapes
+            import pyglet.shapes
+            overlay = pyglet.shapes.Rectangle(
+                0, 0, self.width, self.height,
+                color=(0, 0, 0)
+            )
+            overlay.opacity = 180
+            overlay.draw()
+            self.world_select_menu.draw()
+            return  # Don't render game when menu is active
+        
         # Render performance stats (toggle with F3, includes FPS, CPU, GPU, Position, Zoom)
         if self.show_performance_stats and not (self.pause_menu and self.pause_menu.active):
             self._draw_performance_stats()
@@ -745,6 +849,7 @@ class GameWindow(pyglet.window.Window):
         font_size = 20  # 20pt font
         text_color = (0, 0, 0)  # Black text
         
+        # === PERFORMANCE ===
         # FPS
         fps_current = stats['fps']['current']
         self.modern_gl_renderer.render_text(
@@ -778,10 +883,126 @@ class GameWindow(pyglet.window.Window):
         )
         y_start -= line_height
         
+        # === WORLD INFO ===
+        # Seed
+        if self.world and self.world.chunk_manager:
+            seed = self.world.chunk_manager.get_seed()
+            if seed is None and hasattr(self.world, 'terrain_gen'):
+                seed = self.world.terrain_gen.seed
+            seed_text = f"Seed: {seed}" if seed is not None else "Seed: N/A"
+            self.modern_gl_renderer.render_text(
+                seed_text,
+                x=x_pos,
+                y=y_start,
+                size=font_size,
+                color=text_color
+            )
+            y_start -= line_height
+        
+        # Visible Chunks
+        if self.world and self.world.chunk_manager:
+            total_loaded = len(self.world.chunk_manager.loaded_chunks)
+            
+            # Count visible chunks (chunks that are on screen)
+            visible_chunks = 0
+            if hasattr(self, 'camera') and self.camera:
+                chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+                # Calculate visible area in world coordinates
+                screen_width = self.width
+                screen_height = self.height
+                
+                # World coordinates of screen corners (accounting for zoom)
+                world_min_x = self.camera.x - (screen_width / 2.0) / self.camera_zoom
+                world_max_x = self.camera.x + (screen_width / 2.0) / self.camera_zoom
+                world_min_y = self.camera.y - (screen_height / 2.0) / self.camera_zoom
+                world_max_y = self.camera.y + (screen_height / 2.0) / self.camera_zoom
+                
+                # Count chunks in visible area
+                for chunk in self.world.chunk_manager.loaded_chunks.values():
+                    chunk_world_x = chunk.chunk_x * chunk_size_pixels
+                    chunk_world_y = chunk.chunk_y * chunk_size_pixels
+                    chunk_world_x2 = chunk_world_x + chunk_size_pixels
+                    chunk_world_y2 = chunk_world_y + chunk_size_pixels
+                    
+                    # Check if chunk overlaps with visible area
+                    if not (chunk_world_x2 < world_min_x or chunk_world_x > world_max_x or
+                            chunk_world_y2 < world_min_y or chunk_world_y > world_max_y):
+                        visible_chunks += 1
+            
+            self.modern_gl_renderer.render_text(
+                f"Chunks: {visible_chunks}/{total_loaded} visible",
+                x=x_pos,
+                y=y_start,
+                size=font_size,
+                color=text_color
+            )
+            y_start -= line_height
+            
+            # Open Regions
+            if hasattr(self.world.chunk_manager, 'region_manager'):
+                open_regions = len(self.world.chunk_manager.region_manager.region_files)
+                self.modern_gl_renderer.render_text(
+                    f"Regions: {open_regions} open",
+                    x=x_pos,
+                    y=y_start,
+                    size=font_size,
+                    color=text_color
+                )
+                y_start -= line_height
+        
+        # === SAVE/LOAD STATS ===
+        # Chunk Loads
+        chunk_loads = stats.get('chunk_load_count', 0)
+        chunk_generations = stats.get('chunk_generation_count', 0)
+        chunk_saves = stats.get('chunk_save_count', 0)
+        self.modern_gl_renderer.render_text(
+            f"Loads: {chunk_loads} | Gen: {chunk_generations} | Saves: {chunk_saves}",
+            x=x_pos,
+            y=y_start,
+            size=font_size,
+            color=text_color
+        )
+        y_start -= line_height
+        
+        # === AUTO-SAVE STATUS ===
+        if hasattr(self, 'auto_save') and self.auto_save:
+            auto_save_enabled = self.auto_save.is_enabled()
+            auto_save_running = self.auto_save.running
+            auto_save_interval = self.auto_save.get_interval()
+            
+            # Calculate time until next save
+            time_until_save = "N/A"
+            if auto_save_running and hasattr(self.auto_save, 'last_save_time'):
+                elapsed = time.time() - self.auto_save.last_save_time
+                remaining = max(0, auto_save_interval - elapsed)
+                time_until_save = f"{remaining:.0f}s"
+            
+            status_text = "ON" if (auto_save_enabled and auto_save_running) else "OFF"
+            self.modern_gl_renderer.render_text(
+                f"Auto-Save: {status_text} ({auto_save_interval:.0f}s, next: {time_until_save})",
+                x=x_pos,
+                y=y_start,
+                size=font_size,
+                color=text_color
+            )
+            y_start -= line_height
+        
+        # === CAMERA ===
         # Player Position
         if self.player:
             self.modern_gl_renderer.render_text(
                 f"Pos: ({self.player.rect.x:.0f}, {self.player.rect.y:.0f})",
+                x=x_pos,
+                y=y_start,
+                size=font_size,
+                color=text_color
+            )
+            y_start -= line_height
+        
+        # Camera Position
+        if hasattr(self, 'camera') and self.camera:
+            self.modern_gl_renderer.render_text(
+                f"Camera: ({self.camera.x:.0f}, {self.camera.y:.0f})",
                 x=x_pos,
                 y=y_start,
                 size=font_size,
@@ -971,6 +1192,33 @@ class GameWindow(pyglet.window.Window):
     
     def on_key_press(self, symbol, modifiers):
         """Handle keyboard input"""
+        # Handle Create World Menu
+        if hasattr(self, 'create_world_menu') and self.create_world_menu.active:
+            result = self.create_world_menu.handle_key_press(symbol, modifiers)
+            if result == "create":
+                # Create world with entered name and seed
+                world_name = self.create_world_menu.get_world_name()
+                seed = self.create_world_menu.get_seed()
+                next_slot = self._find_next_available_slot()
+                if not self.game_initialized:
+                    self._initialize_game(save_slot=next_slot, world_name=world_name, seed=seed)
+                    self.create_world_menu.hide()
+                    self.world_select_menu.hide()
+            elif result == "cancel":
+                self.create_world_menu.hide()
+            return
+        
+        # Handle World Select Menu
+        if hasattr(self, 'world_select_menu') and self.world_select_menu.active:
+            result = self.world_select_menu.handle_key_press(symbol, modifiers)
+            if result == "back":
+                # Don't exit, just hide menu (or exit if no game initialized)
+                if not self.game_initialized:
+                    pyglet.app.exit()
+                else:
+                    self.world_select_menu.hide()
+            return
+        
         if symbol == key.ESCAPE:
             # Save performance log before exit
             self.performance_logger.save_log()
@@ -1007,8 +1255,50 @@ class GameWindow(pyglet.window.Window):
     
     def on_mouse_press(self, x, y, button, modifiers):
         """Handle mouse input"""
-        # TODO: Implement mouse handling
+        # Handle Create World Menu
+        if hasattr(self, 'create_world_menu') and self.create_world_menu.active:
+            result = self.create_world_menu.handle_mouse_press(x, y, button, modifiers)
+            if result == "create":
+                # Create world with entered name and seed
+                world_name = self.create_world_menu.get_world_name()
+                seed = self.create_world_menu.get_seed()
+                next_slot = self._find_next_available_slot()
+                if not self.game_initialized:
+                    self._initialize_game(save_slot=next_slot, world_name=world_name, seed=seed)
+                    self.create_world_menu.hide()
+                    self.world_select_menu.hide()
+            elif result == "cancel":
+                self.create_world_menu.hide()
+            return
+        
+        # Handle World Select Menu
+        if hasattr(self, 'world_select_menu') and self.world_select_menu.active:
+            result = self.world_select_menu.handle_mouse_press(x, y, button, modifiers)
+            if result:
+                if result == "create_new":
+                    # Show create world menu
+                    print("[Main] DEBUG: Opening Create World Menu")
+                    self.create_world_menu.show()
+                    # Generate initial preview with random seed
+                    self.create_world_menu._update_preview()
+                elif result.startswith("slot_"):
+                    slot_num = int(result.split("_")[1])
+                    # Initialize game with selected slot
+                    if not self.game_initialized:
+                        self._initialize_game(save_slot=slot_num)
+                        self.world_select_menu.hide()
+                elif result == "back":
+                    self.world_select_menu.hide()
+            return
+        
+        # TODO: Implement other mouse handling
         pass
+    
+    def on_mouse_motion(self, x, y, dx, dy):
+        """Handle mouse motion"""
+        # Handle World Select Menu hover
+        if hasattr(self, 'world_select_menu') and self.world_select_menu.active:
+            self.world_select_menu.handle_mouse_motion(x, y)
     
     def get_keys_pressed(self):
         """Get set of currently pressed keys"""
@@ -1016,7 +1306,8 @@ class GameWindow(pyglet.window.Window):
     
     def _is_menu_active(self):
         """Check if any menu is currently active"""
-        return (self.pause_menu and self.pause_menu.active) or \
+        return (hasattr(self, 'world_select_menu') and self.world_select_menu.active) or \
+               (self.pause_menu and self.pause_menu.active) or \
                (self.settings_menu and self.settings_menu.active) or \
                (self.save_menu and self.save_menu.active)
     

@@ -14,15 +14,20 @@ class World:
         self.resource_sprites = resource_sprites
         self.save_slot = save_slot
         
-        # Initialize terrain generator
-        self.terrain_gen = TerrainGenerator(seed=seed)
-        print(f"[World] Terrain generator initialized with seed: {self.terrain_gen.seed}")
-        
-        # Initialize chunk manager
-        self.chunk_manager = ChunkManager(save_slot, self.terrain_gen, performance_monitor=performance_monitor)
+        # Initialize chunk manager first (to check if world already exists)
+        # We'll create a temporary terrain generator, then update it with the correct seed
+        temp_terrain_gen = TerrainGenerator(seed=None)  # Temporary, will be replaced
+        self.chunk_manager = ChunkManager(save_slot, temp_terrain_gen, performance_monitor=performance_monitor)
         
         # Initialize seed (load existing or create new)
-        self._init_seed(seed)
+        # This will set the correct seed in both chunk_manager and terrain_gen
+        final_seed = self._init_seed(seed)
+        
+        # Now create the actual terrain generator with the correct seed
+        self.terrain_gen = TerrainGenerator(seed=final_seed)
+        # Update chunk manager to use the correct terrain generator
+        self.chunk_manager.terrain_gen = self.terrain_gen
+        print(f"[World] Terrain generator initialized with seed: {self.terrain_gen.seed}")
         
         print(f"[World] ChunkManager initialized for save slot {save_slot}")
         self._initial_preload_done = False  # Track initial chunk preload
@@ -33,25 +38,37 @@ class World:
         Initialize world seed (load existing or create new)
         
         Args:
-            seed: Optional seed value. If None, loads existing seed or generates random one.
+            seed: Optional seed value. If None, loads existing seed.
+                  NOTE: For new worlds created via CreateWorldMenu, seed should always be provided.
+                  Random seed generation is handled exclusively by CreateWorldMenu.get_seed().
+        
+        Returns:
+            int: The seed that will be used (for terrain generator initialization)
+        
+        Raises:
+            ValueError: If no seed is provided and no existing world seed exists.
         """
         existing_seed = self.chunk_manager.get_seed()
         if existing_seed is not None:
-            # Load existing world seed
-            self.terrain_gen.set_seed(existing_seed)
-            print(f"[World] Loaded existing world with seed: {existing_seed}")
+            # Load existing world seed (world already exists)
+            print(f"[World] DEBUG: Loaded existing world seed: {existing_seed} (save_slot={self.save_slot})")
+            return existing_seed
         elif seed is not None:
-            # Use provided seed for new world
+            # Use provided seed for new world (from menu)
+            print(f"[World] DEBUG: Using seed from menu: {seed} (save_slot={self.save_slot})")
             self.chunk_manager.set_seed(seed)
-            self.terrain_gen.set_seed(seed)
             print(f"[World] Created new world with seed: {seed}")
+            return seed
         else:
-            # Generate random seed for new world
-            import random
-            new_seed = random.randint(0, 999999)
-            self.chunk_manager.set_seed(new_seed)
-            self.terrain_gen.set_seed(new_seed)            
-            print(f"[World] Created new world with random seed: {new_seed}")
+            # ERROR: No seed provided and no existing world
+            # This should not happen when creating a world via CreateWorldMenu
+            error_msg = (
+                f"[World] ERROR: No seed provided for new world (save_slot={self.save_slot}). "
+                "CreateWorldMenu.get_seed() should always return a valid seed. "
+                "This indicates a bug in the world creation flow - seed generation must happen in CreateWorldMenu."
+            )
+            print(error_msg)
+            raise ValueError(error_msg)
     
     def update(self, player_pos):
         """Update world based on player position (load/unload chunks)"""
