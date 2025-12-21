@@ -12,12 +12,19 @@ class PlayerDataManager:
     CURRENT_SCHEMA_VERSION = 1
     
     # Default values for missing fields (backward compatibility)
-    DEFAULT_INVENTORY = {}
+    DEFAULT_INVENTORY_SIZE = 45  # Default inventory size in slots (9 width x 5 height)
+    DEFAULT_INVENTORY = {
+        'slots': [[None for _ in range(9)] for _ in range(6)],  # 9 columns x 6 rows (5 inventory + 1 hotbar)
+        'size_rows': 5,  # Default inventory size (5 rows + 1 hotbar row) - DEPRECATED, use inventory_size
+        'inventory_size': DEFAULT_INVENTORY_SIZE  # Total number of inventory slots (excluding hotbar)
+    }
     DEFAULT_FACTION = {
         'policies': [],
         'allies': [],
         'enemies': []
     }
+    DEFAULT_SPRINT_MULTIPLIER = 1.2  # Default sprint speed multiplier
+    DEFAULT_SNEAK_MULTIPLIER = 0.8  # Default sneak speed multiplier
     
     def __init__(self, save_slot: int):
         self.save_slot = save_slot
@@ -25,7 +32,8 @@ class PlayerDataManager:
         self.player_file = self.save_dir / "player_data.json"
         self.logger = logging.getLogger(__name__)
     
-    def save_player(self, position: tuple, inventory: dict, faction_data: dict):
+    def save_player(self, position: tuple, inventory: dict, faction_data: dict, inventory_size: int = None,
+                    sprint_multiplier: float = None, sneak_multiplier: float = None):
         """
         Save player data to JSON
         
@@ -37,6 +45,9 @@ class PlayerDataManager:
                 'allies': list of ally faction names,
                 'enemies': list of enemy faction names
             }
+            inventory_size: Total number of inventory slots (excluding hotbar). If None, uses existing value or default.
+            sprint_multiplier: Sprint speed multiplier. If None, uses existing value or default.
+            sneak_multiplier: Sneak speed multiplier. If None, uses existing value or default.
         
         Raises:
             IOError: If file write fails (logged before raising)
@@ -51,6 +62,39 @@ class PlayerDataManager:
         chunk_x = int(position[0] // (settings.CHUNK_SIZE * settings.TILE_SIZE))
         chunk_y = int(position[1] // (settings.CHUNK_SIZE * settings.TILE_SIZE))
         
+        # Determine inventory_size (use provided value, or try to get from existing data, or use default)
+        if inventory_size is None:
+            # Try to load existing player data to get inventory_size
+            existing_data = self.load_player()
+            if existing_data and 'inventory_size' in existing_data:
+                inventory_size = existing_data['inventory_size']
+            else:
+                inventory_size = self.DEFAULT_INVENTORY_SIZE
+        
+        # Determine sprint_multiplier (use provided value, or try to get from existing data, or use default)
+        if sprint_multiplier is None:
+            existing_data = self.load_player()
+            if existing_data and 'sprint_multiplier' in existing_data:
+                sprint_multiplier = existing_data['sprint_multiplier']
+            else:
+                sprint_multiplier = self.DEFAULT_SPRINT_MULTIPLIER
+        
+        # Determine sneak_multiplier (use provided value, or try to get from existing data, or use default)
+        if sneak_multiplier is None:
+            existing_data = self.load_player()
+            if existing_data and 'sneak_multiplier' in existing_data:
+                sneak_multiplier = existing_data['sneak_multiplier']
+            else:
+                sneak_multiplier = self.DEFAULT_SNEAK_MULTIPLIER
+        
+        # Ensure inventory is a dict
+        if not isinstance(inventory, dict):
+            inventory = {}
+        
+        # Remove inventory_size from inventory if it exists there (migration)
+        if 'inventory_size' in inventory:
+            del inventory['inventory_size']
+        
         player_data = {
             'version': self.CURRENT_SCHEMA_VERSION,
             'position': {
@@ -62,6 +106,9 @@ class PlayerDataManager:
                 'y': chunk_y
             },
             'inventory': inventory,
+            'inventory_size': inventory_size,  # Store inventory_size at top level
+            'sprint_multiplier': sprint_multiplier,  # Sprint speed multiplier
+            'sneak_multiplier': sneak_multiplier,  # Sneak speed multiplier
             'faction': faction_data
         }
         
@@ -180,6 +227,32 @@ class PlayerDataManager:
         # Fill any missing fields with defaults (safety check)
         if 'inventory' not in data:
             data['inventory'] = self.DEFAULT_INVENTORY.copy()
+        else:
+            # Migrate inventory_size from inside inventory to top level if present
+            if 'inventory_size' in data['inventory']:
+                data['inventory_size'] = data['inventory']['inventory_size']
+                del data['inventory']['inventory_size']
+                self.logger.debug("Migrated inventory_size from inventory to top level")
+            # Try to migrate from size_rows if present (old format)
+            elif 'size_rows' in data['inventory']:
+                data['inventory_size'] = data['inventory']['size_rows'] * 9
+                self.logger.debug("Migrated inventory_size from size_rows")
+        
+        # Ensure inventory_size exists at top level
+        if 'inventory_size' not in data:
+            data['inventory_size'] = self.DEFAULT_INVENTORY_SIZE
+            self.logger.debug("Added missing inventory_size field with default")
+        
+        # Ensure sprint_multiplier exists
+        if 'sprint_multiplier' not in data:
+            data['sprint_multiplier'] = self.DEFAULT_SPRINT_MULTIPLIER
+            self.logger.debug("Added missing sprint_multiplier field with default")
+        
+        # Ensure sneak_multiplier exists
+        if 'sneak_multiplier' not in data:
+            data['sneak_multiplier'] = self.DEFAULT_SNEAK_MULTIPLIER
+            self.logger.debug("Added missing sneak_multiplier field with default")
+        
         if 'faction' not in data:
             data['faction'] = self.DEFAULT_FACTION.copy()
         

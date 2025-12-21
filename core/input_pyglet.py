@@ -41,6 +41,8 @@ class InputHandler:
         self.move_dir_y = 0.0
         self.build_mode = False
         self.rotate_pressed = False
+        self.sprint_pressed = False  # Shift key
+        self.sneak_pressed = False  # Ctrl key
     
     def _handle_key_down(self, symbol):
         """Handle key press"""
@@ -64,6 +66,10 @@ class InputHandler:
         
         # Get pressed keys from window
         keys_pressed = self.window.get_keys_pressed() if hasattr(self.window, 'get_keys_pressed') else set()
+        
+        # Check modifier keys (Shift for sprint, Ctrl for sneak)
+        self.sprint_pressed = (key.LSHIFT in keys_pressed or key.RSHIFT in keys_pressed)
+        self.sneak_pressed = (key.LCTRL in keys_pressed or key.RCTRL in keys_pressed)
         
         # Check pressed keys (using pyglet key constants)
         KEY_MOVE_LEFT = key.A

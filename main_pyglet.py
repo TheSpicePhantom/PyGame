@@ -23,11 +23,19 @@ from ui.controls_settings import ControlsSettings
 from ui.save_menu import SaveMenu
 from ui.world_select_menu import WorldSelectMenu
 from ui.create_world_menu import CreateWorldMenu
+from ui.inventory_menu import InventoryMenu
+from ui.hotbar_overlay import HotbarOverlay
 from world.player_data_manager import PlayerDataManager
 from world.auto_save import AutoSaveSystem
-from analytics.performance_monitor import PerformanceMonitor
-from analytics.logger import PerformanceLogger
+from analytics.diagnostics_service import DiagnosticsService
 from view.modern_gl_renderer import ModernGLRenderer
+from core.game_app import GameApp
+from core.game_state import GameState
+from core.world_controller import WorldController
+from core.ui_controller import UIController
+from view.world_renderer import WorldRenderer
+from view.ui_renderer import UIRenderer
+from view.debug_renderer import DebugRenderer
 import moderngl
 
 def get_desktop_resolution():
@@ -85,73 +93,70 @@ class GameWindow(pyglet.window.Window):
         
         # Initialize ModernGL context
         self.ctx = moderngl.create_context()
-        print(f"[Main] ModernGL context created successfully")
-        print(f"[Main] OpenGL version: {self.ctx.info.get('GL_VERSION', 'unknown')}")
+        
+        # Initialize diagnostics service (performance monitoring + logging) early for logging
+        self.diagnostics = DiagnosticsService(enable_logging=True, log_to_file=True)
+        self.diagnostics.info("Main", f"ModernGL context created successfully")
+        self.diagnostics.info("Main", f"OpenGL version: {self.ctx.info.get('GL_VERSION', 'unknown')}")
         
         # Create ModernGL renderer (with pyglet coordinate system)
         self.modern_gl_renderer = ModernGLRenderer(self.ctx, width, height, use_pyglet=True)
-        print("[Main] Using ModernGL for GPU-accelerated rendering (pyglet mode)")
-        
-        # Initialize game state
-        self.performance_monitor = PerformanceMonitor()
-        self.performance_logger = PerformanceLogger()
-        self.performance_logger.start_log()
-        # Connect logger to monitor for automatic event logging
-        self.performance_monitor.logger = self.performance_logger
-        
-        # Performance stats display
-        self.show_performance_stats = False
-        self.stats_update_interval = 0.5  # Update stats every 0.5 seconds
-        self.last_stats_update = 0.0
-        
-        # Debug visualization: 0 = off, 1 = chunk boundaries, 2 = chunk boundaries + tile grids
-        self.debug_visualization_mode = 0
-        self._debug_cache = {
-            'mode': -1,
-            'player_chunk': None,
-            'chunks_hash': None,
-            'vbo': None,
-            'vao': None,
-            'line_count': 0
-        }
-        self.logger = PerformanceLogger()
-        self.logger.start_log()
-        print("[Main] Performance monitoring enabled")
+        self.diagnostics.info("Main", "Using ModernGL for GPU-accelerated rendering (pyglet mode)")
+        self.diagnostics.info("Main", "Performance monitoring enabled")
         
         # Load recipes
         load_recipes()
-        print("[Main] Loaded recipes from JSON")
-        
-        # Game state
-        self.game_initialized = False
-        self.clock = pyglet.clock.Clock()
-        self.dt = 0.0
-        
-        # FPS limiting: Will be handled by schedule_interval
-        
-        # Initialize game components (will be set up after save slot selection)
-        # TODO: SaveMenu benötigt pygame.font - später migrieren
-        self.world = None
-        self.player = None
-        self.camera = None
-        self.all_sprites = None
-        self.input_handler = None
-        self.pause_menu = None
-        self.settings_menu = None
-        # Initialize World Select Menu (Minecraft-style)
-        self.world_select_menu = WorldSelectMenu(width, height, self.modern_gl_renderer)
-        self.create_world_menu = CreateWorldMenu(width, height, self.modern_gl_renderer)
-        self.world_select_menu.show()  # Show on startup
-        
-        # self.save_menu = SaveMenu()  # Temporär deaktiviert - benötigt pygame.font
-        self.selected_slot = None
-        self.save_menu = None  # Wird später initialisiert
+        self.diagnostics.info("Main", "Loaded recipes from JSON")
         
         # Initialize input handler
         self.input_handler = InputHandler(self)
         
-        # Don't initialize game yet - wait for world selection
-        self.game_initialized = False
+        # Initialize controllers
+        self.world_controller = WorldController(
+            input_handler=self.input_handler,
+            performance_monitor=self.diagnostics.get_performance_monitor(),
+            modern_gl_renderer=self.modern_gl_renderer,
+            width=width,
+            height=height,
+            diagnostics=self.diagnostics
+        )
+        
+        self.ui_controller = UIController(
+            width=width,
+            height=height,
+            modern_gl_renderer=self.modern_gl_renderer,
+            performance_monitor=self.diagnostics.get_performance_monitor()
+        )
+        
+        # Initialize game app (state machine)
+        self.game_app = GameApp(
+            world_controller=self.world_controller,
+            ui_controller=self.ui_controller,
+            find_next_available_slot_func=self._find_next_available_slot,
+            diagnostics=self.diagnostics
+        )
+        
+        # Initialize renderers
+        self.world_renderer = WorldRenderer(
+            world_controller=self.world_controller,
+            modern_gl_renderer=self.modern_gl_renderer
+        )
+        
+        self.ui_renderer = UIRenderer(
+            ui_controller=self.ui_controller
+        )
+        
+        self.debug_renderer = DebugRenderer(
+            world_controller=self.world_controller,
+            ui_controller=self.ui_controller,
+            performance_monitor=self.diagnostics.get_performance_monitor(),
+            modern_gl_renderer=self.modern_gl_renderer,
+            width=width,
+            height=height
+        )
+        
+        # FPS limiting flag
+        self._update_called = False
         
         # Schedule update loop at 120 FPS (8.33ms per frame)
         pyglet.clock.schedule_interval(self.update, 1.0 / 120.0)
@@ -176,6 +181,38 @@ class GameWindow(pyglet.window.Window):
                     pass
         
         return max_slot + 1
+    
+    def _convert_inventory_format(self, inventory: dict) -> dict:
+        """
+        Convert old inventory format (dict) to new slot-based format
+        
+        Args:
+            inventory: Old format dict or new format dict
+            
+        Returns:
+            New format dict with 'slots' and 'size_rows'
+        """
+        # If already in new format, return as-is
+        if isinstance(inventory, dict) and 'slots' in inventory:
+            return inventory
+        
+        # Convert old format to new format
+        slots = [[None for _ in range(9)] for _ in range(6)]
+        
+        if isinstance(inventory, dict):
+            # Old format: {'item_id': amount, ...}
+            slot_index = 0
+            for item_id, amount in inventory.items():
+                if slot_index < 54:  # 9 * 6 = 54 slots
+                    row = slot_index // 9
+                    col = slot_index % 9
+                    slots[row][col] = {'item_id': item_id, 'amount': amount}
+                    slot_index += 1
+        
+        return {
+            'slots': slots,
+            'size_rows': 5  # Default inventory size
+        }
     
     def _find_traversable_spawn_position(self, start_x: float, start_y: float) -> tuple:
         """
@@ -260,7 +297,9 @@ class GameWindow(pyglet.window.Window):
             self.player_data_manager.save_player(
                 position=(initial_x, initial_y),
                 inventory={},
-                faction_data={'policies': [], 'allies': [], 'enemies': []}
+                faction_data={'policies': [], 'allies': [], 'enemies': []},
+                sprint_multiplier=1.2,
+                sneak_multiplier=0.8
             )
             
             # Reload to get the newly created data
@@ -280,30 +319,57 @@ class GameWindow(pyglet.window.Window):
         if (start_world_x, start_world_y) != spawn_pos:
             print(f"[Main] Spawn position adjusted from {spawn_pos} to ({start_world_x:.0f}, {start_world_y:.0f}) - original was not traversable")
             # Update saved position to traversable position
+            # Preserve inventory_size and multipliers from existing data
+            inventory_size = player_data.get('inventory_size', None)
+            sprint_multiplier = player_data.get('sprint_multiplier', 1.2)
+            sneak_multiplier = player_data.get('sneak_multiplier', 0.8)
             self.player_data_manager.save_player(
                 position=(start_world_x, start_world_y),
                 inventory=player_data.get('inventory', {}),
-                faction_data=player_data.get('faction', {'policies': [], 'allies': [], 'enemies': []})
+                faction_data=player_data.get('faction', {'policies': [], 'allies': [], 'enemies': []}),
+                inventory_size=inventory_size,
+                sprint_multiplier=sprint_multiplier,
+                sneak_multiplier=sneak_multiplier
             )
         player_inventory = player_data.get('inventory', {})
         player_faction = player_data.get('faction', {'policies': [], 'allies': [], 'enemies': []})
         
         print(f"[Main] Loaded player data from save slot {save_slot}")
         print(f"[Main] Player spawn position: ({start_world_x:.0f}, {start_world_y:.0f})")
-        print(f"[Main] Player inventory: {len(player_inventory)} items")
+        if isinstance(player_inventory, dict) and 'slots' in player_inventory:
+            # Count items in slots
+            item_count = sum(1 for row in player_inventory.get('slots', []) for slot in row if slot is not None)
+            print(f"[Main] Player inventory: {item_count} items in slots")
+        else:
+            print(f"[Main] Player inventory: {len(player_inventory)} items (old format)")
         print(f"[Main] Player faction: {len(player_faction.get('policies', []))} policies")
+        
+        # Get sprint and sneak multipliers from player data
+        sprint_multiplier = player_data.get('sprint_multiplier', 1.2)
+        sneak_multiplier = player_data.get('sneak_multiplier', 0.8)
         
         # Player erstellen mit Daten aus PlayerDataManager
         self.player = Player(
             pos=(start_world_x, start_world_y),
             input_handler=self.input_handler,
             performance_monitor=self.performance_monitor,
-            terrain_gen=self.world.terrain_gen  # Pass terrain generator for traversability checks
+            terrain_gen=self.world.terrain_gen,  # Pass terrain generator for traversability checks
+            sprint_multiplier=sprint_multiplier,
+            sneak_multiplier=sneak_multiplier
         )
         
         # Set player inventory and faction from save
         self.player.inventory = player_inventory
         self.player.faction = player_faction
+        
+        # Initialize inventory menu with player inventory data
+        if hasattr(self, 'inventory_menu'):
+            # Convert old inventory format to new slot-based format if needed
+            inventory_data = self._convert_inventory_format(player_inventory)
+            # Get inventory_size from top-level player data (not from inventory dict)
+            inventory_size = player_data.get('inventory_size', 45)
+            inventory_data['inventory_size'] = inventory_size
+            self.inventory_menu.set_inventory(inventory_data)
         
         self.all_sprites.add(self.player, layer=settings.LAYER_PLAYER)
         
@@ -314,6 +380,10 @@ class GameWindow(pyglet.window.Window):
         self.camera.y = start_world_y
         # Zoom: 1.5 = 150% (nah), 0.75 = 75% (weit weg)
         self.camera_zoom = 1.0  # Start at 100%
+        
+        # Mouse position tracking for tile highlight
+        self.mouse_x = 0
+        self.mouse_y = 0
         
         # Initialize Auto-Save System
         def get_player_position():
@@ -339,10 +409,20 @@ class GameWindow(pyglet.window.Window):
                 # Save world (chunks are saved automatically by ChunkManager)
                 # Save player data using the instance variable
                 if hasattr(self, 'player_data_manager') and self.player_data_manager:
+                    # Get inventory_size from inventory menu if available
+                    inventory_size = None
+                    if hasattr(self, 'inventory_menu') and self.inventory_menu:
+                        inventory_size = self.inventory_menu.inventory_size
+                    # Get sprint and sneak multipliers from player
+                    sprint_multiplier = getattr(self.player, 'sprint_multiplier', 1.2)
+                    sneak_multiplier = getattr(self.player, 'sneak_multiplier', 0.8)
                     self.player_data_manager.save_player(
                         position=(self.player.rect.x, self.player.rect.y),
                         inventory=getattr(self.player, 'inventory', {}),
-                        faction_data=getattr(self.player, 'faction', {'policies': [], 'allies': [], 'enemies': []})
+                        faction_data=getattr(self.player, 'faction', {'policies': [], 'allies': [], 'enemies': []}),
+                        inventory_size=inventory_size,
+                        sprint_multiplier=sprint_multiplier,
+                        sneak_multiplier=sneak_multiplier
                     )
                     print(f"[Main] Game saved (slot {save_slot})")
                 else:
@@ -374,34 +454,12 @@ class GameWindow(pyglet.window.Window):
         # Mark that update was called (for FPS limiting)
         self._update_called = True
         
-        # Update performance stats display periodically
-        current_time = time.time()
-        if current_time - self.last_stats_update >= self.stats_update_interval:
-            self._update_performance_stats()
-            self.last_stats_update = current_time
-        self.dt = dt
-        
-        # Always update input handler
+        # Update input handler
         if self.input_handler:
             self.input_handler.update()
-            
-            # Debug: Print movement if keys are pressed
-            if self.input_handler.move_dir_x != 0 or self.input_handler.move_dir_y != 0:
-                if not hasattr(self, '_input_debug_printed'):
-                    print(f"[Input] Movement detected: ({self.input_handler.move_dir_x:.2f}, {self.input_handler.move_dir_y:.2f})")
-                    self._input_debug_printed = True
         
-        if self.game_initialized:
-            # Update game (only if no menu is active)
-            if not self._is_menu_active():
-                self.performance_monitor.start_update()
-                if self.all_sprites:
-                    self.all_sprites.update(dt)
-                if self.camera:
-                    self.camera.update(dt)
-                if self.world:
-                    self.world.update(self.player.rect.center if self.player else (0, 0))
-                self.performance_monitor.end_update()
+        # Delegate update to game app
+        self.game_app.update(dt)
     
     def on_draw(self):
         """Render frame"""
@@ -412,8 +470,8 @@ class GameWindow(pyglet.window.Window):
         
         self._update_called = False  # Reset flag for next frame
         
-        self.performance_monitor.start_frame()
-        self.performance_monitor.start_render()
+        self.diagnostics.start_frame()
+        self.diagnostics.start_render()
         
         # Set viewport (important!)
         self.ctx.viewport = (0, 0, self.width, self.height)
@@ -542,191 +600,36 @@ class GameWindow(pyglet.window.Window):
                 import traceback
                 traceback.print_exc()
         
-        # TEMPORARILY DISABLED: Render yellow quad every frame (for debugging)
-        # if hasattr(self, '_yellow_vao'):
-        #     self._yellow_vao.render(moderngl.TRIANGLES)
+        # Rendering-Pipeline: World -> Debug -> UI -> Performance Stats
+        current_state = self.game_app.current_state
         
-        # Render Chunks: Update View -> Load Visible Chunks -> Collect Visible Chunks -> Render
-        if self.game_initialized and self.world and self.world.chunk_manager:
-            # Step 1: Update view matrix based on camera position and zoom
-            if self.camera:
-                camera_x = self.camera.x
-                camera_y = self.camera.y
-                self.modern_gl_renderer.update_view(camera_x, camera_y, zoom=self.camera_zoom)
-            else:
-                camera_x = 0.0
-                camera_y = 0.0
-                self.modern_gl_renderer.update_view(0.0, 0.0, zoom=self.camera_zoom)
+        # 1. Render world (chunks, player) - only if in game
+        if current_state == GameState.INGAME or current_state == GameState.PAUSED:
+            self.world_renderer.draw(debug_visualization_mode=0)  # Debug handled separately
             
-            # Step 1.5: Load chunks in visible area + buffer (dynamically based on zoom)
-            self._load_visible_chunks(camera_x, camera_y)
-            
-            # Step 2: Collect all visible chunks (with frustum culling based on zoom)
-            # Use the same calculation as _load_visible_chunks for consistency
-            chunks_data = []
-            screen_width = self.modern_gl_renderer.screen_width
-            screen_height = self.modern_gl_renderer.screen_height
-            chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
-            
-            # Calculate visible area bounds using the same method as _load_visible_chunks
-            # Zoom < 1.0 = rauszoomen (mehr Welt sichtbar), Zoom > 1.0 = reinzoomen (weniger Welt sichtbar)
-            # visible_world_size = screen_size / zoom (größerer Zoom = kleinere sichtbare Welt)
-            visible_world_width = screen_width / self.camera_zoom
-            visible_world_height = screen_height / self.camera_zoom
-            
-            # Visible world bounds (what we can see in world coordinates)
-            # Note: We don't add buffer here because chunks are already loaded with buffer in _load_visible_chunks()
-            # We want to render exactly what's visible on screen
-            world_min_x = camera_x - visible_world_width / 2.0
-            world_max_x = camera_x + visible_world_width / 2.0
-            world_min_y = camera_y - visible_world_height / 2.0
-            world_max_y = camera_y + visible_world_height / 2.0
-            
-            # Process chunks: visible -> rendering -> active -> rendered
-            # Reset "rendered" state first (keep "visible" and "inactive" from _load_visible_chunks)
-            for chunk in self.world.chunk_manager.loaded_chunks.values():
-                if chunk.render_state == "rendered":
-                    chunk.render_state = None  # Reset for next frame
-            
-            # Process all loaded chunks - render all chunks that are in the visible area
-            for chunk in self.world.chunk_manager.loaded_chunks.values():
-                # Calculate chunk world position and bounds
-                chunk_world_x = chunk.chunk_x * chunk_size_pixels
-                chunk_world_y = chunk.chunk_y * chunk_size_pixels
-                chunk_world_max_x = chunk_world_x + chunk_size_pixels
-                chunk_world_max_y = chunk_world_y + chunk_size_pixels
-                
-                # Frustum culling: Check if chunk overlaps with visible world bounds
-                # A chunk overlaps if: chunk_start <= view_end AND chunk_end >= view_start
-                # This ensures we catch all chunks that are even partially visible (including edge cases)
-                # Check X-axis overlap: chunk overlaps if chunk_x <= world_max_x AND chunk_max_x >= world_min_x
-                x_overlaps = (chunk_world_x <= world_max_x) and (chunk_world_max_x >= world_min_x)
-                # Check Y-axis overlap: chunk overlaps if chunk_y <= world_max_y AND chunk_max_y >= world_min_y
-                y_overlaps = (chunk_world_y <= world_max_y) and (chunk_world_max_y >= world_min_y)
-                
-                chunk_overlaps = x_overlaps and y_overlaps
-                
-                if not chunk_overlaps:
-                    # Chunk is outside visible world area
-                    if chunk.render_state == "rendering":
-                        chunk.render_state = "inactive"
-                    elif chunk.render_state == "visible":
-                        chunk.render_state = "inactive"
-                    continue
-                
-                # Chunk passed frustum culling - mark as active/rendering
-                if chunk.render_state == "visible":
-                    chunk.render_state = "rendering"
-                if chunk.render_state == "rendering":
-                    chunk.render_state = "active"
-                
-                # Add chunk data for rendering (only if it has tiles)
-                if chunk.tiles:
-                    chunks_data.append((chunk.chunk_x, chunk.chunk_y, chunk.tiles))
-            
-            # Step 3: Render all visible chunks
-            if chunks_data:
-                self.modern_gl_renderer.render_chunks(chunks_data, performance_monitor=self.performance_monitor)
-                
-                # Mark rendered chunks as "rendered"
-                for chunk_x, chunk_y, _ in chunks_data:
-                    chunk_key = (chunk_x, chunk_y)
-                    if chunk_key in self.world.chunk_manager.loaded_chunks:
-                        chunk = self.world.chunk_manager.loaded_chunks[chunk_key]
-                        if chunk.render_state == "active":
-                            chunk.render_state = "rendered"
-            
-            
-            # Step 4: Render debug visualization (chunk boundaries and tile grids)
-            if self.debug_visualization_mode > 0:
-                self._render_debug_visualization(chunks_data)
-            
-            # Step 5: Render player as yellow quad (1x2 tiles)
-            if self.player:
-                self._render_player()
-            if self.player:
-                self._render_player()
-            
-            # Debug: Render yellow quad directly in clip-space (same as green quad)
-            if not hasattr(self, '_yellow_quad_rendered'):
-                # Use the same simple shader as the green quad
-                simple_vertex_shader = """
-                #version 330 core
-                in vec2 in_position;
-                in vec3 in_color;
-                out vec3 frag_color;
-                void main() {
-                    gl_Position = vec4(in_position, 0.0, 1.0);
-                    frag_color = in_color;
-                }
-                """
-                
-                simple_fragment_shader = """
-                #version 330 core
-                in vec3 frag_color;
-                out vec4 out_color;
-                void main() {
-                    out_color = vec4(frag_color / 255.0, 1.0);
-                }
-                """
-                
-                try:
-                    yellow_program = self.ctx.program(
-                        vertex_shader=simple_vertex_shader,
-                        fragment_shader=simple_fragment_shader
-                    )
-                    
-                    # Yellow quad in center of screen
-                    yellow_vertices = np.array([
-                        [-0.3, -0.3, 255.0, 255.0, 0.0],
-                        [0.3, -0.3, 255.0, 255.0, 0.0],
-                        [0.3, 0.3, 255.0, 255.0, 0.0],
-                        [-0.3, -0.3, 255.0, 255.0, 0.0],
-                        [0.3, 0.3, 255.0, 255.0, 0.0],
-                        [-0.3, 0.3, 255.0, 255.0, 0.0],
-                    ], dtype=np.float32)
-                    
-                    yellow_vbo = self.ctx.buffer(yellow_vertices.tobytes())
-                    yellow_vao = self.ctx.simple_vertex_array(
-                        yellow_program,
-                        yellow_vbo,
-                        'in_position', 'in_color'
-                    )
-                    
-                    # TEMPORARILY DISABLED: yellow_vao.render(moderngl.TRIANGLES)
-                    yellow_vbo.release()
-                    yellow_vao.release()
-                    
-                    # print(f"[Debug] Rendered yellow quad with simple shader in main_pyglet.py")
-                    self._yellow_quad_rendered = True
-                except Exception as e:
-                    print(f"[Debug] Error rendering yellow quad: {e}")
-                    import traceback
-                    traceback.print_exc()
+            # Render tile highlight if in game
+            if current_state == GameState.INGAME and self.world_controller.player:
+                self.world_renderer.draw_tile_highlight(
+                    mouse_x=self.world_controller.mouse_x,
+                    mouse_y=self.world_controller.mouse_y,
+                    screen_width=self.width,
+                    screen_height=self.height
+                )
         
-        self.performance_monitor.end_render()
+        # 2. Render debug visualization (chunk boundaries, tile grids)
+        if current_state == GameState.INGAME or current_state == GameState.PAUSED:
+            debug_mode = self.ui_controller.debug_visualization_mode
+            if debug_mode > 0:
+                chunks_data = self.world_renderer.get_chunks_data()
+                self.debug_renderer.draw_debug_visualization(chunks_data, debug_mode)
         
-        # Render Create World Menu if active
-        if hasattr(self, 'create_world_menu') and self.create_world_menu.active:
-            self.create_world_menu.draw()
-            return  # Don't render game when menu is active
+        # 3. Render UI (menus, hotbar, overlays)
+        self.ui_renderer.draw(current_state)
         
-        # Render World Select Menu if active
-        if hasattr(self, 'world_select_menu') and self.world_select_menu.active:
-            # Draw semi-transparent overlay using pyglet shapes
-            import pyglet.shapes
-            overlay = pyglet.shapes.Rectangle(
-                0, 0, self.width, self.height,
-                color=(0, 0, 0)
-            )
-            overlay.opacity = 180
-            overlay.draw()
-            self.world_select_menu.draw()
-            return  # Don't render game when menu is active
+        # 4. Render performance stats overlay
+        self.debug_renderer.draw_performance_stats(current_state)
         
-        # Render performance stats (toggle with F3, includes FPS, CPU, GPU, Position, Zoom)
-        if self.show_performance_stats and not (self.pause_menu and self.pause_menu.active):
-            self._draw_performance_stats()
+        self.diagnostics.end_render()
     
     def _load_visible_chunks(self, camera_x: float, camera_y: float):
         """Load chunks in visible area + buffer based on zoom
@@ -735,7 +638,7 @@ class GameWindow(pyglet.window.Window):
         - Zoom 0.75 (herausgezoomt): Mehr Welt sichtbar -> mehr Chunks geladen
         - Zoom 1.5 (herangezoomt): Weniger Welt sichtbar -> weniger Chunks geladen
         """
-        if not self.world or not self.world.chunk_manager:
+        if not self.world_controller.world or not self.world_controller.world.chunk_manager:
             return
         
         chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
@@ -746,8 +649,8 @@ class GameWindow(pyglet.window.Window):
         # With zoom, we see more/less world: visible_world_size = screen_size / zoom
         # Zoom < 1.0 = rauszoomen = mehr Welt sichtbar = größere visible_world_size
         # Zoom > 1.0 = reinzoomen = weniger Welt sichtbar = kleinere visible_world_size
-        visible_world_width = screen_width / self.camera_zoom
-        visible_world_height = screen_height / self.camera_zoom
+        visible_world_width = screen_width / self.world_controller.camera_zoom
+        visible_world_height = screen_height / self.world_controller.camera_zoom
         
         # Calculate visible area bounds in world coordinates
         # Camera is at screen center, so visible area is centered on camera
@@ -785,7 +688,7 @@ class GameWindow(pyglet.window.Window):
                     chunks_out_of_bounds += 1
         
         # Load chunks that aren't already loaded
-        chunk_manager = self.world.chunk_manager
+        chunk_manager = self.world_controller.world.chunk_manager
         newly_loaded = 0
         already_loaded = 0
         for chunk_x, chunk_y in chunks_to_load:
@@ -833,12 +736,12 @@ class GameWindow(pyglet.window.Window):
     
     def _update_performance_stats(self):
         """Update performance statistics"""
-        stats = self.performance_monitor.get_stats()
-        self.performance_logger.log_stats(stats)
+        # Stats are automatically logged by DiagnosticsService
+        pass
     
     def _draw_performance_stats(self):
         """Draw performance statistics on screen (F3 menu) - top left corner"""
-        stats = self.performance_monitor.get_stats()
+        stats = self.diagnostics.get_stats()
         
         # Position: top left corner
         # In pyglet, Y=0 is bottom, Y=height is top
@@ -885,10 +788,10 @@ class GameWindow(pyglet.window.Window):
         
         # === WORLD INFO ===
         # Seed
-        if self.world and self.world.chunk_manager:
-            seed = self.world.chunk_manager.get_seed()
-            if seed is None and hasattr(self.world, 'terrain_gen'):
-                seed = self.world.terrain_gen.seed
+        if self.world_controller.world and self.world_controller.world.chunk_manager:
+            seed = self.world_controller.world.chunk_manager.get_seed()
+            if seed is None and hasattr(self.world_controller.world, 'terrain_gen'):
+                seed = self.world_controller.world.terrain_gen.seed
             seed_text = f"Seed: {seed}" if seed is not None else "Seed: N/A"
             self.modern_gl_renderer.render_text(
                 seed_text,
@@ -900,25 +803,25 @@ class GameWindow(pyglet.window.Window):
             y_start -= line_height
         
         # Visible Chunks
-        if self.world and self.world.chunk_manager:
-            total_loaded = len(self.world.chunk_manager.loaded_chunks)
+        if self.world_controller.world and self.world_controller.world.chunk_manager:
+            total_loaded = len(self.world_controller.world.chunk_manager.loaded_chunks)
             
             # Count visible chunks (chunks that are on screen)
             visible_chunks = 0
-            if hasattr(self, 'camera') and self.camera:
+            if self.world_controller.camera:
                 chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
                 # Calculate visible area in world coordinates
                 screen_width = self.width
                 screen_height = self.height
                 
                 # World coordinates of screen corners (accounting for zoom)
-                world_min_x = self.camera.x - (screen_width / 2.0) / self.camera_zoom
-                world_max_x = self.camera.x + (screen_width / 2.0) / self.camera_zoom
-                world_min_y = self.camera.y - (screen_height / 2.0) / self.camera_zoom
-                world_max_y = self.camera.y + (screen_height / 2.0) / self.camera_zoom
+                world_min_x = self.world_controller.camera.x - (screen_width / 2.0) / self.world_controller.camera_zoom
+                world_max_x = self.world_controller.camera.x + (screen_width / 2.0) / self.world_controller.camera_zoom
+                world_min_y = self.world_controller.camera.y - (screen_height / 2.0) / self.world_controller.camera_zoom
+                world_max_y = self.world_controller.camera.y + (screen_height / 2.0) / self.world_controller.camera_zoom
                 
                 # Count chunks in visible area
-                for chunk in self.world.chunk_manager.loaded_chunks.values():
+                for chunk in self.world_controller.world.chunk_manager.loaded_chunks.values():
                     chunk_world_x = chunk.chunk_x * chunk_size_pixels
                     chunk_world_y = chunk.chunk_y * chunk_size_pixels
                     chunk_world_x2 = chunk_world_x + chunk_size_pixels
@@ -939,8 +842,8 @@ class GameWindow(pyglet.window.Window):
             y_start -= line_height
             
             # Open Regions
-            if hasattr(self.world.chunk_manager, 'region_manager'):
-                open_regions = len(self.world.chunk_manager.region_manager.region_files)
+            if hasattr(self.world_controller.world.chunk_manager, 'region_manager'):
+                open_regions = len(self.world_controller.world.chunk_manager.region_manager.region_files)
                 self.modern_gl_renderer.render_text(
                     f"Regions: {open_regions} open",
                     x=x_pos,
@@ -965,15 +868,15 @@ class GameWindow(pyglet.window.Window):
         y_start -= line_height
         
         # === AUTO-SAVE STATUS ===
-        if hasattr(self, 'auto_save') and self.auto_save:
-            auto_save_enabled = self.auto_save.is_enabled()
-            auto_save_running = self.auto_save.running
-            auto_save_interval = self.auto_save.get_interval()
+        if self.world_controller.auto_save:
+            auto_save_enabled = self.world_controller.auto_save.is_enabled()
+            auto_save_running = self.world_controller.auto_save.running
+            auto_save_interval = self.world_controller.auto_save.get_interval()
             
             # Calculate time until next save
             time_until_save = "N/A"
-            if auto_save_running and hasattr(self.auto_save, 'last_save_time'):
-                elapsed = time.time() - self.auto_save.last_save_time
+            if auto_save_running and hasattr(self.world_controller.auto_save, 'last_save_time'):
+                elapsed = time.time() - self.world_controller.auto_save.last_save_time
                 remaining = max(0, auto_save_interval - elapsed)
                 time_until_save = f"{remaining:.0f}s"
             
@@ -989,9 +892,9 @@ class GameWindow(pyglet.window.Window):
         
         # === CAMERA ===
         # Player Position
-        if self.player:
+        if self.world_controller.player:
             self.modern_gl_renderer.render_text(
-                f"Pos: ({self.player.rect.x:.0f}, {self.player.rect.y:.0f})",
+                f"Pos: ({self.world_controller.player.rect.x:.0f}, {self.world_controller.player.rect.y:.0f})",
                 x=x_pos,
                 y=y_start,
                 size=font_size,
@@ -1000,9 +903,9 @@ class GameWindow(pyglet.window.Window):
             y_start -= line_height
         
         # Camera Position
-        if hasattr(self, 'camera') and self.camera:
+        if self.world_controller.camera:
             self.modern_gl_renderer.render_text(
-                f"Camera: ({self.camera.x:.0f}, {self.camera.y:.0f})",
+                f"Camera: ({self.world_controller.camera.x:.0f}, {self.world_controller.camera.y:.0f})",
                 x=x_pos,
                 y=y_start,
                 size=font_size,
@@ -1012,7 +915,7 @@ class GameWindow(pyglet.window.Window):
         
         # Zoom Level
         self.modern_gl_renderer.render_text(
-            f"Zoom: {self.camera_zoom:.2f}",
+            f"Zoom: {self.world_controller.camera_zoom:.2f}",
             x=x_pos,
             y=y_start,
             size=font_size,
@@ -1021,7 +924,7 @@ class GameWindow(pyglet.window.Window):
     
     def _render_player(self):
         """Render player as yellow quad (1 tile wide, 2 tiles tall) using chunk shader"""
-        if not self.player:
+        if not self.world_controller.player:
             return
         
         # Player size: 1 tile wide, 2 tiles tall
@@ -1030,8 +933,8 @@ class GameWindow(pyglet.window.Window):
         player_height = tile_size * 2
         
         # Player world position (center)
-        player_world_x = self.player.rect.center[0]
-        player_world_y = self.player.rect.center[1]
+        player_world_x = self.world_controller.player.rect.center[0]
+        player_world_y = self.world_controller.player.rect.center[1]
         
         # Calculate quad corners (top-left origin, like tiles) in world coordinates
         world_x0 = player_world_x - player_width / 2.0
@@ -1070,9 +973,9 @@ class GameWindow(pyglet.window.Window):
     
     def _render_debug_visualization(self, chunks_data):
         """Render debug visualization: chunk boundaries and tile grids (optimized with caching)"""
-        if not chunks_data or not self.world or not self.player:
+        if not chunks_data or not self.world_controller.world or not self.world_controller.player:
             # Cleanup cache if visualization is disabled
-            if self.debug_visualization_mode == 0 and self._debug_cache['vbo']:
+            if self.ui_controller.debug_visualization_mode == 0 and self._debug_cache['vbo']:
                 self._debug_cache['vbo'].release()
                 self._debug_cache['vao'].release()
                 self._debug_cache['vbo'] = None
@@ -1083,8 +986,8 @@ class GameWindow(pyglet.window.Window):
         tile_size_pixels = settings.TILE_SIZE
         
         # Calculate player's chunk position
-        player_world_x = self.player.rect.center[0]
-        player_world_y = self.player.rect.center[1]
+        player_world_x = self.world_controller.player.rect.center[0]
+        player_world_y = self.world_controller.player.rect.center[1]
         player_chunk_x = int(player_world_x // chunk_size_pixels)
         player_chunk_y = int(player_world_y // chunk_size_pixels)
         player_chunk = (player_chunk_x, player_chunk_y)
@@ -1094,7 +997,7 @@ class GameWindow(pyglet.window.Window):
         
         # Check if cache is still valid
         cache_valid = (
-            self._debug_cache['mode'] == self.debug_visualization_mode and
+            self._debug_cache['mode'] == self.ui_controller.debug_visualization_mode and
             self._debug_cache['player_chunk'] == player_chunk and
             self._debug_cache['chunks_hash'] == chunks_hash and
             self._debug_cache['vbo'] is not None
@@ -1124,7 +1027,7 @@ class GameWindow(pyglet.window.Window):
                 chunk_world_max_y = chunk_world_y + chunk_size_pixels
                 
                 # Mode 1 or 2: Render chunk boundaries (red lines) for all visible chunks
-                if self.debug_visualization_mode >= 1:
+                if self.ui_controller.debug_visualization_mode >= 1:
                     # Top edge
                     lines.append([chunk_world_x, chunk_world_y, chunk_world_max_x, chunk_world_y, 1.0, 0.0, 0.0])
                     # Bottom edge
@@ -1136,7 +1039,7 @@ class GameWindow(pyglet.window.Window):
                 
                 # Mode 2: Render tile grids (blue lines) for 5x5 area around player
                 # Only render when zoomed in (zoom > 1.0) to avoid performance issues when zoomed out
-                if self.debug_visualization_mode >= 2 and self.camera_zoom > 1.0:
+                if self.ui_controller.debug_visualization_mode >= 2 and self.world_controller.camera_zoom > 1.0:
                     # Check if chunk is in the 5x5 grid area
                     if grid_min_x <= chunk_x <= grid_max_x and grid_min_y <= chunk_y <= grid_max_y:
                         # Vertical tile lines
@@ -1173,7 +1076,7 @@ class GameWindow(pyglet.window.Window):
                 self._debug_cache['line_count'] = 0
             
             # Update cache metadata
-            self._debug_cache['mode'] = self.debug_visualization_mode
+            self._debug_cache['mode'] = self.ui_controller.debug_visualization_mode
             self._debug_cache['player_chunk'] = player_chunk
             self._debug_cache['chunks_hash'] = chunks_hash
         
@@ -1182,67 +1085,28 @@ class GameWindow(pyglet.window.Window):
             self._debug_cache['vao'].render(moderngl.LINES)
     
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
-        """Handle mouse wheel for zoom"""
-        # Zoom: scroll down = zoom out (rauszoomen), scroll up = zoom in (reinzoomen)
-        zoom_speed = 0.05  # 5% per scroll step
-        if scroll_y < 0:  # Scroll down = zoom out (rauszoomen, mehr Welt sichtbar)
-            self.camera_zoom = max(0.75, self.camera_zoom - zoom_speed)
-        elif scroll_y > 0:  # Scroll up = zoom in (reinzoomen, weniger Welt sichtbar)
-            self.camera_zoom = min(1.5, self.camera_zoom + zoom_speed)
+        """Handle mouse wheel for zoom (with Control) or hotbar selection (without Control)"""
+        from pyglet.window import key
+        
+        # Get modifiers
+        modifiers = self.get_keys_pressed()
+        
+        # Delegate to game app
+        self.game_app.handle_mouse_scroll(x, y, scroll_x, scroll_y, modifiers)
     
     def on_key_press(self, symbol, modifiers):
-        """Handle keyboard input"""
-        # Handle Create World Menu
-        if hasattr(self, 'create_world_menu') and self.create_world_menu.active:
-            result = self.create_world_menu.handle_key_press(symbol, modifiers)
-            if result == "create":
-                # Create world with entered name and seed
-                world_name = self.create_world_menu.get_world_name()
-                seed = self.create_world_menu.get_seed()
-                next_slot = self._find_next_available_slot()
-                if not self.game_initialized:
-                    self._initialize_game(save_slot=next_slot, world_name=world_name, seed=seed)
-                    self.create_world_menu.hide()
-                    self.world_select_menu.hide()
-            elif result == "cancel":
-                self.create_world_menu.hide()
-            return
-        
-        # Handle World Select Menu
-        if hasattr(self, 'world_select_menu') and self.world_select_menu.active:
-            result = self.world_select_menu.handle_key_press(symbol, modifiers)
-            if result == "back":
-                # Don't exit, just hide menu (or exit if no game initialized)
-                if not self.game_initialized:
-                    pyglet.app.exit()
-                else:
-                    self.world_select_menu.hide()
-            return
-        
-        if symbol == key.ESCAPE:
-            # Save performance log before exit
-            self.performance_logger.save_log()
-            pyglet.app.exit()
-        
-        # Toggle performance stats with F3
-        if symbol == key.F3:
-            self.show_performance_stats = not self.show_performance_stats
-            print(f"[Performance] Stats display: {'ON' if self.show_performance_stats else 'OFF'}")
-        
-        # Toggle debug visualization with F8
-        if symbol == key.F8:
-            self.debug_visualization_mode = (self.debug_visualization_mode + 1) % 3
-            modes = ["OFF", "Chunk Boundaries", "Chunk Boundaries + Tile Grids"]
-            print(f"[Debug] Visualization mode: {modes[self.debug_visualization_mode]}")
-        
-        # Store key state for input handler
+        """Handle keyboard input - delegates to GameApp state machine"""
+        # Store key state for input handler (needed for InputHandler)
         if not hasattr(self, '_keys_pressed'):
             self._keys_pressed = set()
         self._keys_pressed.add(symbol)
         
-        # Handle input if handler exists
+        # Handle input handler (for movement keys)
         if self.input_handler:
             self.input_handler._handle_key_down(symbol)
+        
+        # Delegate to game app (state machine handles everything)
+        self.game_app.handle_key_press(symbol, modifiers)
     
     def on_key_release(self, symbol, modifiers):
         """Handle key release"""
@@ -1254,55 +1118,242 @@ class GameWindow(pyglet.window.Window):
             self.input_handler._handle_key_up(symbol)
     
     def on_mouse_press(self, x, y, button, modifiers):
-        """Handle mouse input"""
-        # Handle Create World Menu
-        if hasattr(self, 'create_world_menu') and self.create_world_menu.active:
-            result = self.create_world_menu.handle_mouse_press(x, y, button, modifiers)
-            if result == "create":
-                # Create world with entered name and seed
-                world_name = self.create_world_menu.get_world_name()
-                seed = self.create_world_menu.get_seed()
-                next_slot = self._find_next_available_slot()
-                if not self.game_initialized:
-                    self._initialize_game(save_slot=next_slot, world_name=world_name, seed=seed)
-                    self.create_world_menu.hide()
-                    self.world_select_menu.hide()
-            elif result == "cancel":
-                self.create_world_menu.hide()
-            return
-        
-        # Handle World Select Menu
-        if hasattr(self, 'world_select_menu') and self.world_select_menu.active:
-            result = self.world_select_menu.handle_mouse_press(x, y, button, modifiers)
-            if result:
-                if result == "create_new":
-                    # Show create world menu
-                    print("[Main] DEBUG: Opening Create World Menu")
-                    self.create_world_menu.show()
-                    # Generate initial preview with random seed
-                    self.create_world_menu._update_preview()
-                elif result.startswith("slot_"):
-                    slot_num = int(result.split("_")[1])
-                    # Initialize game with selected slot
-                    if not self.game_initialized:
-                        self._initialize_game(save_slot=slot_num)
-                        self.world_select_menu.hide()
-                elif result == "back":
-                    self.world_select_menu.hide()
-            return
-        
-        # TODO: Implement other mouse handling
-        pass
+        """Handle mouse input - delegates to GameApp state machine"""
+        # Delegate to game app (state machine handles everything)
+        self.game_app.handle_mouse_press(x, y, button, modifiers)
     
     def on_mouse_motion(self, x, y, dx, dy):
         """Handle mouse motion"""
-        # Handle World Select Menu hover
-        if hasattr(self, 'world_select_menu') and self.world_select_menu.active:
-            self.world_select_menu.handle_mouse_motion(x, y)
+        # Delegate to game app
+        self.game_app.handle_mouse_motion(x, y, dx, dy)
     
     def get_keys_pressed(self):
         """Get set of currently pressed keys"""
         return getattr(self, '_keys_pressed', set())
+    
+    def _render_tile_highlight(self):
+        """Render highlight for tile under mouse cursor if within 8 tiles of player"""
+        if not self.world_controller.camera or not self.world_controller.player:
+            return
+        
+        # Convert mouse screen coordinates to world coordinates
+        screen_width = self.width
+        screen_height = self.height
+        
+        # In pyglet, (0,0) is bottom-left, so we need to invert Y
+        # World coordinates: center is at camera position
+        world_x = self.world_controller.camera.x + (self.world_controller.mouse_x - screen_width / 2.0) / self.world_controller.camera_zoom
+        world_y = self.world_controller.camera.y + (screen_height / 2.0 - self.world_controller.mouse_y) / self.world_controller.camera_zoom
+        
+        # Get player position
+        player_x = self.world_controller.player.rect.x
+        player_y = self.world_controller.player.rect.y
+        
+        # Calculate distance in tiles
+        distance_tiles = math.sqrt(
+            ((world_x - player_x) / settings.TILE_SIZE) ** 2 +
+            ((world_y - player_y) / settings.TILE_SIZE) ** 2
+        )
+        
+        # Only highlight if within 8 tiles
+        if distance_tiles > 8.0:
+            return
+        
+        # Get tile coordinates
+        tile_x = int(world_x // settings.TILE_SIZE)
+        tile_y = int(world_y // settings.TILE_SIZE)
+        
+        # Get tile world position (top-left corner of tile)
+        tile_world_x = tile_x * settings.TILE_SIZE
+        tile_world_y = tile_y * settings.TILE_SIZE
+        
+        # Convert tile world position to screen coordinates for rendering
+        screen_tile_x = (tile_world_x - self.world_controller.camera.x) * self.world_controller.camera_zoom + screen_width / 2.0
+        screen_tile_y = (tile_world_y - self.world_controller.camera.y) * self.world_controller.camera_zoom + screen_height / 2.0
+        
+        # In pyglet, Y=0 is at bottom, so we need to adjust
+        screen_tile_y = screen_height - screen_tile_y
+        
+        # Draw highlight rectangle (brighter overlay)
+        import pyglet.shapes
+        highlight = pyglet.shapes.Rectangle(
+            screen_tile_x,
+            screen_tile_y - settings.TILE_SIZE * self.world_controller.camera_zoom,  # Adjust for bottom-left origin
+            settings.TILE_SIZE * self.world_controller.camera_zoom,
+            settings.TILE_SIZE * self.world_controller.camera_zoom,
+            color=(255, 255, 255)
+        )
+        highlight.opacity = 80  # Semi-transparent white overlay
+        highlight.draw()
+        
+        # Draw border around highlighted tile (using separate rectangles for each edge)
+        tile_size_scaled = settings.TILE_SIZE * self.world_controller.camera_zoom
+        border_width = 2
+        border_color = (255, 255, 255)
+        border_opacity = 200
+        
+        # Top border
+        top_border = pyglet.shapes.Rectangle(
+            screen_tile_x,
+            screen_tile_y - border_width,
+            tile_size_scaled,
+            border_width,
+            color=border_color
+        )
+        top_border.opacity = border_opacity
+        top_border.draw()
+        
+        # Bottom border
+        bottom_border = pyglet.shapes.Rectangle(
+            screen_tile_x,
+            screen_tile_y - tile_size_scaled,
+            tile_size_scaled,
+            border_width,
+            color=border_color
+        )
+        bottom_border.opacity = border_opacity
+        bottom_border.draw()
+        
+        # Left border
+        left_border = pyglet.shapes.Rectangle(
+            screen_tile_x,
+            screen_tile_y - tile_size_scaled,
+            border_width,
+            tile_size_scaled,
+            color=border_color
+        )
+        left_border.opacity = border_opacity
+        left_border.draw()
+        
+        # Right border
+        right_border = pyglet.shapes.Rectangle(
+            screen_tile_x + tile_size_scaled - border_width,
+            screen_tile_y - tile_size_scaled,
+            border_width,
+            tile_size_scaled,
+            color=border_color
+        )
+        right_border.opacity = border_opacity
+        right_border.draw()
+    
+    def _get_tile_under_mouse(self, mouse_x: int, mouse_y: int):
+        """
+        Get tile coordinates and data under mouse cursor if within 8 tiles of player
+        
+        Returns:
+            Tuple of (tile_x, tile_y, tile_data) or None if not within range
+        """
+        if not self.world_controller.camera:
+            return None
+        
+        # Convert mouse screen coordinates to world coordinates
+        screen_width = self.width
+        screen_height = self.height
+        
+        world_x = self.world_controller.camera.x + (mouse_x - screen_width / 2.0) / self.world_controller.camera_zoom
+        world_y = self.world_controller.camera.y + (screen_height / 2.0 - mouse_y) / self.world_controller.camera_zoom
+        
+        # Get player position
+        player_x = self.world_controller.player.rect.x
+        player_y = self.world_controller.player.rect.y
+        
+        # Calculate distance in tiles
+        distance_tiles = math.sqrt(
+            ((world_x - player_x) / settings.TILE_SIZE) ** 2 +
+            ((world_y - player_y) / settings.TILE_SIZE) ** 2
+        )
+        
+        # Only process if within 8 tiles
+        if distance_tiles > 8.0:
+            return None
+        
+        # Get tile coordinates
+        tile_x = int(world_x // settings.TILE_SIZE)
+        tile_y = int(world_y // settings.TILE_SIZE)
+        
+        # Get tile data from terrain generator
+        if self.world_controller.world and self.world_controller.world.terrain_gen:
+            tile_data = self.world_controller.world.terrain_gen.generate_tile(tile_x, tile_y)
+            return (tile_x, tile_y, tile_data)
+        
+        return None
+    
+    def _handle_tile_click(self, mouse_x: int, mouse_y: int, button: int):
+        """
+        Handle mouse click on tile (left or right button)
+        
+        Args:
+            mouse_x: Mouse X coordinate
+            mouse_y: Mouse Y coordinate
+            button: Mouse button (mouse.LEFT or mouse.RIGHT)
+        """
+        tile_info = self._get_tile_under_mouse(mouse_x, mouse_y)
+        if not tile_info:
+            return
+        
+        tile_x, tile_y, tile_data = tile_info
+        traversable = tile_data.get('traversable', False)
+        tile_id = tile_data.get('tile_id', 'unknown')
+        biome = tile_data.get('biome', 'unknown')
+        
+        if button == mouse.LEFT:
+            # Left click: Check if destroyable
+            if traversable:
+                # Check if tile is destroyable (placeholder logic)
+                is_destroyable = self._is_tile_destroyable(tile_data)
+                if is_destroyable:
+                    print(f"[Tile Debug] Linksklick auf Tile ({tile_x}, {tile_y}): zerstörbar (Biome: {biome}, Tile-ID: {tile_id})")
+                else:
+                    print(f"[Tile Debug] Linksklick auf Tile ({tile_x}, {tile_y}): nicht zerstörbar (Biome: {biome}, Tile-ID: {tile_id})")
+            else:
+                print(f"[Tile Debug] Linksklick auf Tile ({tile_x}, {tile_y}): nicht zerstörbar (nicht traversable, Biome: {biome}, Tile-ID: {tile_id})")
+        
+        elif button == mouse.RIGHT:
+            # Right click: Check if buildable (traversable check is irrelevant)
+            can_build = self._can_build_on_tile(tile_data)
+            if can_build:
+                print(f"[Tile Debug] Rechtsklick auf Tile ({tile_x}, {tile_y}): darauf kann gebaut werden (Biome: {biome}, Tile-ID: {tile_id})")
+            else:
+                print(f"[Tile Debug] Rechtsklick auf Tile ({tile_x}, {tile_y}): darauf kann nicht gebaut werden (Biome: {biome}, Tile-ID: {tile_id})")
+    
+    def _is_tile_destroyable(self, tile_data: dict) -> bool:
+        """
+        Check if a tile can be destroyed
+        
+        Args:
+            tile_data: Tile data dictionary from terrain generator
+            
+        Returns:
+            True if tile is destroyable, False otherwise
+        """
+        # Placeholder logic: Most tiles are destroyable except water
+        tile_id = tile_data.get('tile_id', '')
+        if 'water' in tile_id.lower():
+            return False
+        # TODO: Implement actual destroyability logic based on tile properties
+        return True
+    
+    def _can_build_on_tile(self, tile_data: dict) -> bool:
+        """
+        Check if a building can be placed on this tile
+        
+        Args:
+            tile_data: Tile data dictionary from terrain generator
+            
+        Returns:
+            True if building can be placed, False otherwise
+        """
+        # Placeholder logic: Can build on traversable tiles (grass, sand, etc.)
+        # Cannot build on water or mountains
+        tile_id = tile_data.get('tile_id', '')
+        traversable = tile_data.get('traversable', False)
+        
+        if 'water' in tile_id.lower():
+            return False
+        if 'mountain' in tile_id.lower() or 'stone' in tile_id.lower():
+            return False
+        # TODO: Implement actual buildability logic based on tile properties
+        return traversable
     
     def _is_menu_active(self):
         """Check if any menu is currently active"""
@@ -1313,34 +1364,15 @@ class GameWindow(pyglet.window.Window):
     
     def on_close(self):
         """Handle window close - perform cleanup before exiting"""
-        print("[Main] Window closing, performing cleanup...")
+        self.diagnostics.info("Main", "Window closing, performing cleanup...")
         
         # Mark that cleanup is in progress to prevent double cleanup
         if hasattr(self, '_cleanup_done'):
             return  # Already cleaning up
         self._cleanup_done = True
         
-        # Final save before shutdown (save current player position and data)
-        if hasattr(self, 'player_data_manager') and self.player_data_manager:
-            if hasattr(self, 'player') and self.player and hasattr(self, 'game_initialized') and self.game_initialized:
-                try:
-                    print("[Main] Performing final save before shutdown...")
-                    self.player_data_manager.save_player(
-                        position=(self.player.rect.x, self.player.rect.y),
-                        inventory=getattr(self.player, 'inventory', {}),
-                        faction_data=getattr(self.player, 'faction', {'policies': [], 'allies': [], 'enemies': []})
-                    )
-                    print("[Main] Final save completed")
-                except Exception as e:
-                    print(f"[Main] Warning: Failed to save player data during shutdown: {e}")
-        
-        # Stop Auto-Save system (final save already done above, so skip it here)
-        if hasattr(self, 'auto_save') and self.auto_save:
-            self.auto_save.stop(final_save=False)
-        
-        # Shutdown World (saves chunks, stops worker threads, closes file handles)
-        if hasattr(self, 'world') and self.world:
-            self.world.cleanup()
+        # Shutdown app (handles world shutdown, final save, cleanup)
+        self.game_app.shutdown_app()
         
         # Cleanup ModernGL renderer
         if hasattr(self, 'modern_gl_renderer') and self.modern_gl_renderer:
@@ -1358,35 +1390,18 @@ def main():
     # Additional cleanup (in case on_close wasn't called)
     # Check if cleanup was already done in on_close() to prevent double cleanup
     if not hasattr(window, '_cleanup_done') or not window._cleanup_done:
-        print("[Main] Performing fallback cleanup (on_close was not called)...")
+        window.diagnostics.info("Main", "Performing fallback cleanup (on_close was not called)...")
+        # Shutdown app (handles world shutdown, final save, cleanup)
+        if hasattr(window, 'game_app') and window.game_app:
+            window.game_app.shutdown_app()
         
-        # Final save before shutdown (save current player position and data)
-        if hasattr(window, 'player_data_manager') and window.player_data_manager:
-            if hasattr(window, 'player') and window.player and hasattr(window, 'game_initialized') and window.game_initialized:
-                try:
-                    print("[Main] Performing final save before shutdown...")
-                    window.player_data_manager.save_player(
-                        position=(window.player.rect.x, window.player.rect.y),
-                        inventory=getattr(window.player, 'inventory', {}),
-                        faction_data=getattr(window.player, 'faction', {'policies': [], 'allies': [], 'enemies': []})
-                    )
-                    print("[Main] Final save completed")
-                except Exception as e:
-                    print(f"[Main] Warning: Failed to save player data during shutdown: {e}")
-        
-        if hasattr(window, 'auto_save') and window.auto_save:
-            # Final save already done above, so skip it here
-            window.auto_save.stop(final_save=False)
-        
-        if hasattr(window, 'world') and window.world:
-            window.world.cleanup()
-        
+        # Cleanup ModernGL renderer
         if hasattr(window, 'modern_gl_renderer') and window.modern_gl_renderer:
             window.modern_gl_renderer.cleanup()
     else:
-        print("[Main] Cleanup already performed in on_close()")
+        window.diagnostics.info("Main", "Cleanup already performed in on_close()")
     
-    print("[Main] Application closed")
+    window.diagnostics.info("Main", "Application closed")
 
 if __name__ == "__main__":
     main()

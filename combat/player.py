@@ -8,17 +8,23 @@ from core.sprite import Sprite
 class Player(Sprite):
     """Spieler-Charakter mit Top-Down-Bewegung"""
     
-    def __init__(self, pos, input_handler, *groups, performance_monitor=None, terrain_gen=None):
+    def __init__(self, pos, input_handler, *groups, performance_monitor=None, terrain_gen=None, 
+                 sprint_multiplier=1.2, sneak_multiplier=0.8):
         super().__init__(
             pos=pos,
             size=(settings.TILE_SIZE, settings.TILE_SIZE),
             color=settings.COLOR_PLAYER
         )
         self.input_handler = input_handler
+        self.base_speed = settings.PLAYER_SPEED
         self.speed = settings.PLAYER_SPEED
         self._layer = settings.LAYER_PLAYER
         self.performance_monitor = performance_monitor
         self.terrain_gen = terrain_gen  # TerrainGenerator for traversability checks
+        
+        # Sprint and sneak multipliers (can be modified by research/equipment)
+        self.sprint_multiplier = sprint_multiplier  # Default: 1.2x speed
+        self.sneak_multiplier = sneak_multiplier  # Default: 0.8x speed
         
         # Add to groups if provided
         if groups:
@@ -64,16 +70,26 @@ class Player(Sprite):
     
     def update(self, dt):
         """Aktualisiert die Spielerposition basierend auf Input"""
+        # Calculate speed multiplier based on sprint/sneak state
+        speed_multiplier = 1.0
+        if self.input_handler.sprint_pressed:
+            speed_multiplier = self.sprint_multiplier
+        elif self.input_handler.sneak_pressed:
+            speed_multiplier = self.sneak_multiplier
+        
+        # Apply speed multiplier
+        current_speed = self.base_speed * speed_multiplier
+        
         # Get movement direction (can be pygame.Vector2 or tuple)
         move_dir = self.input_handler.move_dir
         
         # Handle both pygame.Vector2 and tuple
         if hasattr(move_dir, 'x'):  # pygame.Vector2
-            move_x = move_dir.x * self.speed * dt
-            move_y = move_dir.y * self.speed * dt
+            move_x = move_dir.x * current_speed * dt
+            move_y = move_dir.y * current_speed * dt
         else:  # tuple (x, y)
-            move_x = move_dir[0] * self.speed * dt
-            move_y = move_dir[1] * self.speed * dt
+            move_x = move_dir[0] * current_speed * dt
+            move_y = move_dir[1] * current_speed * dt
         
         # If no movement input, do nothing
         if move_x == 0 and move_y == 0:
