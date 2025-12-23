@@ -6,6 +6,7 @@ from core import settings
 from world.terrain_generator import TerrainGenerator
 from world.chunk_manager import ChunkManager
 
+
 class World:
     """Verwaltet die Spielwelt mit dynamischen Chunks und prozeduralem Terrain"""
     

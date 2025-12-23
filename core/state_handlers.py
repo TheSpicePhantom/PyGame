@@ -60,6 +60,10 @@ class WorldSelectStateHandler(StateHandler):
             elif result.startswith("slot_"):
                 slot_num = int(result.split("_")[1])
                 self.game_app.load_world(save_slot=slot_num)
+            elif result == "quit":
+                # Quit game cleanly
+                import pyglet
+                pyglet.app.exit()
             elif result == "back":
                 if not self.game_app.game_initialized:
                     return "exit"
@@ -86,6 +90,10 @@ class CreateWorldStateHandler(StateHandler):
             self._create_world()
         elif result == "cancel":
             self.game_app.change_state(GameState.WORLD_SELECT)
+        elif result == "quit":
+            # Quit game cleanly
+            import pyglet
+            pyglet.app.exit()
         return result
     
     def handle_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> Optional[str]:
@@ -95,6 +103,10 @@ class CreateWorldStateHandler(StateHandler):
             self._create_world()
         elif result == "cancel":
             self.game_app.change_state(GameState.WORLD_SELECT)
+        elif result == "quit":
+            # Quit game cleanly
+            import pyglet
+            pyglet.app.exit()
         return result
     
     def handle_mouse_motion(self, x: int, y: int, dx: int, dy: int):
@@ -181,19 +193,37 @@ class PausedStateHandler(StateHandler):
     
     def handle_key_press(self, symbol: int, modifiers: int) -> Optional[str]:
         """Handle key press in paused state"""
-        if symbol == key.ESCAPE:
-            self.game_app.change_state(GameState.INGAME)
-            return None
-        
         if self.game_app.ui_controller.pause_menu:
-            self.game_app.ui_controller.pause_menu.handle_key_press(symbol, modifiers)
+            result = self.game_app.ui_controller.pause_menu.handle_key_press(symbol, modifiers)
+            if result == "Continue":
+                self.game_app.change_state(GameState.INGAME)
+            elif result == "Quit":
+                # Handle quit - could return to main menu or exit game
+                self.game_app.change_state(GameState.WORLD_SELECT)
+            elif result == "Settings":
+                self.game_app.change_state(GameState.SETTINGS)
+            elif result == "Save":
+                # Handle save - could show save menu
+                pass
+            return result
         
         return None
     
     def handle_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> Optional[str]:
         """Handle mouse press in paused state"""
         if self.game_app.ui_controller.pause_menu:
-            self.game_app.ui_controller.pause_menu.handle_mouse_press(x, y, button, modifiers)
+            result = self.game_app.ui_controller.pause_menu.handle_mouse_press(x, y, button, modifiers)
+            if result == "Continue":
+                self.game_app.change_state(GameState.INGAME)
+            elif result == "Quit":
+                # Handle quit - could return to main menu or exit game
+                self.game_app.change_state(GameState.WORLD_SELECT)
+            elif result == "Settings":
+                self.game_app.change_state(GameState.SETTINGS)
+            elif result == "Save":
+                # Handle save - could show save menu
+                pass
+            return result
         return None
     
     def handle_mouse_motion(self, x: int, y: int, dx: int, dy: int):

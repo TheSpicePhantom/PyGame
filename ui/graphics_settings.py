@@ -10,8 +10,10 @@ class GraphicsSettings:
 
     def __init__(self):
         self.active = False
-        self.parent = None  # Will be set by SettingsMenu
-        
+        self.font = settings_manager.scale_font_size(42)
+        self.button_font = settings_manager.scale_font_size(32)
+        self.label_font = settings_manager.scale_font_size(28)
+
         # Load settings
         self.config_path = os.path.join('config', 'user_settings.json')
         self.load_settings()
@@ -19,47 +21,24 @@ class GraphicsSettings:
         # Quality options
         self.quality_options = ["low", "medium", "high"]
         self.menu_size_options = [75, 100, 125]
-        self.display_mode_options = ["windowed", "fullscreen_window", "fullscreen"]
-        self.display_mode_labels = {
-            "windowed": "Windowed",
-            "fullscreen_window": "Borderless",
-            "fullscreen": "Fullscreen"
-        }
-        
+
+        # Slider settings
+        self.brightness_slider = self._create_slider(settings_manager.scale_value(300), 0, settings_manager.scale_value(200))
         self.dragging_slider = False
-        self.dragging_auto_save_slider = False
-        
+
         # Store rects for buttons (will be created in draw)
         self.quality_rect = None
         self.size_rect = None
-        self.display_mode_rect = None
-        self.auto_save_enabled_rect = None
         
-        # Auto-save slider
-        self.auto_save_slider = self._create_slider(300, 10, 300)  # 10-300 seconds
-        
-        # Initialize UI elements
-        self._init_ui()
-    
-    def _init_ui(self):
-        """Initialize/reinitialize all UI elements with current scale"""
-        # Fonts
-        self.font = settings_manager.scale_font_size(42)
-        self.button_font = settings_manager.scale_font_size(32)
-        self.label_font = settings_manager.scale_font_size(28)
-        
-        # Slider settings (unscaled values, will be scaled when used)
-        self.brightness_slider = self._create_slider(300, 0, 200)
-        
-        # Buttons (scale dimensions, center on unscaled screen)
+        # Buttons
         button_width = settings_manager.scale_value(200)
         button_height = settings_manager.scale_value(50)
-        self.back_button = pygame.Rect(
+        self.back_button = settings_manager.scale_rect(pygame.Rect(
             settings.SCREEN_WIDTH // 2 - button_width // 2,
-            settings_manager.scale_value(650),
+            settings_manager.scale_value(550),
             button_width,
             button_height
-        )
+        ))
 
     def load_settings(self):
         try:
@@ -68,16 +47,10 @@ class GraphicsSettings:
                 self.brightness = data['graphics']['brightness']
                 self.quality = data['graphics']['quality']
                 self.menu_size = data['graphics']['menu_size']
-                self.display_mode = data['graphics'].get('display_mode', 'windowed')
-                self.auto_save_enabled = data['graphics'].get('auto_save_enabled', True)
-                self.auto_save_interval = data['graphics'].get('auto_save_interval', 30)
         except:
             self.brightness = 100
             self.quality = "medium"
             self.menu_size = 100
-            self.display_mode = "windowed"
-            self.auto_save_enabled = True
-            self.auto_save_interval = 30
 
     def save_settings(self):
         try:
@@ -86,26 +59,18 @@ class GraphicsSettings:
             data['graphics']['brightness'] = self.brightness
             data['graphics']['quality'] = self.quality
             data['graphics']['menu_size'] = self.menu_size
-            data['graphics']['display_mode'] = self.display_mode
-            data['graphics']['auto_save_enabled'] = self.auto_save_enabled
-            data['graphics']['auto_save_interval'] = self.auto_save_interval
             with open(self.config_path, 'w') as f:
                 json.dump(data, f, indent=2)
             # Apply menu size change
             settings_manager.set_menu_scale(self.menu_size / 100)
-            # Update settings_manager
-            settings_manager.graphics['auto_save_enabled'] = self.auto_save_enabled
-            settings_manager.graphics['auto_save_interval'] = self.auto_save_interval
         except Exception as e:
             print(f"Error saving graphics settings: {e}")
 
     def _create_slider(self, width, min_val, max_val):
-        """Create a slider with scaled dimensions, centered on unscaled screen"""
-        scaled_width = settings_manager.scale_value(width)
         return {
-            'x': settings.SCREEN_WIDTH // 2 - scaled_width // 2,
+            'x': settings.SCREEN_WIDTH // 2 - width // 2,
             'y': 0,
-            'width': scaled_width,
+            'width': width,
             'min': min_val,
             'max': max_val
         }
@@ -146,58 +111,17 @@ class GraphicsSettings:
                 current_index = self.menu_size_options.index(self.menu_size)
                 next_index = (current_index + 1) % len(self.menu_size_options)
                 self.menu_size = self.menu_size_options[next_index]
-                # Apply scale immediately and reinitialize all UI
-                settings_manager.set_menu_scale(self.menu_size / 100)
-                if self.parent:
-                    self.parent.refresh_all_ui()
-                else:
-                    self._init_ui()
-                self.save_settings()
-            
-            # Display mode button
-            if self.display_mode_rect and self.display_mode_rect.collidepoint(mouse_pos):
-                current_index = self.display_mode_options.index(self.display_mode)
-                next_index = (current_index + 1) % len(self.display_mode_options)
-                self.display_mode = self.display_mode_options[next_index]
-                self.save_settings()
-                return 'display_mode_changed'
-            
-            # Auto-save enabled toggle
-            if self.auto_save_enabled_rect and self.auto_save_enabled_rect.collidepoint(mouse_pos):
-                self.auto_save_enabled = not self.auto_save_enabled
-                self.save_settings()
-                return 'auto_save_changed'
-            
-            # Auto-save interval slider
-            slider = self.auto_save_slider
-            y_pos = settings_manager.scale_value(530)
-            slider_rect = pygame.Rect(slider['x'], y_pos - settings_manager.scale_value(12), 
-                                     slider['width'], settings_manager.scale_value(24))
-            if slider_rect.collidepoint(mouse_pos):
-                self.dragging_auto_save_slider = True
-                # Update interval based on click position
-                relative_x = mouse_pos[0] - slider['x']
-                self.auto_save_interval = int((relative_x / slider['width']) * (slider['max'] - slider['min']) + slider['min'])
-                self.auto_save_interval = max(slider['min'], min(slider['max'], self.auto_save_interval))
-                self.save_settings()
         
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             self.dragging_slider = False
-            self.dragging_auto_save_slider = False
         
         elif event.type == pygame.MOUSEMOTION:
-            mouse_pos = event.pos
             if self.dragging_slider:
+                mouse_pos = event.pos
                 slider = self.brightness_slider
                 relative_x = mouse_pos[0] - slider['x']
                 self.brightness = int((relative_x / slider['width']) * 200)
                 self.brightness = max(0, min(200, self.brightness))
-            elif self.dragging_auto_save_slider:
-                slider = self.auto_save_slider
-                relative_x = mouse_pos[0] - slider['x']
-                self.auto_save_interval = int((relative_x / slider['width']) * (slider['max'] - slider['min']) + slider['min'])
-                self.auto_save_interval = max(slider['min'], min(slider['max'], self.auto_save_interval))
-                self.save_settings()
 
         return None
 
@@ -235,14 +159,7 @@ class GraphicsSettings:
         label = self.label_font.render('Quality:', True, (255, 255, 255))
         screen.blit(label, (settings.SCREEN_WIDTH // 2 - settings_manager.scale_value(150), y_pos - settings_manager.scale_value(30)))
         
-        button_width = settings_manager.scale_value(200)
-        button_height = settings_manager.scale_value(40)
-        self.quality_rect = pygame.Rect(
-            settings.SCREEN_WIDTH // 2 - button_width // 2,
-            y_pos,
-            button_width,
-            button_height
-        )
+        self.quality_rect = settings_manager.scale_rect(pygame.Rect(settings.SCREEN_WIDTH // 2 - settings_manager.scale_value(100), y_pos, settings_manager.scale_value(200), settings_manager.scale_value(40)))
         color = (100, 100, 100) if self.quality_rect.collidepoint(mouse_pos) else (50, 50, 50)
         pygame.draw.rect(screen, color, self.quality_rect)
         pygame.draw.rect(screen, (200, 200, 200), self.quality_rect, 2)
@@ -255,79 +172,13 @@ class GraphicsSettings:
         label = self.label_font.render('Menu Size:', True, (255, 255, 255))
         screen.blit(label, (settings.SCREEN_WIDTH // 2 - settings_manager.scale_value(150), y_pos - settings_manager.scale_value(30)))
         
-        button_width = settings_manager.scale_value(200)
-        button_height = settings_manager.scale_value(40)
-        self.size_rect = pygame.Rect(
-            settings.SCREEN_WIDTH // 2 - button_width // 2,
-            y_pos,
-            button_width,
-            button_height
-        )
+        self.size_rect = settings_manager.scale_rect(pygame.Rect(settings.SCREEN_WIDTH // 2 - settings_manager.scale_value(100), y_pos, settings_manager.scale_value(200), settings_manager.scale_value(40)))
         color = (100, 100, 100) if self.size_rect.collidepoint(mouse_pos) else (50, 50, 50)
         pygame.draw.rect(screen, color, self.size_rect)
         pygame.draw.rect(screen, (200, 200, 200), self.size_rect, 2)
         size_text = self.button_font.render(f'{self.menu_size}%', True, (255, 255, 255))
         size_text_rect = size_text.get_rect(center=self.size_rect.center)
         screen.blit(size_text, size_text_rect)
-
-        # Display mode selector
-        y_pos = settings_manager.scale_value(430)
-        label = self.label_font.render('Display Mode:', True, (255, 255, 255))
-        screen.blit(label, (settings.SCREEN_WIDTH // 2 - settings_manager.scale_value(150), y_pos - settings_manager.scale_value(30)))
-        
-        button_width = settings_manager.scale_value(200)
-        button_height = settings_manager.scale_value(40)
-        self.display_mode_rect = pygame.Rect(
-            settings.SCREEN_WIDTH // 2 - button_width // 2,
-            y_pos,
-            button_width,
-            button_height
-        )
-        color = (100, 100, 100) if self.display_mode_rect.collidepoint(mouse_pos) else (50, 50, 50)
-        pygame.draw.rect(screen, color, self.display_mode_rect)
-        pygame.draw.rect(screen, (200, 200, 200), self.display_mode_rect, 2)
-        mode_text = self.button_font.render(self.display_mode_labels[self.display_mode], True, (255, 255, 255))
-        mode_text_rect = mode_text.get_rect(center=self.display_mode_rect.center)
-        screen.blit(mode_text, mode_text_rect)
-
-        # Auto-Save Enabled toggle
-        y_pos = settings_manager.scale_value(480)
-        label = self.label_font.render('Auto-Save:', True, (255, 255, 255))
-        screen.blit(label, (settings.SCREEN_WIDTH // 2 - settings_manager.scale_value(150), y_pos - settings_manager.scale_value(30)))
-        
-        button_width = settings_manager.scale_value(200)
-        button_height = settings_manager.scale_value(40)
-        self.auto_save_enabled_rect = pygame.Rect(
-            settings.SCREEN_WIDTH // 2 - button_width // 2,
-            y_pos,
-            button_width,
-            button_height
-        )
-        color = (100, 100, 100) if self.auto_save_enabled_rect.collidepoint(mouse_pos) else (50, 50, 50)
-        pygame.draw.rect(screen, color, self.auto_save_enabled_rect)
-        pygame.draw.rect(screen, (200, 200, 200), self.auto_save_enabled_rect, 2)
-        enabled_text = "ON" if self.auto_save_enabled else "OFF"
-        enabled_color = (100, 255, 100) if self.auto_save_enabled else (255, 100, 100)
-        enabled_label = self.button_font.render(enabled_text, True, enabled_color)
-        enabled_label_rect = enabled_label.get_rect(center=self.auto_save_enabled_rect.center)
-        screen.blit(enabled_label, enabled_label_rect)
-
-        # Auto-Save Interval slider
-        y_pos = settings_manager.scale_value(530)
-        interval_minutes = self.auto_save_interval // 60
-        interval_seconds = self.auto_save_interval % 60
-        if interval_minutes > 0:
-            interval_text = f"{interval_minutes}m {interval_seconds}s"
-        else:
-            interval_text = f"{interval_seconds}s"
-        label = self.label_font.render(f'Auto-Save Interval: {interval_text}', True, (255, 255, 255))
-        screen.blit(label, (settings.SCREEN_WIDTH // 2 - settings_manager.scale_value(150), y_pos - settings_manager.scale_value(30)))
-        
-        slider = self.auto_save_slider
-        slider_y = y_pos
-        pygame.draw.rect(screen, (100, 100, 100), (slider['x'], y_pos - settings_manager.scale_value(5), slider['width'], settings_manager.scale_value(10)))
-        slider_pos = slider['x'] + ((self.auto_save_interval - slider['min']) / (slider['max'] - slider['min'])) * slider['width']
-        pygame.draw.circle(screen, (200, 200, 200), (int(slider_pos), y_pos), settings_manager.scale_value(12))
 
         # Back button
         color = (100, 100, 100) if self.back_button.collidepoint(mouse_pos) else (50, 50, 50)

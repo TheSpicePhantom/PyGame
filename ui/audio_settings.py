@@ -13,42 +13,34 @@ class AudioSettings:
 
     def __init__(self):
         self.active = False
-        self.parent = None  # Will be set by SettingsMenu
-
-        # Lade Einstellungen
-        self.config_path = os.path.join('config', 'user_settings.json')
-        self.load_settings()
-        
-        self.dragging_slider = None  # Track which slider is being dragged
-        
-        # Initialize UI elements
-        self._init_ui()
-    
-    def _init_ui(self):
-        """Initialize/reinitialize all UI elements with current scale"""
-        # Fonts
         self.font = settings_manager.scale_font_size(42)
         self.button_font = settings_manager.scale_font_size(32)
         self.label_font = settings_manager.scale_font_size(28)
 
-        # Slider-Einstellungen (6 Kanäle) - unscaled, will be scaled in _create_slider
-        slider_width = 300
+        # Lade Einstellungen
+        self.config_path = os.path.join('config', 'user_settings.json')
+        self.load_settings()
+
+        # Slider-Einstellungen (6 Kanäle)
+        slider_width = settings_manager.scale_value(300)
         self.master_slider = self._create_slider(slider_width, 0, 100)
         self.music_slider = self._create_slider(slider_width, 0, 100)
         self.sounds_slider = self._create_slider(slider_width, 0, 100)
         self.machines_slider = self._create_slider(slider_width, 0, 100)
         self.weapons_slider = self._create_slider(slider_width, 0, 100)
         self.build_destroy_slider = self._create_slider(slider_width, 0, 100)
+        
+        self.dragging_slider = None  # Track which slider is being dragged
 
-        # Buttons (scale dimensions, center on unscaled screen)
+        # Buttons
         button_width = settings_manager.scale_value(200)
         button_height = settings_manager.scale_value(50)
-        self.back_button = pygame.Rect(
+        self.back_button = settings_manager.scale_rect(pygame.Rect(
             settings.SCREEN_WIDTH // 2 - button_width // 2,
             settings_manager.scale_value(550),
             button_width,
             button_height
-        )
+        ))
 
     def load_settings(self):
         """Lädt Audio-Einstellungen aus JSON"""
@@ -91,12 +83,10 @@ class AudioSettings:
             print(f"Error saving audio settings: {e}")
 
     def _create_slider(self, width, min_val, max_val):
-        """Create a slider with scaled dimensions, centered on unscaled screen"""
-        scaled_width = settings_manager.scale_value(width)
         return {
-            'x': settings.SCREEN_WIDTH // 2 - scaled_width // 2,
+            'x': settings.SCREEN_WIDTH // 2 - width // 2,
             'y': 0,
-            'width': scaled_width,
+            'width': width,
             'min': min_val,
             'max': max_val
         }

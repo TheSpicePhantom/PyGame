@@ -11,6 +11,214 @@ from typing import Optional, Dict, List, Tuple
 from core import settings
 from world.terrain_generator import TerrainGenerator
 from world.player_data_manager import PlayerDataManager
+import pyglet.shapes
+
+
+class SlotView:
+    """Cached UI elements for a slot - avoids recreating shapes/labels every frame"""
+    
+    def __init__(self, slot_x: int, slot_y: int, slot_width: int, slot_height: int,
+                 preview_x: int, preview_y: int, info_x: int, info_y: int,
+                 slot_info: 'WorldSlotInfo', font_names: Dict[str, Optional[str]], font_sizes: Dict[str, int]):
+        """
+        Initialize cached UI elements for a slot
+        
+        Args:
+            slot_x, slot_y: Slot position
+            slot_width, slot_height: Slot dimensions
+            preview_x, preview_y: Preview position
+            info_x, info_y: Info text position
+            slot_info: WorldSlotInfo instance
+            font_names: Dict with 'slot' and 'info' font names
+            font_sizes: Dict with 'slot' and 'info' font sizes
+        """
+        self.slot_x = slot_x
+        self.slot_y = slot_y
+        self.slot_width = slot_width
+        self.slot_height = slot_height
+        self.preview_x = preview_x
+        self.preview_y = preview_y
+        self.info_x = info_x
+        self.info_y = info_y
+        
+        # Create background rectangle
+        self.bg_rect = pyglet.shapes.Rectangle(
+            slot_x, slot_y, slot_width, slot_height,
+            color=(60, 60, 60)  # Default color, will be updated
+        )
+        self.bg_rect.opacity = 200
+        
+        # Try to create BorderedRectangle, fallback to lines
+        self.border_rect = None
+        self.border_lines = []
+        try:
+            self.border_rect = pyglet.shapes.BorderedRectangle(
+                slot_x, slot_y, slot_width, slot_height,
+                border=2,
+                color=(60, 60, 60),
+                border_color=(150, 150, 150)
+            )
+            self.border_rect.opacity = 255
+        except AttributeError:
+            # Fallback: create border lines
+            self.border_lines = [
+                pyglet.shapes.Line(slot_x, slot_y, slot_x + slot_width, slot_y, width=2, color=(150, 150, 150)),
+                pyglet.shapes.Line(slot_x + slot_width, slot_y, slot_x + slot_width, slot_y + slot_height, width=2, color=(150, 150, 150)),
+                pyglet.shapes.Line(slot_x + slot_width, slot_y + slot_height, slot_x, slot_y + slot_height, width=2, color=(150, 150, 150)),
+                pyglet.shapes.Line(slot_x, slot_y + slot_height, slot_x, slot_y, width=2, color=(150, 150, 150))
+            ]
+        
+        # Create labels (static text, will be updated when slot info changes)
+        slot_name = slot_info.world_name if slot_info.exists and slot_info.world_name else f"World {slot_info.slot_num}" if slot_info.exists else "New World"
+        
+        self.name_label = pyglet.text.Label(
+            slot_name,
+            font_name=font_names.get('slot'),
+            font_size=font_sizes.get('slot', 24),
+            color=(255, 255, 255, 255),
+            x=info_x,
+            y=info_y,
+            anchor_x='left',
+            anchor_y='top'
+        )
+        
+        # Create info labels (only if slot exists)
+        if slot_info.exists:
+            self.seed_label = pyglet.text.Label(
+                f"Seed: {slot_info.seed}",
+                font_name=font_names.get('info'),
+                font_size=font_sizes.get('info', 18),
+                color=(200, 200, 200, 255),
+                x=info_x,
+                y=info_y - 30,
+                anchor_x='left',
+                anchor_y='top'
+            )
+            
+            self.size_label = pyglet.text.Label(
+                f"Size: {slot_info.world_size_mb:.1f} MB | Chunks: {slot_info.chunks_generated}",
+                font_name=font_names.get('info'),
+                font_size=font_sizes.get('info', 18),
+                color=(200, 200, 200, 255),
+                x=info_x,
+                y=info_y - 55,
+                anchor_x='left',
+                anchor_y='top'
+            )
+            
+            date_text = f"Last played: {slot_info.last_save_date}" if slot_info.last_save_date else ""
+            self.date_label = pyglet.text.Label(
+                date_text,
+                font_name=font_names.get('info'),
+                font_size=font_sizes.get('info', 18),
+                color=(200, 200, 200, 255),
+                x=info_x,
+                y=info_y - 80,
+                anchor_x='left',
+                anchor_y='top'
+            ) if date_text else None
+            
+            self.empty_label = None
+        else:
+            self.seed_label = None
+            self.size_label = None
+            self.date_label = None
+            self.empty_label = pyglet.text.Label(
+                "New World",
+                font_name=font_names.get('info'),
+                font_size=font_sizes.get('info', 18),
+                color=(150, 150, 150, 255),
+                x=info_x,
+                y=info_y - 30,
+                anchor_x='left',
+                anchor_y='top'
+            )
+        
+        # Hint label (always created, visibility controlled)
+        self.hint_label = pyglet.text.Label(
+            "Ctrl+R to rename, Delete to delete",
+            font_name=font_names.get('info'),
+            font_size=14,
+            color=(150, 150, 150, 255),
+            x=info_x,
+            y=slot_y + 10,
+            anchor_x='left',
+            anchor_y='bottom'
+        )
+        self.hint_label.visible = False  # Hidden by default
+    
+    def update_colors(self, bg_color: Tuple[int, int, int, int], border_color: Tuple[int, int, int, int]):
+        """Update colors of background and border"""
+        self.bg_rect.color = (bg_color[0], bg_color[1], bg_color[2])
+        self.bg_rect.opacity = bg_color[3]
+        
+        if self.border_rect:
+            self.border_rect.color = (bg_color[0], bg_color[1], bg_color[2])
+            self.border_rect.border_color = (border_color[0], border_color[1], border_color[2])
+            self.border_rect.opacity = border_color[3]
+        else:
+            for line in self.border_lines:
+                line.color = (border_color[0], border_color[1], border_color[2])
+    
+    def update_name(self, name: str, color: Tuple[int, int, int, int] = (255, 255, 255, 255)):
+        """Update slot name label"""
+        self.name_label.text = name
+        self.name_label.color = color
+    
+    def update_position(self, slot_y: int):
+        """Update slot position (when slots are reordered)"""
+        self.slot_y = slot_y
+        dy = slot_y - self.bg_rect.y
+        
+        # Update all elements
+        self.bg_rect.y = slot_y
+        if self.border_rect:
+            self.border_rect.y = slot_y
+        else:
+            for line in self.border_lines:
+                line.y += dy
+                if hasattr(line, 'y2'):
+                    line.y2 += dy
+        
+        self.preview_y = slot_y + 10
+        self.info_y = slot_y + self.slot_height - 30
+        
+        # Update label positions
+        self.name_label.y = self.info_y
+        if self.seed_label:
+            self.seed_label.y = self.info_y - 30
+        if self.size_label:
+            self.size_label.y = self.info_y - 55
+        if self.date_label:
+            self.date_label.y = self.info_y - 80
+        if self.empty_label:
+            self.empty_label.y = self.info_y - 30
+        if self.hint_label:
+            self.hint_label.y = slot_y + 10
+    
+    
+    def draw(self):
+        """Draw all cached UI elements"""
+        self.bg_rect.draw()
+        
+        if self.border_rect:
+            self.border_rect.draw()
+        else:
+            for line in self.border_lines:
+                line.draw()
+        
+        self.name_label.draw()
+        
+        if self.seed_label:
+            self.seed_label.draw()
+        if self.size_label:
+            self.size_label.draw()
+        if self.date_label:
+            self.date_label.draw()
+        if self.empty_label:
+            self.empty_label.draw()
+        if self.hint_label:
+            self.hint_label.draw()
 
 
 class WorldSlotInfo:
@@ -163,6 +371,7 @@ class WorldSelectMenu:
         self.selected_slot: Optional[int] = None
         self.hovered_slot: Optional[int] = None
         self.create_button_hovered = False
+        self.quit_button_hovered = False
         
         # Preview generation
         self.preview_cache: Dict[str, List] = {}  # world_id -> preview chunks data
@@ -173,6 +382,9 @@ class WorldSelectMenu:
         self.slot_height = 200
         self.slot_spacing = 20
         self.preview_size_pixels = 150  # Preview size in pixels
+        
+        # Cached slot views (index -> SlotView)
+        self.slot_views: Dict[int, SlotView] = {}
         
         # Fonts (pyglet doesn't support bold parameter in load, use bold in Label instead)
         # Try to use system fonts, fallback to None (default) if not available
@@ -190,6 +402,103 @@ class WorldSelectMenu:
         self.renaming_slot: Optional[int] = None
         self.rename_text = ""
         
+        # Profiling (optional, for performance measurement)
+        self.profiling_enabled = False  # Set to True to enable profiling
+        self.draw_stats = {
+            'total_slots': 0,
+            'visible_slots': 0,
+            'draw_calls': 0
+        }
+        
+        # Create cached title label
+        self.title_label = pyglet.text.Label(
+            "Select World",
+            font_name=self.title_font_name,
+            font_size=self.title_font_size,
+            color=(255, 255, 255, 255),
+            x=self.window_width // 2,
+            y=self.window_height - 50,
+            anchor_x='center',
+            anchor_y='top'
+        )
+        
+        # Create cached create button UI elements
+        button_y = 50
+        button_height = 60
+        button_x = (self.window_width - self.slot_width) // 2
+        
+        self.create_button_bg_rect = pyglet.shapes.Rectangle(
+            button_x, button_y, self.slot_width, button_height,
+            color=(60, 100, 60)  # Default dark green
+        )
+        
+        # Try to create BorderedRectangle for create button, fallback to lines
+        self.create_button_border_rect = None
+        self.create_button_border_lines = []
+        try:
+            self.create_button_border_rect = pyglet.shapes.BorderedRectangle(
+                button_x, button_y, self.slot_width, button_height,
+                border=3,
+                color=(60, 100, 60),
+                border_color=(100, 200, 100)
+            )
+        except AttributeError:
+            # Fallback: create border lines
+            self.create_button_border_lines = [
+                pyglet.shapes.Line(button_x, button_y, button_x + self.slot_width, button_y, width=3, color=(100, 200, 100)),
+                pyglet.shapes.Line(button_x + self.slot_width, button_y, button_x + self.slot_width, button_y + button_height, width=3, color=(100, 200, 100)),
+                pyglet.shapes.Line(button_x + self.slot_width, button_y + button_height, button_x, button_y + button_height, width=3, color=(100, 200, 100)),
+                pyglet.shapes.Line(button_x, button_y + button_height, button_x, button_y, width=3, color=(100, 200, 100))
+            ]
+        
+        self.create_button_label = pyglet.text.Label(
+            "+ Create New World",
+            font_name=self.slot_font_name,
+            font_size=28,
+            color=(255, 255, 255, 255),
+            x=button_x + self.slot_width // 2,
+            y=button_y + button_height // 2,
+            anchor_x='center',
+            anchor_y='center'
+        )
+        
+        # Create cached quit button UI elements (below create button)
+        quit_button_y = button_y - (button_height + self.slot_spacing)
+        self.quit_button_bg_rect = pyglet.shapes.Rectangle(
+            button_x, quit_button_y, self.slot_width, button_height,
+            color=(100, 60, 60)  # Default dark red
+        )
+        
+        # Try to create BorderedRectangle for quit button, fallback to lines
+        self.quit_button_border_rect = None
+        self.quit_button_border_lines = []
+        try:
+            self.quit_button_border_rect = pyglet.shapes.BorderedRectangle(
+                button_x, quit_button_y, self.slot_width, button_height,
+                border=3,
+                color=(100, 60, 60),
+                border_color=(200, 100, 100)
+            )
+        except AttributeError:
+            # Fallback: create border lines
+            self.quit_button_border_lines = [
+                pyglet.shapes.Line(button_x, quit_button_y, button_x + self.slot_width, quit_button_y, width=3, color=(200, 100, 100)),
+                pyglet.shapes.Line(button_x + self.slot_width, quit_button_y, button_x + self.slot_width, quit_button_y + button_height, width=3, color=(200, 100, 100)),
+                pyglet.shapes.Line(button_x + self.slot_width, quit_button_y + button_height, button_x, quit_button_y + button_height, width=3, color=(200, 100, 100)),
+                pyglet.shapes.Line(button_x, quit_button_y + button_height, button_x, quit_button_y, width=3, color=(200, 100, 100))
+            ]
+        
+        self.quit_button_label = pyglet.text.Label(
+            "Quit",
+            font_name=self.slot_font_name,
+            font_size=28,
+            color=(255, 255, 255, 255),
+            x=button_x + self.slot_width // 2,
+            y=quit_button_y + button_height // 2,
+            anchor_x='center',
+            anchor_y='center'
+        )
+        
         self.refresh_slots()
     
     def refresh_slots(self):
@@ -198,6 +507,8 @@ class WorldSelectMenu:
         saves_dir = Path("saves")
         
         if not saves_dir.exists():
+            # Clear slot views if no saves directory
+            self.slot_views.clear()
             return
         
         # Scan all directories in saves/ folder
@@ -225,9 +536,59 @@ class WorldSelectMenu:
         
         # Sort by last played date (newest first)
         self.slots.sort(key=lambda s: s.last_played_at or "", reverse=True)
+        
+        # Create/update cached slot views
+        self._update_slot_views()
+    
+    def _update_slot_views(self):
+        """Create or update cached slot views"""
+        start_y = 200
+        slot_x = (self.window_width - self.slot_width) // 2
+        preview_x = slot_x + 10
+        info_x = slot_x + self.preview_size_pixels + 30
+        
+        font_names = {
+            'slot': self.slot_font_name,
+            'info': self.info_font_name
+        }
+        font_sizes = {
+            'slot': self.slot_font_size,
+            'info': self.info_font_size
+        }
+        
+        # Update existing views or create new ones
+        for i, slot_info in enumerate(self.slots):
+            slot_y = start_y + i * (self.slot_height + self.slot_spacing)
+            info_y = slot_y + self.slot_height - 30
+            
+            if i in self.slot_views:
+                # Update existing view
+                self.slot_views[i].update_position(slot_y)
+                # Update labels if slot info changed
+                slot_name = slot_info.world_name if slot_info.exists and slot_info.world_name else f"World {slot_info.slot_num}" if slot_info.exists else "New World"
+                self.slot_views[i].update_name(slot_name)
+                
+                # Update info labels if they exist
+                if slot_info.exists and self.slot_views[i].seed_label:
+                    self.slot_views[i].seed_label.text = f"Seed: {slot_info.seed}"
+                    self.slot_views[i].size_label.text = f"Size: {slot_info.world_size_mb:.1f} MB | Chunks: {slot_info.chunks_generated}"
+                    if self.slot_views[i].date_label and slot_info.last_save_date:
+                        self.slot_views[i].date_label.text = f"Last played: {slot_info.last_save_date}"
+            else:
+                # Create new view
+                self.slot_views[i] = SlotView(
+                    slot_x, slot_y, self.slot_width, self.slot_height,
+                    preview_x, slot_y + 10, info_x, info_y,
+                    slot_info, font_names, font_sizes
+                )
+        
+        # Remove views for slots that no longer exist
+        keys_to_remove = [k for k in self.slot_views.keys() if k >= len(self.slots)]
+        for k in keys_to_remove:
+            del self.slot_views[k]
     
     def _generate_preview(self, world_id: str, seed: int, spawn_position: Optional[Tuple[float, float]]):
-        """Generate preview chunks for a world"""
+        """Generate preview chunks for a world and create texture"""
         if world_id in self.preview_cache:
             return  # Already cached
         
@@ -235,19 +596,93 @@ class WorldSelectMenu:
             # Create terrain generator with seed
             terrain_gen = TerrainGenerator(seed=seed)
             
-            # Generate first 5x5 chunks (chunks 0,0 to 4,4)
+            # Calculate preview dimensions
+            preview_width = self.preview_size * settings.CHUNK_SIZE
+            preview_height = self.preview_size * settings.CHUNK_SIZE
+            
+            # Create 2D array for tile colors (width x height)
+            # Format: [y][x] = (r, g, b)
+            color_array = [[(100, 100, 100) for _ in range(preview_width)] for _ in range(preview_height)]
+            
+            # Generate chunks and fill color array
             preview_chunks = []
             for chunk_y in range(self.preview_size):
                 for chunk_x in range(self.preview_size):
                     chunk = terrain_gen.generate_chunk(chunk_x, chunk_y, settings.CHUNK_SIZE)
                     preview_chunks.append((chunk_x, chunk_y, chunk))
+                    
+                    # Fill color array with tile colors
+                    for tile_y in range(settings.CHUNK_SIZE):
+                        for tile_x in range(settings.CHUNK_SIZE):
+                            tile = chunk[tile_y][tile_x]
+                            tile_color = tile.get('color', (100, 100, 100))
+                            
+                            # Ensure RGB tuple
+                            if isinstance(tile_color, (list, tuple)):
+                                if len(tile_color) >= 3:
+                                    tile_color = tuple(tile_color[:3])
+                                else:
+                                    tile_color = (100, 100, 100)
+                            else:
+                                tile_color = (100, 100, 100)
+                            
+                            # Calculate array position
+                            array_x = chunk_x * settings.CHUNK_SIZE + tile_x
+                            array_y = chunk_y * settings.CHUNK_SIZE + tile_y
+                            
+                            # pyglet uses bottom-left origin, so we need to flip Y
+                            flipped_y = preview_height - 1 - array_y
+                            color_array[flipped_y][array_x] = tile_color
+            
+            # Mark spawn position with red color if available
+            spawn_marker_pos = None
+            if spawn_position:
+                spawn_chunk_x = int(spawn_position[0] // (settings.CHUNK_SIZE * settings.TILE_SIZE))
+                spawn_chunk_y = int(spawn_position[1] // (settings.CHUNK_SIZE * settings.TILE_SIZE))
+                spawn_tile_x = int((spawn_position[0] % (settings.CHUNK_SIZE * settings.TILE_SIZE)) // settings.TILE_SIZE)
+                spawn_tile_y = int((spawn_position[1] % (settings.CHUNK_SIZE * settings.TILE_SIZE)) // settings.TILE_SIZE)
+                
+                # Only mark if spawn is in preview area
+                if 0 <= spawn_chunk_x < self.preview_size and 0 <= spawn_chunk_y < self.preview_size:
+                    array_x = spawn_chunk_x * settings.CHUNK_SIZE + spawn_tile_x
+                    array_y = spawn_chunk_y * settings.CHUNK_SIZE + spawn_tile_y
+                    flipped_y = preview_height - 1 - array_y
+                    
+                    if 0 <= array_x < preview_width and 0 <= flipped_y < preview_height:
+                        color_array[flipped_y][array_x] = (255, 0, 0)  # Red marker
+                        spawn_marker_pos = (array_x, array_y)  # Store original Y for drawing overlay
+            
+            # Convert 2D color array to 1D byte array (RGB format)
+            # pyglet.image.ImageData expects data in row-major order, bottom-to-top
+            pixel_data = bytearray()
+            for y in range(preview_height):
+                for x in range(preview_width):
+                    r, g, b = color_array[y][x]
+                    pixel_data.extend([r, g, b])
+            
+            # Create pyglet ImageData texture
+            image_data = pyglet.image.ImageData(
+                preview_width,
+                preview_height,
+                'RGB',
+                bytes(pixel_data),
+                pitch=preview_width * 3  # Bytes per row (width * 3 for RGB)
+            )
+            
+            # Create sprite for easy drawing (optional, but convenient)
+            sprite = pyglet.sprite.Sprite(image_data)
             
             self.preview_cache[world_id] = {
-                'chunks': preview_chunks,
-                'spawn_position': spawn_position
+                'chunks': preview_chunks,  # Keep for compatibility
+                'spawn_position': spawn_position,
+                'texture': image_data,
+                'sprite': sprite,
+                'spawn_marker_pos': spawn_marker_pos  # Store spawn marker position for overlay
             }
         except Exception as e:
             print(f"[WorldSelect] Error generating preview for world {world_id}: {e}")
+            import traceback
+            traceback.print_exc()
             self.preview_cache[world_id] = None
     
     def handle_mouse_motion(self, x: int, y: int):
@@ -267,6 +702,18 @@ class WorldSelectMenu:
         if (create_button_x <= x <= create_button_x + self.slot_width and
             create_button_y <= y <= create_button_y + create_button_height):
             self.create_button_hovered = True
+            self.quit_button_hovered = False
+            self.hovered_slot = None
+            return
+        
+        # Check "Quit" button hover
+        self.quit_button_hovered = False
+        quit_button_y = create_button_y - (create_button_height + self.slot_spacing)
+        
+        if (create_button_x <= x <= create_button_x + self.slot_width and
+            quit_button_y <= y <= quit_button_y + create_button_height):
+            self.quit_button_hovered = True
+            self.create_button_hovered = False
             self.hovered_slot = None
             return
         
@@ -301,6 +748,13 @@ class WorldSelectMenu:
         if (create_button_x <= x <= create_button_x + self.slot_width and
             create_button_y <= y <= create_button_y + create_button_height):
             return "create_new"
+        
+        # Check "Quit" button
+        quit_button_y = create_button_y - (create_button_height + self.slot_spacing)
+        
+        if (create_button_x <= x <= create_button_x + self.slot_width and
+            quit_button_y <= y <= quit_button_y + create_button_height):
+            return "quit"
         
         # Check save slots
         start_y = 200
@@ -424,9 +878,17 @@ class WorldSelectMenu:
         self.rename_text = ""
     
     def draw(self):
-        """Draw world select menu"""
+        """Draw world select menu with visibility culling"""
         if not self.active:
             return
+        
+        # Profiling start
+        if self.profiling_enabled:
+            import time
+            draw_start_time = time.perf_counter()
+            self.draw_stats['total_slots'] = len(self.slots)
+            self.draw_stats['visible_slots'] = 0
+            self.draw_stats['draw_calls'] = 0
         
         # Draw semi-transparent overlay
         self._draw_overlay()
@@ -434,12 +896,78 @@ class WorldSelectMenu:
         # Draw title
         self._draw_title()
         
-        # Draw save slots
-        for i, slot in enumerate(self.slots):
-            self._draw_slot(i, slot)
+        # Draw save slots (only visible ones)
+        start_y = 200
+        visible_range = self._get_visible_slot_range(start_y)
+        
+        if visible_range:
+            start_idx, end_idx = visible_range
+            for i in range(start_idx, end_idx):
+                if i < len(self.slots):
+                    slot = self.slots[i]
+                    self._draw_slot(i, slot)
+                    
+                    if self.profiling_enabled:
+                        self.draw_stats['visible_slots'] += 1
+                        self.draw_stats['draw_calls'] += 1
         
         # Draw "Create New World" button at the bottom
         self._draw_create_button()
+        
+        # Draw "Quit" button below create button
+        self._draw_quit_button()
+        
+        # Profiling end
+        if self.profiling_enabled:
+            draw_time = (time.perf_counter() - draw_start_time) * 1000  # Convert to ms
+            if draw_time > 1.0:  # Only log if draw takes more than 1ms
+                print(f"[WorldSelect] Draw: {draw_time:.2f}ms | "
+                      f"Slots: {self.draw_stats['visible_slots']}/{self.draw_stats['total_slots']} visible | "
+                      f"Draw calls: {self.draw_stats['draw_calls']}")
+    
+    def _get_visible_slot_range(self, start_y: int) -> Optional[Tuple[int, int]]:
+        """
+        Calculate which slots are visible in the window.
+        
+        Returns:
+            Tuple of (start_index, end_index) for visible slots, or None if no slots visible
+        """
+        if not self.slots:
+            return None
+        
+        # Calculate window bounds (with some margin for partial visibility)
+        window_bottom = 0
+        window_top = self.window_height
+        
+        # Calculate slot positions
+        slot_height_with_spacing = self.slot_height + self.slot_spacing
+        
+        # Find first visible slot
+        start_idx = None
+        for i in range(len(self.slots)):
+            slot_y = start_y + i * slot_height_with_spacing
+            slot_top = slot_y + self.slot_height
+            
+            # Slot is visible if any part is in window
+            if slot_top >= window_bottom and slot_y <= window_top:
+                start_idx = i
+                break
+        
+        if start_idx is None:
+            return None  # No visible slots
+        
+        # Find last visible slot
+        end_idx = start_idx + 1
+        for i in range(start_idx + 1, len(self.slots)):
+            slot_y = start_y + i * slot_height_with_spacing
+            
+            # Slot is visible if any part is in window
+            if slot_y <= window_top:
+                end_idx = i + 1
+            else:
+                break  # No more visible slots
+        
+        return (start_idx, end_idx)
     
     def _draw_overlay(self):
         """Draw semi-transparent overlay"""
@@ -448,26 +976,19 @@ class WorldSelectMenu:
         pass  # Overlay will be handled by main window
     
     def _draw_title(self):
-        """Draw menu title"""
-        title_text = "Select World"
-        label = pyglet.text.Label(
-            title_text,
-            font_name=self.title_font_name,
-            font_size=self.title_font_size,
-            # Note: bold parameter not supported in pyglet.text.Label
-            color=(255, 255, 255, 255),
-            x=self.window_width // 2,
-            y=self.window_height - 50,
-            anchor_x='center',
-            anchor_y='top'
-        )
-        label.draw()
+        """Draw menu title using cached label"""
+        self.title_label.draw()
     
     def _draw_slot(self, index: int, slot: WorldSlotInfo):
-        """Draw a save slot entry"""
-        start_y = 200
-        slot_y = start_y + index * (self.slot_height + self.slot_spacing)
-        slot_x = (self.window_width - self.slot_width) // 2
+        """Draw a save slot entry using cached UI elements"""
+        # Get cached view or create if missing
+        if index not in self.slot_views:
+            self._update_slot_views()
+        
+        if index not in self.slot_views:
+            return  # Should not happen
+        
+        slot_view = self.slot_views[index]
         
         # Determine colors based on state
         is_selected = self.selected_slot == index
@@ -486,286 +1007,121 @@ class WorldSelectMenu:
             bg_color = (40, 40, 40, 200)  # Very dark gray
             border_color = (100, 100, 100, 255)  # Dark gray border
         
-        # Draw slot background (using pyglet shapes)
-        import pyglet.shapes
-        bg_rect = pyglet.shapes.Rectangle(
-            slot_x, slot_y, self.slot_width, self.slot_height,
-            color=(bg_color[0], bg_color[1], bg_color[2])
-        )
-        bg_rect.opacity = bg_color[3]
-        bg_rect.draw()
+        # Update colors (no recreation, just update properties)
+        slot_view.update_colors(bg_color, border_color)
         
-        # Draw border (using Rectangle with border parameter if available, else draw separately)
-        try:
-            border_rect = pyglet.shapes.BorderedRectangle(
-                slot_x, slot_y, self.slot_width, self.slot_height,
-                border=2,
-                color=(bg_color[0], bg_color[1], bg_color[2]),
-                border_color=(border_color[0], border_color[1], border_color[2])
-            )
-            border_rect.opacity = border_color[3]
-            border_rect.draw()
-        except AttributeError:
-            # BorderedRectangle not available, draw border manually
-            border_line = pyglet.shapes.Line(
-                slot_x, slot_y, slot_x + self.slot_width, slot_y,
-                width=2, color=(border_color[0], border_color[1], border_color[2])
-            )
-            border_line.draw()
-            border_line = pyglet.shapes.Line(
-                slot_x + self.slot_width, slot_y, slot_x + self.slot_width, slot_y + self.slot_height,
-                width=2, color=(border_color[0], border_color[1], border_color[2])
-            )
-            border_line.draw()
-            border_line = pyglet.shapes.Line(
-                slot_x + self.slot_width, slot_y + self.slot_height, slot_x, slot_y + self.slot_height,
-                width=2, color=(border_color[0], border_color[1], border_color[2])
-            )
-            border_line.draw()
-            border_line = pyglet.shapes.Line(
-                slot_x, slot_y + self.slot_height, slot_x, slot_y,
-                width=2, color=(border_color[0], border_color[1], border_color[2])
-            )
-            border_line.draw()
-        
-        # Draw preview (if exists)
-        preview_x = slot_x + 10
-        preview_y = slot_y + 10
-        if slot.exists and slot.world_id in self.preview_cache:
-            self._draw_preview(preview_x, preview_y, slot.world_id)
-        
-        # Draw slot information
-        info_x = slot_x + self.preview_size_pixels + 30
-        info_y = slot_y + self.slot_height - 30
-        
-        # Slot name
-        if slot.exists:
-            slot_name = slot.world_name if slot.world_name else f"World {slot.slot_num}"
-        else:
-            slot_name = f"New World"
-        
-        # Show rename input if in rename mode
+        # Update name if in rename mode
         if self.rename_mode and self.renaming_slot == index:
             display_name = self.rename_text + "_"  # Cursor indicator
             name_color = (255, 255, 0, 255)  # Yellow for editing
+            slot_view.update_name(display_name, name_color)
         else:
-            display_name = slot_name
-            name_color = (255, 255, 255, 255)
+            slot_name = slot.world_name if slot.exists and slot.world_name else f"World {slot.slot_num}" if slot.exists else "New World"
+            slot_view.update_name(slot_name, (255, 255, 255, 255))
         
-        name_label = pyglet.text.Label(
-            display_name,
-            font_name=self.slot_font_name,
-            font_size=self.slot_font_size,
-            # Note: bold parameter not supported in pyglet.text.Label
-            color=name_color,
-            x=info_x,
-            y=info_y,
-            anchor_x='left',
-            anchor_y='top'
-        )
-        name_label.draw()
-        
-        # Show rename hint
+        # Show/hide hint label (already created in SlotView)
         if self.selected_slot == index and slot.exists:
-            hint_text = "Ctrl+R to rename, Delete to delete"
-            hint_label = pyglet.text.Label(
-                hint_text,
-                font_name=self.info_font_name,
-                font_size=14,
-                color=(150, 150, 150, 255),
-                x=info_x,
-                y=slot_y + 10,
-                anchor_x='left',
-                anchor_y='bottom'
-            )
-            hint_label.draw()
-        
-        if slot.exists:
-            # Seed
-            seed_text = f"Seed: {slot.seed}"
-            seed_label = pyglet.text.Label(
-                seed_text,
-                font_name=self.info_font_name,
-                font_size=self.info_font_size,
-                color=(200, 200, 200, 255),
-                x=info_x,
-                y=info_y - 30,
-                anchor_x='left',
-                anchor_y='top'
-            )
-            seed_label.draw()
-            
-            # World size and chunks
-            size_text = f"Size: {slot.world_size_mb:.1f} MB | Chunks: {slot.chunks_generated}"
-            size_label = pyglet.text.Label(
-                size_text,
-                font_name=self.info_font_name,
-                font_size=self.info_font_size,
-                color=(200, 200, 200, 255),
-                x=info_x,
-                y=info_y - 55,
-                anchor_x='left',
-                anchor_y='top'
-            )
-            size_label.draw()
-            
-            # Last played date
-            if slot.last_save_date:
-                date_text = f"Last played: {slot.last_save_date}"
-                date_label = pyglet.text.Label(
-                    date_text,
-                    font_name=self.info_font_name,
-                    font_size=self.info_font_size,
-                    color=(200, 200, 200, 255),
-                    x=info_x,
-                    y=info_y - 80,
-                    anchor_x='left',
-                    anchor_y='top'
-                )
-                date_label.draw()
+            slot_view.hint_label.visible = True
         else:
-            # Empty slot message
-            empty_label = pyglet.text.Label(
-                "New World",
-                font_name=self.info_font_name,
-                font_size=self.info_font_size,
-                color=(150, 150, 150, 255),
-                x=info_x,
-                y=info_y - 30,
-                anchor_x='left',
-                anchor_y='top'
-            )
-            empty_label.draw()
+            slot_view.hint_label.visible = False
+        
+        # Draw preview (if exists)
+        if slot.exists and slot.world_id in self.preview_cache:
+            self._draw_preview(slot_view.preview_x, slot_view.preview_y, slot.world_id)
+        
+        # Draw all cached UI elements (much faster than creating new ones)
+        slot_view.draw()
     
     def _draw_create_button(self):
-        """Draw 'Create New World' button"""
-        button_y = 50
-        button_height = 60
-        button_x = (self.window_width - self.slot_width) // 2
-        
+        """Draw 'Create New World' button using cached UI elements"""
         # Determine colors based on hover state
         if self.create_button_hovered:
-            bg_color = (80, 120, 80, 255)  # Green tint
-            border_color = (150, 255, 150, 255)  # Bright green border
+            bg_color = (80, 120, 80)  # Green tint
+            border_color = (150, 255, 150)  # Bright green border
         else:
-            bg_color = (60, 100, 60, 255)  # Dark green
-            border_color = (100, 200, 100, 255)  # Green border
+            bg_color = (60, 100, 60)  # Dark green
+            border_color = (100, 200, 100)  # Green border
         
-        # Draw button background
-        import pyglet.shapes
-        bg_rect = pyglet.shapes.Rectangle(
-            button_x, button_y, self.slot_width, button_height,
-            color=(bg_color[0], bg_color[1], bg_color[2])
-        )
-        bg_rect.draw()
+        # Update colors (no recreation, just update properties)
+        self.create_button_bg_rect.color = bg_color
         
-        # Draw border
-        try:
-            border_rect = pyglet.shapes.BorderedRectangle(
-                button_x, button_y, self.slot_width, button_height,
-                border=3,
-                color=(bg_color[0], bg_color[1], bg_color[2]),
-                border_color=(border_color[0], border_color[1], border_color[2])
-            )
-            border_rect.draw()
-        except AttributeError:
-            # Fallback: draw border with lines
-            border_line = pyglet.shapes.Line(
-                button_x, button_y, button_x + self.slot_width, button_y,
-                width=3, color=(border_color[0], border_color[1], border_color[2])
-            )
-            border_line.draw()
-            border_line = pyglet.shapes.Line(
-                button_x + self.slot_width, button_y, button_x + self.slot_width, button_y + button_height,
-                width=3, color=(border_color[0], border_color[1], border_color[2])
-            )
-            border_line.draw()
-            border_line = pyglet.shapes.Line(
-                button_x + self.slot_width, button_y + button_height, button_x, button_y + button_height,
-                width=3, color=(border_color[0], border_color[1], border_color[2])
-            )
-            border_line.draw()
-            border_line = pyglet.shapes.Line(
-                button_x, button_y + button_height, button_x, button_y,
-                width=3, color=(border_color[0], border_color[1], border_color[2])
-            )
-            border_line.draw()
+        if self.create_button_border_rect:
+            self.create_button_border_rect.color = bg_color
+            self.create_button_border_rect.border_color = border_color
+        else:
+            for line in self.create_button_border_lines:
+                line.color = border_color
         
-        # Draw button text
-        button_text = "+ Create New World"
-        button_label = pyglet.text.Label(
-            button_text,
-            font_name=self.slot_font_name,
-            font_size=28,
-            color=(255, 255, 255, 255),
-            x=button_x + self.slot_width // 2,
-            y=button_y + button_height // 2,
-            anchor_x='center',
-            anchor_y='center'
-        )
-        button_label.draw()
+        # Draw cached UI elements
+        self.create_button_bg_rect.draw()
+        
+        if self.create_button_border_rect:
+            self.create_button_border_rect.draw()
+        else:
+            for line in self.create_button_border_lines:
+                line.draw()
+        
+        self.create_button_label.draw()
+    
+    def _draw_quit_button(self):
+        """Draw 'Quit' button using cached UI elements"""
+        # Determine colors based on hover state
+        if self.quit_button_hovered:
+            bg_color = (150, 80, 80)  # Red tint
+            border_color = (255, 150, 150)  # Bright red border
+        else:
+            bg_color = (100, 60, 60)  # Dark red
+            border_color = (200, 100, 100)  # Red border
+        
+        # Update colors (no recreation, just update properties)
+        self.quit_button_bg_rect.color = bg_color
+        
+        if self.quit_button_border_rect:
+            self.quit_button_border_rect.color = bg_color
+            self.quit_button_border_rect.border_color = border_color
+        else:
+            for line in self.quit_button_border_lines:
+                line.color = border_color
+        
+        # Draw cached UI elements
+        self.quit_button_bg_rect.draw()
+        
+        if self.quit_button_border_rect:
+            self.quit_button_border_rect.draw()
+        else:
+            for line in self.quit_button_border_lines:
+                line.draw()
+        
+        self.quit_button_label.draw()
     
     def _draw_preview(self, x: int, y: int, world_id: str):
-        """Draw world preview (5x5 chunks)"""
+        """Draw world preview using texture (optimized)"""
         if world_id not in self.preview_cache or self.preview_cache[world_id] is None:
             return
         
         preview_data = self.preview_cache[world_id]
-        chunks = preview_data['chunks']
-        spawn_pos = preview_data.get('spawn_position')
         
-        # Calculate tile size for preview
-        tile_size = self.preview_size_pixels // (self.preview_size * settings.CHUNK_SIZE)
-        if tile_size < 1:
-            tile_size = 1
+        # Texture-based rendering (always used now)
+        if 'texture' not in preview_data:
+            return  # Should not happen - texture should always be created
         
-        # Draw chunks
-        for chunk_x, chunk_y, tiles in chunks:
-            chunk_world_x = chunk_x * settings.CHUNK_SIZE * tile_size
-            chunk_world_y = chunk_y * settings.CHUNK_SIZE * tile_size
-            
-            # Draw tiles in chunk
-            for tile_y in range(settings.CHUNK_SIZE):
-                for tile_x in range(settings.CHUNK_SIZE):
-                    tile = tiles[tile_y][tile_x]
-                    tile_color = tile.get('color', (100, 100, 100))
-                    
-                    # Convert RGB to RGBA
-                    if len(tile_color) == 3:
-                        tile_color = (*tile_color, 255)
-                    
-                    tile_screen_x = x + chunk_world_x + tile_x * tile_size
-                    tile_screen_y = y + chunk_world_y + tile_y * tile_size
-                    
-                    # Draw tile using pyglet shapes
-                    import pyglet.shapes
-                    tile_rect = pyglet.shapes.Rectangle(
-                        tile_screen_x, tile_screen_y, tile_size, tile_size,
-                        color=(tile_color[0], tile_color[1], tile_color[2])
-                    )
-                    if len(tile_color) > 3:
-                        tile_rect.opacity = tile_color[3]
-                    tile_rect.draw()
+        texture = preview_data['texture']
+        sprite = preview_data.get('sprite')
         
-        # Draw spawn position marker (red tile)
-        if spawn_pos:
-            spawn_chunk_x = int(spawn_pos[0] // (settings.CHUNK_SIZE * settings.TILE_SIZE))
-            spawn_chunk_y = int(spawn_pos[1] // (settings.CHUNK_SIZE * settings.TILE_SIZE))
-            spawn_tile_x = int((spawn_pos[0] % (settings.CHUNK_SIZE * settings.TILE_SIZE)) // settings.TILE_SIZE)
-            spawn_tile_y = int((spawn_pos[1] % (settings.CHUNK_SIZE * settings.TILE_SIZE)) // settings.TILE_SIZE)
-            
-            # Only draw if spawn is in preview area
-            if 0 <= spawn_chunk_x < self.preview_size and 0 <= spawn_chunk_y < self.preview_size:
-                spawn_screen_x = x + spawn_chunk_x * settings.CHUNK_SIZE * tile_size + spawn_tile_x * tile_size
-                spawn_screen_y = y + spawn_chunk_y * settings.CHUNK_SIZE * tile_size + spawn_tile_y * tile_size
-                
-                # Draw red marker using pyglet shapes
-                import pyglet.shapes
-                spawn_marker = pyglet.shapes.Rectangle(
-                    spawn_screen_x, spawn_screen_y, tile_size, tile_size,
-                    color=(255, 0, 0)
-                )
-                spawn_marker.draw()
+        # Calculate scale to fit preview_size_pixels
+        scale = self.preview_size_pixels / max(texture.width, texture.height)
+        
+        # Draw texture using sprite (much faster than individual rectangles)
+        if sprite:
+            sprite.x = x
+            sprite.y = y
+            sprite.scale = scale
+            sprite.draw()
+        else:
+            # Fallback: draw texture directly (if sprite not available)
+            texture.blit(x, y, width=int(texture.width * scale), height=int(texture.height * scale))
+        
+        # Note: Spawn marker is already included in the texture, no overlay needed
     
     def toggle(self):
         """Toggle menu visibility"""

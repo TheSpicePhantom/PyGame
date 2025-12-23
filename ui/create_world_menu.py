@@ -38,8 +38,15 @@ class CreateWorldMenu:
         self.preview_cache: Optional[Dict] = None
         self.preview_seed: Optional[int] = None
         self.preview_size = 5  # 5x5 chunks preview
+        self.preview_size_pixels = 150  # Preview size in pixels
         
-        # UI layout
+        # Preview update debouncing (throttle terrain generation)
+        import time
+        self.last_seed_change_time = 0.0
+        self.preview_update_debounce_ms = 500  # Update preview only after 500ms of no changes
+        self.pending_preview_update = False
+        
+        # UI layout (must be set before creating cached shapes)
         self.panel_width = 800
         self.panel_height = 600
         self.panel_x = (window_width - self.panel_width) // 2
@@ -57,11 +64,219 @@ class CreateWorldMenu:
         self.create_button_hovered = False
         self.cancel_button_hovered = False
         self.random_seed_button_hovered = False
+        self.quit_button_hovered = False
         
         # Button dimensions
         self.button_width = 200
         self.button_height = 50
         self.button_spacing = 20
+        
+        # Cached UI shapes (created once, reused every frame)
+        # Must be called after all layout variables are set
+        self._init_cached_shapes()
+    
+    def _init_cached_shapes(self):
+        """Initialize all cached UI shapes"""
+        import pyglet.shapes
+        
+        # Preview shapes
+        self.preview_bg_rect = pyglet.shapes.Rectangle(
+            0, 0, self.preview_size_pixels, self.preview_size_pixels,
+            color=(20, 20, 20)
+        )
+        self.preview_spawn_marker = pyglet.shapes.Rectangle(
+            0, 0, 4, 4,
+            color=(255, 0, 0)
+        )
+        
+        # Overlay (full-screen semi-transparent)
+        self.overlay_rect = pyglet.shapes.Rectangle(
+            0, 0, self.window_width, self.window_height,
+            color=(0, 0, 0)
+        )
+        self.overlay_rect.opacity = 200
+        
+        # Panel background
+        self.panel_bg_rect = pyglet.shapes.Rectangle(
+            self.panel_x, self.panel_y, self.panel_width, self.panel_height,
+            color=(40, 40, 40)
+        )
+        
+        # Panel border
+        try:
+            self.panel_border_rect = pyglet.shapes.BorderedRectangle(
+                self.panel_x, self.panel_y, self.panel_width, self.panel_height,
+                border=3,
+                color=(40, 40, 40),
+                border_color=(150, 150, 150)
+            )
+            self.panel_border_lines = None
+        except AttributeError:
+            # Fallback: create border lines
+            self.panel_border_rect = None
+            border_color = (150, 150, 150)
+            self.panel_border_lines = [
+                pyglet.shapes.Line(self.panel_x, self.panel_y, self.panel_x + self.panel_width, self.panel_y, width=3, color=border_color),
+                pyglet.shapes.Line(self.panel_x + self.panel_width, self.panel_y, self.panel_x + self.panel_width, self.panel_y + self.panel_height, width=3, color=border_color),
+                pyglet.shapes.Line(self.panel_x + self.panel_width, self.panel_y + self.panel_height, self.panel_x, self.panel_y + self.panel_height, width=3, color=border_color),
+                pyglet.shapes.Line(self.panel_x, self.panel_y + self.panel_height, self.panel_x, self.panel_y, width=3, color=border_color)
+            ]
+        
+        # Calculate button positions
+        button_y = self.panel_y + 50
+        button_x_start = self.panel_x + (self.panel_width - (self.button_width * 2 + self.button_spacing)) // 2
+        
+        # Cancel button
+        cancel_x = button_x_start
+        self.cancel_button_bg_rect = pyglet.shapes.Rectangle(
+            cancel_x, button_y, self.button_width, self.button_height,
+            color=(100, 60, 60)  # Default color
+        )
+        
+        # Create button
+        create_x = button_x_start + self.button_width + self.button_spacing
+        self.create_button_bg_rect = pyglet.shapes.Rectangle(
+            create_x, button_y, self.button_width, self.button_height,
+            color=(60, 100, 60)  # Default color
+        )
+        
+        # Quit button (below cancel button)
+        quit_button_y = button_y - (self.button_height + self.button_spacing)
+        self.quit_button_bg_rect = pyglet.shapes.Rectangle(
+            cancel_x, quit_button_y, self.button_width, self.button_height,
+            color=(100, 60, 60)  # Default color (red-ish)
+        )
+        
+        # Random seed button
+        random_button_x = self.panel_x + 400
+        random_button_y = self.panel_y + 300
+        random_button_width = 150
+        random_button_height = 40
+        self.random_button_bg_rect = pyglet.shapes.Rectangle(
+            random_button_x, random_button_y, random_button_width, random_button_height,
+            color=(60, 100, 60)  # Default color
+        )
+        
+        # Cached labels (created once, text updated as needed)
+        self.title_label = pyglet.text.Label(
+            "Create New World",
+            font_name=self.title_font_name,
+            font_size=self.title_font_size,
+            color=(255, 255, 255, 255),
+            x=self.panel_x + self.panel_width // 2,
+            y=self.panel_y + self.panel_height - 50,
+            anchor_x='center',
+            anchor_y='center'
+        )
+        
+        self.cancel_button_label = pyglet.text.Label(
+            "Cancel",
+            font_name=self.label_font_name,
+            font_size=24,
+            color=(255, 255, 255, 255),
+            x=cancel_x + self.button_width // 2,
+            y=button_y + self.button_height // 2,
+            anchor_x='center',
+            anchor_y='center'
+        )
+        
+        self.create_button_label = pyglet.text.Label(
+            "Create World",
+            font_name=self.label_font_name,
+            font_size=24,
+            color=(255, 255, 255, 255),
+            x=create_x + self.button_width // 2,
+            y=button_y + self.button_height // 2,
+            anchor_x='center',
+            anchor_y='center'
+        )
+        
+        self.quit_button_label = pyglet.text.Label(
+            "Quit",
+            font_name=self.label_font_name,
+            font_size=24,
+            color=(255, 255, 255, 255),
+            x=cancel_x + self.button_width // 2,
+            y=quit_button_y + self.button_height // 2,
+            anchor_x='center',
+            anchor_y='center'
+        )
+        
+        self.random_button_label = pyglet.text.Label(
+            "Use Random",
+            font_name=self.label_font_name,
+            font_size=18,
+            color=(255, 255, 255, 255),
+            x=random_button_x + random_button_width // 2,
+            y=random_button_y + random_button_height // 2,
+            anchor_x='center',
+            anchor_y='center'
+        )
+        
+        # Input field labels (static, created once)
+        self.name_label = pyglet.text.Label(
+            "World Name:",
+            font_name=self.label_font_name,
+            font_size=self.label_font_size,
+            color=(255, 255, 255, 255),
+            x=self.panel_x + 50,
+            y=self.panel_y + 470,
+            anchor_x='left',
+            anchor_y='center'
+        )
+        
+        self.seed_label = pyglet.text.Label(
+            "Seed:",
+            font_name=self.label_font_name,
+            font_size=self.label_font_size,
+            color=(255, 255, 255, 255),
+            x=self.panel_x + 50,
+            y=self.panel_y + 370,
+            anchor_x='left',
+            anchor_y='center'
+        )
+        
+        self.preview_label = pyglet.text.Label(
+            "Preview:",
+            font_name=self.label_font_name,
+            font_size=self.label_font_size,
+            color=(255, 255, 255, 255),
+            x=self.panel_x + 50,
+            y=self.panel_y + 220,  # preview_y + 120
+            anchor_x='left',
+            anchor_y='center'
+        )
+        
+        # Dynamic input field text labels (created once, only .text updated)
+        name_field_x = self.panel_x + 200
+        name_field_y = self.panel_y + 450
+        name_field_height = 40
+        
+        self.name_input_label = pyglet.text.Label(
+            "",  # Will be updated dynamically
+            font_name=self.input_font_name,
+            font_size=self.input_font_size,
+            color=(255, 255, 255, 255),
+            x=name_field_x + 10,
+            y=name_field_y + name_field_height // 2,
+            anchor_x='left',
+            anchor_y='center'
+        )
+        
+        seed_field_x = self.panel_x + 200
+        seed_field_y = self.panel_y + 350
+        seed_field_height = 40
+        
+        self.seed_input_label = pyglet.text.Label(
+            "",  # Will be updated dynamically
+            font_name=self.input_font_name,
+            font_size=self.input_font_size,
+            color=(255, 255, 255, 255),
+            x=seed_field_x + 10,
+            y=seed_field_y + seed_field_height // 2,
+            anchor_x='left',
+            anchor_y='center'
+        )
     
     def show(self):
         """Show the create world menu"""
@@ -169,6 +384,12 @@ class CreateWorldMenu:
             button_y <= y <= button_y + self.button_height):
             return "create"
         
+        # Quit button (below cancel button)
+        quit_button_y = button_y - (self.button_height + self.button_spacing)
+        if (cancel_x <= x <= cancel_x + self.button_width and
+            quit_button_y <= y <= quit_button_y + self.button_height):
+            return "quit"
+        
         # Random seed button
         seed_button_y = self.panel_y + 300
         seed_button_x = self.panel_x + 400
@@ -200,9 +421,11 @@ class CreateWorldMenu:
         
         if (seed_field_x <= x <= seed_field_x + seed_field_width and
             seed_field_y <= y <= seed_field_y + seed_field_height):
+            # When clicking on seed field, update preview if we're switching TO it
+            if self.focused_field != "seed":
+                self._update_preview()  # Immediate update when focusing seed field
             self.focused_field = "seed"
             self.use_random_seed = False
-            self._update_preview()
             return None
         
         # Click outside fields = unfocus
@@ -232,6 +455,13 @@ class CreateWorldMenu:
             button_y <= y <= button_y + self.button_height
         )
         
+        # Quit button (below cancel button)
+        quit_button_y = button_y - (self.button_height + self.button_spacing)
+        self.quit_button_hovered = (
+            cancel_x <= x <= cancel_x + self.button_width and
+            quit_button_y <= y <= quit_button_y + self.button_height
+        )
+        
         # Random seed button
         seed_button_y = self.panel_y + 300
         seed_button_x = self.panel_x + 400
@@ -251,7 +481,9 @@ class CreateWorldMenu:
             return "cancel"
         
         if symbol == key.TAB:
-            # Switch focus between fields
+            # Switch focus between fields - update preview when leaving seed field
+            if self.focused_field == "seed":
+                self._update_preview()  # Immediate update when leaving seed field
             if self.focused_field == "name":
                 self.focused_field = "seed"
             elif self.focused_field == "seed":
@@ -262,6 +494,9 @@ class CreateWorldMenu:
         
         if symbol == key.ENTER or symbol == key.RETURN:
             if self.focused_field is not None:
+                # Update preview when pressing ENTER in seed field
+                if self.focused_field == "seed":
+                    self._update_preview()  # Immediate update on ENTER
                 # Move to next field or create
                 if self.focused_field == "name":
                     self.focused_field = "seed"
@@ -287,14 +522,14 @@ class CreateWorldMenu:
             if symbol == key.BACKSPACE:
                 if self.seed_input:
                     self.seed_input = self.seed_input[:-1]
-                    self._update_preview()
+                    self._schedule_preview_update()
                 return None
             else:
                 char = self._key_to_char(symbol, modifiers)
                 if char and char.isdigit() or char == '-':
                     self.seed_input += char
                     self.use_random_seed = False
-                    self._update_preview()
+                    self._schedule_preview_update()
                 return None
         
         return None
@@ -320,6 +555,25 @@ class CreateWorldMenu:
             return '-'
         
         return None
+    
+    def _schedule_preview_update(self):
+        """Schedule a preview update with debouncing"""
+        import time
+        self.last_seed_change_time = time.time()
+        self.pending_preview_update = True
+    
+    def update(self, dt: float):
+        """Update menu state (called every frame) - handles debounced preview updates"""
+        if not self.active:
+            return
+        
+        # Check if debounce time has passed and preview update is pending
+        if self.pending_preview_update:
+            import time
+            elapsed_ms = (time.time() - self.last_seed_change_time) * 1000
+            if elapsed_ms >= self.preview_update_debounce_ms:
+                self._update_preview()
+                self.pending_preview_update = False
     
     def _update_preview(self):
         """Update preview when seed changes"""
@@ -367,90 +621,104 @@ class CreateWorldMenu:
             # Create terrain generator with seed
             terrain_gen = TerrainGenerator(seed=seed)
             
-            # Generate first 5x5 chunks (chunks 0,0 to 4,4)
+            # Calculate preview dimensions
+            preview_width = self.preview_size * settings.CHUNK_SIZE
+            preview_height = self.preview_size * settings.CHUNK_SIZE
+            
+            # Create 2D array for tile colors (width x height)
+            # Format: [y][x] = (r, g, b)
+            color_array = [[(100, 100, 100) for _ in range(preview_width)] for _ in range(preview_height)]
+            
+            # Generate chunks and fill color array
             preview_chunks = []
             for chunk_y in range(self.preview_size):
                 for chunk_x in range(self.preview_size):
                     chunk = terrain_gen.generate_chunk(chunk_x, chunk_y, settings.CHUNK_SIZE)
                     preview_chunks.append((chunk_x, chunk_y, chunk))
+                    
+                    # Fill color array with tile colors
+                    for tile_y in range(settings.CHUNK_SIZE):
+                        for tile_x in range(settings.CHUNK_SIZE):
+                            tile = chunk[tile_y][tile_x]
+                            tile_color = tile.get('color', (100, 100, 100))
+                            
+                            # Ensure RGB tuple
+                            if isinstance(tile_color, (list, tuple)):
+                                if len(tile_color) >= 3:
+                                    tile_color = tuple(tile_color[:3])
+                                else:
+                                    tile_color = (100, 100, 100)
+                            else:
+                                tile_color = (100, 100, 100)
+                            
+                            # Calculate array position
+                            array_x = chunk_x * settings.CHUNK_SIZE + tile_x
+                            array_y = chunk_y * settings.CHUNK_SIZE + tile_y
+                            
+                            # pyglet uses bottom-left origin, so we need to flip Y
+                            flipped_y = preview_height - 1 - array_y
+                            color_array[flipped_y][array_x] = tile_color
+            
+            # Note: Spawn marker is drawn as a separate cached shape, not in texture
+            
+            # Convert 2D color array to 1D byte array (RGB format)
+            # pyglet.image.ImageData expects data in row-major order, bottom-to-top
+            pixel_data = bytearray()
+            for y in range(preview_height):
+                for x in range(preview_width):
+                    r, g, b = color_array[y][x]
+                    pixel_data.extend([r, g, b])
+            
+            # Create pyglet ImageData texture
+            image_data = pyglet.image.ImageData(
+                preview_width,
+                preview_height,
+                'RGB',
+                bytes(pixel_data),
+                pitch=preview_width * 3  # Bytes per row (width * 3 for RGB)
+            )
+            
+            # Create sprite for easy drawing (optional, but convenient)
+            sprite = pyglet.sprite.Sprite(image_data)
             
             self.preview_cache = {
-                'chunks': preview_chunks,
-                'spawn_position': (0, 0)  # Default spawn at origin
+                'chunks': preview_chunks,  # Keep for compatibility
+                'spawn_position': (0, 0),  # Default spawn at origin
+                'texture': image_data,
+                'sprite': sprite
             }
             self.preview_seed = seed  # Store seed for consistency
         except Exception as e:
             print(f"[CreateWorld] Error generating preview: {e}")
+            import traceback
+            traceback.print_exc()
             self.preview_cache = None
     
     def draw(self):
-        """Draw create world menu"""
+        """Draw create world menu using cached shapes"""
         if not self.active:
             return
         
-        # Draw semi-transparent overlay
-        import pyglet.shapes
-        overlay = pyglet.shapes.Rectangle(
-            0, 0, self.window_width, self.window_height,
-            color=(0, 0, 0)
-        )
-        overlay.opacity = 200
-        overlay.draw()
+        # Draw cached overlay (no recreation, just draw)
+        self.overlay_rect.draw()
         
-        # Draw panel background
-        panel_bg = pyglet.shapes.Rectangle(
-            self.panel_x, self.panel_y, self.panel_width, self.panel_height,
-            color=(40, 40, 40)
-        )
-        panel_bg.draw()
+        # Draw cached panel background
+        self.panel_bg_rect.draw()
         
-        # Draw panel border
-        try:
-            panel_border = pyglet.shapes.BorderedRectangle(
-                self.panel_x, self.panel_y, self.panel_width, self.panel_height,
-                border=3,
-                color=(40, 40, 40),
-                border_color=(150, 150, 150)
-            )
-            panel_border.draw()
-        except AttributeError:
-            # Fallback: draw border with lines
-            border_color = (150, 150, 150)
-            lines = [
-                (self.panel_x, self.panel_y, self.panel_x + self.panel_width, self.panel_y),
-                (self.panel_x + self.panel_width, self.panel_y, self.panel_x + self.panel_width, self.panel_y + self.panel_height),
-                (self.panel_x + self.panel_width, self.panel_y + self.panel_height, self.panel_x, self.panel_y + self.panel_height),
-                (self.panel_x, self.panel_y + self.panel_height, self.panel_x, self.panel_y)
-            ]
-            for x1, y1, x2, y2 in lines:
-                line = pyglet.shapes.Line(x1, y1, x2, y2, width=3, color=border_color)
+        # Draw cached panel border
+        if self.panel_border_rect:
+            self.panel_border_rect.draw()
+        else:
+            for line in self.panel_border_lines:
                 line.draw()
         
-        # Draw title
-        title_label = pyglet.text.Label(
-            "Create New World",
-            font_name=self.title_font_name,
-            font_size=self.title_font_size,
-            color=(255, 255, 255, 255),
-            x=self.panel_x + self.panel_width // 2,
-            y=self.panel_y + self.panel_height - 50,
-            anchor_x='center',
-            anchor_y='center'
-        )
-        title_label.draw()
+        # Draw cached title label
+        self.title_label.draw()
         
-        # Draw world name input
-        name_label = pyglet.text.Label(
-            "World Name:",
-            font_name=self.label_font_name,
-            font_size=self.label_font_size,
-            color=(255, 255, 255, 255),
-            x=self.panel_x + 50,
-            y=self.panel_y + 470,
-            anchor_x='left',
-            anchor_y='center'
-        )
-        name_label.draw()
+        # Draw cached static labels
+        self.name_label.draw()
+        self.seed_label.draw()
+        self.preview_label.draw()
         
         # Draw name input field
         name_field_x = self.panel_x + 200
@@ -487,36 +755,63 @@ class CreateWorldMenu:
                 line = pyglet.shapes.Line(x1, y1, x2, y2, width=2, color=border_color)
                 line.draw()
         
-        # Name text with cursor
+        # Draw input fields (need to be recreated due to dynamic colors/borders)
+        self._draw_input_fields()
+        
+        # Draw cached buttons (update colors based on hover state)
+        self._draw_buttons()
+        
+        # Draw preview (only regenerate when seed changes, not every frame)
+        preview_x = self.panel_x + 50
+        preview_y = self.panel_y + 100
+        if self.preview_cache:
+            self._draw_preview(preview_x, preview_y)
+    
+    def _draw_input_fields(self):
+        """Draw input fields (recreated due to dynamic colors/borders)"""
+        import pyglet.shapes
+        
+        # Name input field
+        name_field_x = self.panel_x + 200
+        name_field_y = self.panel_y + 450
+        name_field_width = 400
+        name_field_height = 40
+        
+        name_bg_color = (60, 60, 60) if self.focused_field != "name" else (80, 80, 80)
+        name_field_bg = pyglet.shapes.Rectangle(
+            name_field_x, name_field_y, name_field_width, name_field_height,
+            color=name_bg_color
+        )
+        name_field_bg.draw()
+        
+        border_color = (100, 200, 100) if self.focused_field == "name" else (100, 100, 100)
+        try:
+            name_field_border = pyglet.shapes.BorderedRectangle(
+                name_field_x, name_field_y, name_field_width, name_field_height,
+                border=2,
+                color=name_bg_color,
+                border_color=border_color
+            )
+            name_field_border.draw()
+        except AttributeError:
+            # Fallback
+            for x1, y1, x2, y2 in [
+                (name_field_x, name_field_y, name_field_x + name_field_width, name_field_y),
+                (name_field_x + name_field_width, name_field_y, name_field_x + name_field_width, name_field_y + name_field_height),
+                (name_field_x + name_field_width, name_field_y + name_field_height, name_field_x, name_field_y + name_field_height),
+                (name_field_x, name_field_y + name_field_height, name_field_x, name_field_y)
+            ]:
+                line = pyglet.shapes.Line(x1, y1, x2, y2, width=2, color=border_color)
+                line.draw()
+        
+        # Name text with cursor (update cached label text)
         display_name = self.world_name
         if self.focused_field == "name":
             display_name += "_"  # Cursor indicator
-        name_text_label = pyglet.text.Label(
-            display_name,
-            font_name=self.input_font_name,
-            font_size=self.input_font_size,
-            color=(255, 255, 255, 255),
-            x=name_field_x + 10,
-            y=name_field_y + name_field_height // 2,
-            anchor_x='left',
-            anchor_y='center'
-        )
-        name_text_label.draw()
+        self.name_input_label.text = display_name
+        self.name_input_label.draw()
         
-        # Draw seed input
-        seed_label = pyglet.text.Label(
-            "Seed:",
-            font_name=self.label_font_name,
-            font_size=self.label_font_size,
-            color=(255, 255, 255, 255),
-            x=self.panel_x + 50,
-            y=self.panel_y + 370,
-            anchor_x='left',
-            anchor_y='center'
-        )
-        seed_label.draw()
-        
-        # Draw seed input field
+        # Seed input field
         seed_field_x = self.panel_x + 200
         seed_field_y = self.panel_y + 350
         seed_field_width = 200
@@ -551,7 +846,7 @@ class CreateWorldMenu:
                 line = pyglet.shapes.Line(x1, y1, x2, y2, width=2, color=border_color)
                 line.draw()
         
-        # Seed text with cursor
+        # Seed text with cursor (update cached label text)
         if self.use_random_seed:
             display_seed = "Random"
         else:
@@ -559,157 +854,82 @@ class CreateWorldMenu:
             if self.focused_field == "seed":
                 display_seed += "_"  # Cursor indicator
         
-        seed_text_label = pyglet.text.Label(
-            display_seed,
-            font_name=self.input_font_name,
-            font_size=self.input_font_size,
-            color=(255, 255, 255, 255),
-            x=seed_field_x + 10,
-            y=seed_field_y + seed_field_height // 2,
-            anchor_x='left',
-            anchor_y='center'
-        )
-        seed_text_label.draw()
+        self.seed_input_label.text = display_seed
+        self.seed_input_label.draw()
         
-        # Random seed button
-        random_button_x = self.panel_x + 400
-        random_button_y = self.panel_y + 300
-        random_button_width = 150
-        random_button_height = 40
-        
-        random_bg_color = (80, 120, 80) if self.random_seed_button_hovered else (60, 100, 60)
-        random_button_bg = pyglet.shapes.Rectangle(
-            random_button_x, random_button_y, random_button_width, random_button_height,
-            color=random_bg_color
-        )
-        random_button_bg.draw()
-        
-        random_button_text = "Use Random" if not self.use_random_seed else "Random ✓"
-        random_button_label = pyglet.text.Label(
-            random_button_text,
-            font_name=self.label_font_name,
-            font_size=18,
-            color=(255, 255, 255, 255),
-            x=random_button_x + random_button_width // 2,
-            y=random_button_y + random_button_height // 2,
-            anchor_x='center',
-            anchor_y='center'
-        )
-        random_button_label.draw()
-        
-        # Draw preview
-        preview_x = self.panel_x + 50
-        preview_y = self.panel_y + 100
-        preview_label = pyglet.text.Label(
-            "Preview:",
-            font_name=self.label_font_name,
-            font_size=self.label_font_size,
-            color=(255, 255, 255, 255),
-            x=preview_x,
-            y=preview_y + 120,
-            anchor_x='left',
-            anchor_y='center'
-        )
-        preview_label.draw()
-        
-        # Draw preview (only regenerate when seed changes, not every frame)
-        if self.preview_cache:
-            self._draw_preview(preview_x, preview_y)
-        
-        # Draw buttons
+
+    
+    def _draw_buttons(self):
+        """Draw buttons using cached shapes (update colors based on hover state)"""
+        # Calculate button positions
         button_y = self.panel_y + 50
         button_x_start = self.panel_x + (self.panel_width - (self.button_width * 2 + self.button_spacing)) // 2
-        
-        # Cancel button
         cancel_x = button_x_start
+        quit_button_y = button_y - (self.button_height + self.button_spacing)
+        
+        # Update button colors based on hover state
         cancel_bg_color = (120, 80, 80) if self.cancel_button_hovered else (100, 60, 60)
-        cancel_button_bg = pyglet.shapes.Rectangle(
-            cancel_x, button_y, self.button_width, self.button_height,
-            color=cancel_bg_color
-        )
-        cancel_button_bg.draw()
+        self.cancel_button_bg_rect.color = cancel_bg_color
         
-        cancel_label = pyglet.text.Label(
-            "Cancel",
-            font_name=self.label_font_name,
-            font_size=24,
-            color=(255, 255, 255, 255),
-            x=cancel_x + self.button_width // 2,
-            y=button_y + self.button_height // 2,
-            anchor_x='center',
-            anchor_y='center'
-        )
-        cancel_label.draw()
-        
-        # Create button
-        create_x = button_x_start + self.button_width + self.button_spacing
         create_bg_color = (80, 120, 80) if self.create_button_hovered else (60, 100, 60)
-        create_button_bg = pyglet.shapes.Rectangle(
-            create_x, button_y, self.button_width, self.button_height,
-            color=create_bg_color
-        )
-        create_button_bg.draw()
+        self.create_button_bg_rect.color = create_bg_color
         
-        create_label = pyglet.text.Label(
-            "Create World",
-            font_name=self.label_font_name,
-            font_size=24,
-            color=(255, 255, 255, 255),
-            x=create_x + self.button_width // 2,
-            y=button_y + self.button_height // 2,
-            anchor_x='center',
-            anchor_y='center'
-        )
-        create_label.draw()
+        quit_bg_color = (150, 80, 80) if self.quit_button_hovered else (100, 60, 60)
+        self.quit_button_bg_rect.color = quit_bg_color
+        
+        random_bg_color = (80, 120, 80) if self.random_seed_button_hovered else (60, 100, 60)
+        self.random_button_bg_rect.color = random_bg_color
+        
+        # Update random button text
+        random_button_text = "Use Random" if not self.use_random_seed else "Random ✓"
+        self.random_button_label.text = random_button_text
+        
+        # Update quit button position (in case window was resized)
+        self.quit_button_bg_rect.y = quit_button_y
+        self.quit_button_label.y = quit_button_y + self.button_height // 2
+        
+        # Draw cached button backgrounds
+        self.cancel_button_bg_rect.draw()
+        self.create_button_bg_rect.draw()
+        self.quit_button_bg_rect.draw()
+        self.random_button_bg_rect.draw()
+        
+        # Draw cached button labels
+        self.cancel_button_label.draw()
+        self.create_button_label.draw()
+        self.quit_button_label.draw()
+        self.random_button_label.draw()
     
     def _draw_preview(self, x: int, y: int):
-        """Draw world preview (5x5 chunks)"""
-        if not self.preview_cache:
+        """Draw world preview using cached texture and shapes (optimized)"""
+        if not self.preview_cache or 'texture' not in self.preview_cache:
             return
         
-        # Calculate tile size to fit preview nicely
-        # Use a larger preview size to ensure all tiles are visible
-        preview_size_pixels = 150  # 150x150 pixels for preview
-        total_tiles = self.preview_size * settings.CHUNK_SIZE  # 5 * 15 = 75 tiles
-        tile_size = max(1, preview_size_pixels // total_tiles)  # Ensure at least 1 pixel per tile
+        texture = self.preview_cache['texture']
+        sprite = self.preview_cache.get('sprite')
         
-        # Recalculate actual preview size to match exactly
-        actual_preview_size = total_tiles * tile_size
+        # Calculate scale to fit preview_size_pixels
+        scale = self.preview_size_pixels / max(texture.width, texture.height)
         
-        # Draw preview background (exact size)
-        import pyglet.shapes
-        preview_bg = pyglet.shapes.Rectangle(
-            x, y, actual_preview_size, actual_preview_size,
-            color=(20, 20, 20)
-        )
-        preview_bg.draw()
+        # Update and draw cached preview background (no recreation, just reposition)
+        self.preview_bg_rect.x = x
+        self.preview_bg_rect.y = y
+        self.preview_bg_rect.draw()
         
-        # Draw chunks
-        for chunk_x, chunk_y, chunk in self.preview_cache['chunks']:
-            chunk_screen_x = x + chunk_x * settings.CHUNK_SIZE * tile_size
-            chunk_screen_y = y + chunk_y * settings.CHUNK_SIZE * tile_size
-            
-            # Draw tiles
-            for tile_y in range(settings.CHUNK_SIZE):
-                for tile_x in range(settings.CHUNK_SIZE):
-                    tile = chunk[tile_y][tile_x]
-                    tile_screen_x = chunk_screen_x + tile_x * tile_size
-                    tile_screen_y = chunk_screen_y + tile_y * tile_size
-                    
-                    # Draw tile
-                    color = tile.get('color', (100, 100, 100))
-                    tile_rect = pyglet.shapes.Rectangle(
-                        tile_screen_x, tile_screen_y, tile_size, tile_size,
-                        color=color
-                    )
-                    tile_rect.draw()
+        # Draw texture using sprite (much faster than individual rectangles)
+        if sprite:
+            sprite.x = x
+            sprite.y = y
+            sprite.scale = scale
+            sprite.draw()
+        else:
+            # Fallback: draw texture directly (if sprite not available)
+            texture.blit(x, y, width=int(texture.width * scale), height=int(texture.height * scale))
         
-        # Mark spawn position (center of preview)
-        spawn_x = x + actual_preview_size // 2
-        spawn_y = y + actual_preview_size // 2
-        spawn_marker = pyglet.shapes.Rectangle(
-            spawn_x - 2, spawn_y - 2, 4, 4,
-            color=(255, 0, 0)
-        )
-        spawn_marker.draw()
+        # Draw spawn marker (center of preview) - reposition cached shape
+        spawn_x = x + self.preview_size_pixels // 2
+        spawn_y = y + self.preview_size_pixels // 2
+        self.preview_spawn_marker.x = spawn_x - 2  # Center the 4x4 marker
+        self.preview_spawn_marker.y = spawn_y - 2
+        self.preview_spawn_marker.draw()
 

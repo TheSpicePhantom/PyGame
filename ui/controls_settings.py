@@ -13,78 +13,52 @@ class ControlsSettings:
 
     def __init__(self):
         self.active = False
-        self.parent = None  # Will be set by SettingsMenu
+        self.font = settings_manager.scale_font_size(32)
+        self.button_font = settings_manager.scale_font_size(24)
+        self.label_font = settings_manager.scale_font_size(28)
 
         # Load Einstellungen
         self.config_path = os.path.join('config', 'hotkeys.json')
         self.load_hotkeys()
 
-        # Keybinding Einstellungen - ensure we use integers
+        # Keybinding Einstellungen
         self.keybindings = [
-            ('Move Up', 'KEY_MOVE_UP', self._get_key_code('KEY_MOVE_UP', settings.KEY_MOVE_UP)),
-            ('Move Down', 'KEY_MOVE_DOWN', self._get_key_code('KEY_MOVE_DOWN', settings.KEY_MOVE_DOWN)),
-            ('Move Left', 'KEY_MOVE_LEFT', self._get_key_code('KEY_MOVE_LEFT', settings.KEY_MOVE_LEFT)),
-            ('Move Right', 'KEY_MOVE_RIGHT', self._get_key_code('KEY_MOVE_RIGHT', settings.KEY_MOVE_RIGHT)),
-            ('Build Mode', 'KEY_BUILD_MODE', self._get_key_code('KEY_BUILD_MODE', settings.KEY_BUILD_MODE)),
-            ('Rotate', 'KEY_ROTATE', self._get_key_code('KEY_ROTATE', settings.KEY_ROTATE)),
+            ('Move Up', 'KEY_MOVE_UP', self.hotkeys.get('KEY_MOVE_UP', settings.KEY_MOVE_UP)),
+            ('Move Down', 'KEY_MOVE_DOWN', self.hotkeys.get('KEY_MOVE_DOWN', settings.KEY_MOVE_DOWN)),
+            ('Move Left', 'KEY_MOVE_LEFT', self.hotkeys.get('KEY_MOVE_LEFT', settings.KEY_MOVE_LEFT)),
+            ('Move Right', 'KEY_MOVE_RIGHT', self.hotkeys.get('KEY_MOVE_RIGHT', settings.KEY_MOVE_RIGHT)),
+            ('Build Mode', 'KEY_BUILD_MODE', self.hotkeys.get('KEY_BUILD_MODE', settings.KEY_BUILD_MODE)),
+            ('Rotate', 'KEY_ROTATE', self.hotkeys.get('KEY_ROTATE', settings.KEY_ROTATE)),
         ]
 
         self.waiting_for_key = None  # Track which keybinding is being remapped
-        
-        # Initialize UI elements
-        self._init_ui()
-    
-    def _get_key_code(self, key_name, default):
-        """Get key code from hotkeys dict, ensuring it's an integer"""
-        value = self.hotkeys.get(key_name, default)
-        if isinstance(value, int):
-            return value
-        # If it's already an integer from settings, return it
-        return default
-    
-    def _init_ui(self):
-        """Initialize/reinitialize all UI elements with current scale"""
-        # Fonts
-        self.font = settings_manager.scale_font_size(32)
-        self.button_font = settings_manager.scale_font_size(24)
-        self.label_font = settings_manager.scale_font_size(28)
 
-        # Buttons (scale dimensions, center on unscaled screen)
+        # Buttons
         button_width = settings_manager.scale_value(200)
         button_height = settings_manager.scale_value(50)
-        self.back_button = pygame.Rect(
+        self.back_button = settings_manager.scale_rect(pygame.Rect(
             settings.SCREEN_WIDTH // 2 - button_width // 2,
             settings_manager.scale_value(850),
             button_width,
             button_height
-        )
+        ))
 
-        self.reset_button = pygame.Rect(
+        self.reset_button = settings_manager.scale_rect(pygame.Rect(
             settings.SCREEN_WIDTH // 2 - button_width // 2,
             settings_manager.scale_value(770),
             button_width,
             button_height
-        )
+        ))
 
     def load_hotkeys(self):
         """Lädt Hotkey Einstellungen aus JSON"""
         try:
             if os.path.exists(self.config_path):
                 with open(self.config_path, 'r') as f:
-                    data = json.load(f)
-                    # Convert string key names to pygame key codes
-                    self.hotkeys = {}
-                    for key_name, key_value in data.items():
-                        if isinstance(key_value, str):
-                            # Convert string to pygame key code
-                            self.hotkeys[key_name] = getattr(pygame, f'K_{key_value}', pygame.key.key_code(key_value))
-                        else:
-                            # Already an integer
-                            self.hotkeys[key_name] = key_value
+                    self.hotkeys = json.load(f)
             else:
                 self.hotkeys = {}
-        except Exception as e:
-            print(f"Error loading hotkeys: {e}")
+        except Exception:
             self.hotkeys = {}
 
     def save_hotkeys(self):
@@ -93,9 +67,7 @@ class ControlsSettings:
             os.makedirs('config', exist_ok=True)
             hotkeys_to_save = {}
             for label, key_name, key_code in self.keybindings:
-                # Save as string (key name) for readability
-                key_string = pygame.key.name(key_code)
-                hotkeys_to_save[key_name] = key_string
+                hotkeys_to_save[key_name] = key_code
             
             with open(self.config_path, 'w') as f:
                 json.dump(hotkeys_to_save, f, indent=2)
@@ -116,10 +88,6 @@ class ControlsSettings:
 
     def get_key_name(self, key_code):
         """Konvertiert pygame Key Code zu lesbarem Namen"""
-        if isinstance(key_code, str):
-            # Already a string, return it
-            return key_code.upper()
-        # Convert integer key code to string
         return pygame.key.name(key_code).upper()
 
     def handle_event(self, event):

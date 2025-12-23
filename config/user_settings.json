@@ -1,9 +1,11 @@
 {
     "graphics": {
         "brightness": 100,
-        "quality": "medium",
+        "quality": "high",
         "menu_size": 100,
-        "display_mode": "windowed"
+        "display_mode": "fullscreen",
+        "auto_save_enabled": true,
+        "auto_save_interval": 50
     },
     "audio": {
         "master": 100,

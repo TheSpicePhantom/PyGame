@@ -36,7 +36,7 @@ class UIController:
         self.inventory_menu = InventoryMenu(width, height, inventory_size=45)
         self.hotbar_overlay = HotbarOverlay(width, height)
         self.hotbar_overlay.set_inventory_menu(self.inventory_menu)
-        self.pause_menu: Optional[PauseMenu] = None  # Will be initialized when needed
+        self.pause_menu = PauseMenu(width, height)  # Initialize pause menu
         self.settings_menu: Optional[SettingsMenu] = None  # Will be initialized when needed
         
         # Debug/Performance
@@ -57,6 +57,10 @@ class UIController:
         if current_time - self.last_stats_update >= self.stats_update_interval:
             self._update_performance_stats()
             self.last_stats_update = current_time
+        
+        # Update menus that need per-frame updates (e.g., debounced preview updates)
+        if current_state == GameState.CREATE_WORLD:
+            self.create_world_menu.update(dt)
     
     def handle_key_press(self, symbol: int, modifiers: int, current_state: GameState):
         """Handle key press events"""
@@ -98,7 +102,8 @@ class UIController:
             self.inventory_menu.handle_mouse_press(x, y, button, modifiers)
         elif current_state == GameState.PAUSED:
             if self.pause_menu:
-                self.pause_menu.handle_mouse_press(x, y, button, modifiers)
+                result = self.pause_menu.handle_mouse_press(x, y, button, modifiers)
+                return result
     
     def handle_mouse_motion(self, x: int, y: int, dx: int, dy: int, current_state: GameState):
         """Handle mouse motion events"""
@@ -109,6 +114,8 @@ class UIController:
         elif current_state == GameState.PAUSED:
             if self.pause_menu:
                 self.pause_menu.handle_mouse_motion(x, y)
+        elif current_state == GameState.CREATE_WORLD:
+            self.create_world_menu.handle_mouse_motion(x, y)
     
     def handle_mouse_scroll(self, x: int, y: int, scroll_x: float, scroll_y: float, 
                            modifiers: int, current_state: GameState):
@@ -138,9 +145,12 @@ class UIController:
     
     def show_pause_menu(self):
         """Show pause menu"""
-        if not self.pause_menu:
-            self.pause_menu = PauseMenu()
-        self.pause_menu.active = True
+        if self.pause_menu:
+            self.pause_menu.show()
+            # Set menu references if available
+            if self.settings_menu:
+                self.pause_menu.set_settings_menu(self.settings_menu)
+            # Note: save_menu is not yet implemented in UIController
     
     def hide_pause_menu(self):
         """Hide pause menu"""
@@ -199,40 +209,9 @@ class UIController:
         # Always draw hotbar overlay (permanent display)
         self.hotbar_overlay.draw()
         
-        # Draw pause menu if active (PauseMenu is pygame-based, use simple pyglet overlay)
-        if current_state == GameState.PAUSED:
-            # Draw semi-transparent overlay
-            import pyglet.shapes
-            overlay = pyglet.shapes.Rectangle(0, 0, self.width, self.height, color=(0, 0, 0))
-            overlay.opacity = 200
-            overlay.draw()
-            
-            # Draw "PAUSED" text
-            import pyglet.text
-            label = pyglet.text.Label(
-                'PAUSED',
-                font_name='Arial',
-                font_size=72,
-                x=self.width // 2,
-                y=self.height // 2 + 100,
-                anchor_x='center',
-                anchor_y='center',
-                color=(255, 255, 255, 255)
-            )
-            label.draw()
-            
-            # Draw hint text
-            hint_label = pyglet.text.Label(
-                'Press ESC to continue',
-                font_name='Arial',
-                font_size=24,
-                x=self.width // 2,
-                y=self.height // 2 - 100,
-                anchor_x='center',
-                anchor_y='center',
-                color=(200, 200, 200, 255)
-            )
-            hint_label.draw()
+        # Draw pause menu if active
+        if current_state == GameState.PAUSED and self.pause_menu:
+            self.pause_menu.draw()
         
         # Draw performance stats (toggle with F3)
         if self.show_performance_stats and current_state != GameState.PAUSED:

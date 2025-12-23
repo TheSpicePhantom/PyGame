@@ -164,6 +164,9 @@ class WorldController:
         
         self.all_sprites.add(self.player, layer=settings.LAYER_PLAYER)
         
+        # Store player reference for auto-save
+        self._auto_save_player = self.player
+        
         # Kamera initialisieren
         self.camera = Camera(target=self.player, lerp_speed=settings.CAMERA_LERP_SPEED)
         # Set camera position immediately to player position (no lerp delay on start)
@@ -173,38 +176,17 @@ class WorldController:
         self.camera_zoom = 1.0  # Start at 100%
         
         # Initialize Auto-Save System
-        def get_player_position():
-            """Get current player position for auto-save"""
-            if self.player:
-                return (self.player.rect.x, self.player.rect.y)
-            return (0, 0)
-        
-        def save_game():
-            """Save game callback for auto-save"""
-            if not self.game_initialized or not self.world or not self.player:
-                return
-            
-            try:
-                if self.player_data_manager:
-                    sprint_multiplier = getattr(self.player, 'sprint_multiplier', 1.2)
-                    sneak_multiplier = getattr(self.player, 'sneak_multiplier', 0.8)
-                    self.player_data_manager.save_player(
-                        position=(self.player.rect.x, self.player.rect.y),
-                        inventory=getattr(self.player, 'inventory', {}),
-                        faction_data=getattr(self.player, 'faction', {'policies': [], 'allies': [], 'enemies': []}),
-                        inventory_size=None,  # Will be set by UI controller
-                        sprint_multiplier=sprint_multiplier,
-                        sneak_multiplier=sneak_multiplier
-                    )
-            except Exception as e:
-                print(f"[WorldController] Error saving game: {e}")
-        
+        # AutoSaveSystem saves chunks automatically, but we also need to save player data
+        # So we'll extend the save() method to also save player data
         self.auto_save = AutoSaveSystem(
-            save_callback=save_game,
-            get_player_pos=get_player_position,
-            get_game_state=lambda: {'can_save': True, 'is_paused': False, 'menu_active': False}
+            world=self.world,
+            save_slot=save_slot,
+            interval_seconds=300.0  # 5 minutes default
         )
-        self.auto_save.start()
+        
+        # Store reference to player_data_manager for saving player data during auto-save
+        self._auto_save_player_data_manager = self.player_data_manager
+        self._auto_save_player = None  # Will be set after player is created
         
         # Mark game as initialized
         self.game_initialized = True
@@ -263,6 +245,29 @@ class WorldController:
             self.camera.update(dt)
         if self.world:
             self.world.update(self.player.rect.center if self.player else (0, 0))
+        
+        # Update auto-save system (checks if save is needed)
+        if self.auto_save:
+            old_save_time = self.auto_save.last_save_time
+            self.auto_save.update(dt)
+            # Check if auto-save was triggered (last_save_time changed)
+            if self.auto_save.last_save_time != old_save_time:
+                # Also save player data when auto-save triggers
+                if self._auto_save_player_data_manager and self._auto_save_player:
+                    try:
+                        sprint_multiplier = getattr(self._auto_save_player, 'sprint_multiplier', 1.2)
+                        sneak_multiplier = getattr(self._auto_save_player, 'sneak_multiplier', 0.8)
+                        self._auto_save_player_data_manager.save_player(
+                            position=(self._auto_save_player.rect.x, self._auto_save_player.rect.y),
+                            inventory=getattr(self._auto_save_player, 'inventory', {}),
+                            faction_data=getattr(self._auto_save_player, 'faction', {'policies': [], 'allies': [], 'enemies': []}),
+                            inventory_size=None,
+                            sprint_multiplier=sprint_multiplier,
+                            sneak_multiplier=sneak_multiplier
+                        )
+                        print(f"[WorldController] Player data saved during auto-save")
+                    except Exception as e:
+                        print(f"[WorldController] Error saving player data during auto-save: {e}")
         
         self.performance_monitor.end_update()
     
