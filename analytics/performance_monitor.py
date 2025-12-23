@@ -17,8 +17,15 @@ except ImportError:
 class PerformanceMonitor:
     """Collects and analyzes performance metrics"""
     
-    def __init__(self):
+    def __init__(self, diagnostics=None):
+        """
+        Initialize PerformanceMonitor
+        
+        Args:
+            diagnostics: Optional DiagnosticsService instance for logging
+        """
         self.enabled = True  # Always enabled
+        self.diagnostics = diagnostics  # Store diagnostics service for logging
         
         # Frame timing
         self.frame_times = deque(maxlen=300)  # Last 300 frames (~5 seconds at 60 FPS)
@@ -307,63 +314,79 @@ class PerformanceMonitor:
         return sorted_data[min(index, len(sorted_data) - 1)]
     
     def print_stats(self):
-        """Print performance statistics to console"""
+        """Print performance statistics using diagnostics service"""
         stats = self.get_stats()
         
-        print(f"\nFrame Times (ms):")
-        print(f"  Min: {stats['frame_times']['min']:.2f}")
-        print(f"  Max: {stats['frame_times']['max']:.2f}")
-        print(f"  Avg: {stats['frame_times']['avg']:.2f}")
-        print(f"  Median: {stats['frame_times']['median']:.2f}")
-        print(f"  P95: {stats['frame_times']['p95']:.2f}")
-        print(f"  P99: {stats['frame_times']['p99']:.2f}")
+        if not self.diagnostics:
+            return  # No diagnostics service available, skip output
         
-        print(f"\nFPS:")
-        print(f"  Min: {stats['fps']['min']:.1f}")
-        print(f"  Max: {stats['fps']['max']:.1f}")
-        print(f"  Avg: {stats['fps']['avg']:.1f}")
-        print(f"  Median: {stats['fps']['median']:.1f}")
+        # Use diagnostics service for structured logging
+        self.diagnostics.info("PerformanceMonitor", "Performance Statistics:")
         
-        print(f"\nUpdate Times (ms):")
-        print(f"  Min: {stats['update_times']['min']:.2f}")
-        print(f"  Max: {stats['update_times']['max']:.2f}")
-        print(f"  Avg: {stats['update_times']['avg']:.2f}")
-        print(f"  Median: {stats['update_times']['median']:.2f}")
+        # Frame Times
+        self.diagnostics.info("PerformanceMonitor", 
+            f"Frame Times (ms) - Min: {stats['frame_times']['min']:.2f}, "
+            f"Max: {stats['frame_times']['max']:.2f}, "
+            f"Avg: {stats['frame_times']['avg']:.2f}, "
+            f"Median: {stats['frame_times']['median']:.2f}, "
+            f"P95: {stats['frame_times']['p95']:.2f}, "
+            f"P99: {stats['frame_times']['p99']:.2f}")
         
-        print(f"\nRender Times (ms):")
-        print(f"  Min: {stats['render_times']['min']:.2f}")
-        print(f"  Max: {stats['render_times']['max']:.2f}")
-        print(f"  Avg: {stats['render_times']['avg']:.2f}")
-        print(f"  Median: {stats['render_times']['median']:.2f}")
+        # FPS
+        self.diagnostics.info("PerformanceMonitor",
+            f"FPS - Min: {stats['fps']['min']:.1f}, "
+            f"Max: {stats['fps']['max']:.1f}, "
+            f"Avg: {stats['fps']['avg']:.1f}, "
+            f"Median: {stats['fps']['median']:.1f}")
         
-        print(f"\nChunk Loads: {stats['chunk_load_count']}")
-        print(f"Chunk Generations: {stats['chunk_generation_count']}")
-        print(f"Chunk Saves: {stats['chunk_save_count']}")
-        print(f"Chunk Modifications: {stats['chunk_modified_count']}")
+        # Update Times
+        self.diagnostics.info("PerformanceMonitor",
+            f"Update Times (ms) - Min: {stats['update_times']['min']:.2f}, "
+            f"Max: {stats['update_times']['max']:.2f}, "
+            f"Avg: {stats['update_times']['avg']:.2f}, "
+            f"Median: {stats['update_times']['median']:.2f}")
         
+        # Render Times
+        self.diagnostics.info("PerformanceMonitor",
+            f"Render Times (ms) - Min: {stats['render_times']['min']:.2f}, "
+            f"Max: {stats['render_times']['max']:.2f}, "
+            f"Avg: {stats['render_times']['avg']:.2f}, "
+            f"Median: {stats['render_times']['median']:.2f}")
+        
+        # Chunk Statistics
+        self.diagnostics.info("PerformanceMonitor",
+            f"Chunk Statistics - Loads: {stats['chunk_load_count']}, "
+            f"Generations: {stats['chunk_generation_count']}, "
+            f"Saves: {stats['chunk_save_count']}, "
+            f"Modifications: {stats['chunk_modified_count']}")
+        
+        # Chunk Render Times
         if self.chunk_render_times:
             render_stats = stats['chunk_render_times']
-            print(f"\nChunk Render Times (ms):")
-            print(f"  Min: {render_stats['min']:.2f}")
-            print(f"  Max: {render_stats['max']:.2f}")
-            print(f"  Avg: {render_stats['avg']:.2f}")
-            print(f"  Median: {render_stats['median']:.2f}")
+            self.diagnostics.info("PerformanceMonitor",
+                f"Chunk Render Times (ms) - Min: {render_stats['min']:.2f}, "
+                f"Max: {render_stats['max']:.2f}, "
+                f"Avg: {render_stats['avg']:.2f}, "
+                f"Median: {render_stats['median']:.2f}")
         
-        print(f"Movement Events: {stats['movement_count']}")
+        # Movement Events
+        self.diagnostics.info("PerformanceMonitor", f"Movement Events: {stats['movement_count']}")
         
+        # CPU Usage
         if self.cpu_usage_samples:
             cpu_stats = stats['cpu_usage']
-            print(f"\nCPU Usage (%):")
-            print(f"  Current: {cpu_stats['current']:.1f}")
-            print(f"  Avg: {cpu_stats['avg']:.1f}")
-            print(f"  Max: {cpu_stats['max']:.1f}")
+            self.diagnostics.info("PerformanceMonitor",
+                f"CPU Usage (%) - Current: {cpu_stats['current']:.1f}, "
+                f"Avg: {cpu_stats['avg']:.1f}, "
+                f"Max: {cpu_stats['max']:.1f}")
         
+        # GPU Usage
         if self.gpu_usage_samples:
             gpu_stats = stats['gpu_usage']
-            print(f"\nGPU Usage (%):")
-            print(f"  Current: {gpu_stats['current']:.1f}")
-            print(f"  Avg: {gpu_stats['avg']:.1f}")
-            print(f"  Max: {gpu_stats['max']:.1f}")
+            self.diagnostics.info("PerformanceMonitor",
+                f"GPU Usage (%) - Current: {gpu_stats['current']:.1f}, "
+                f"Avg: {gpu_stats['avg']:.1f}, "
+                f"Max: {gpu_stats['max']:.1f}")
     
     def _update_cpu_usage(self):
         """Update CPU usage (process-specific) using psutil"""

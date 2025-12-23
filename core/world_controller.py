@@ -33,6 +33,7 @@ class WorldController:
         self.modern_gl_renderer = modern_gl_renderer
         self.width = width
         self.height = height
+        self.diagnostics = diagnostics  # Store diagnostics service for logging
         
         # Game components
         self.world: Optional[World] = None
@@ -64,38 +65,42 @@ class WorldController:
             'line_count': 0
         }
     
-    def initialize_game(self, save_slot: int = 1, world_name: Optional[str] = None, 
-                       seed: Optional[int] = None):
+    def initialize_game(self, world_name: str, seed: Optional[int] = None):
         """Initialize the game world"""
         from core.sprite import LayeredUpdates, SpriteGroup
+        from world.world_utils import sanitize_world_name
         
         # Sprite-Gruppen (ohne Pygame)
         self.all_sprites = LayeredUpdates()
         self.resource_sprites = SpriteGroup()
         self.building_sprites = SpriteGroup()
         
+        # Sanitize world name for use as directory name
+        sanitized_name = sanitize_world_name(world_name)
+        
         # Welt erstellen
         self.world = World(
             self.all_sprites, 
             self.resource_sprites, 
-            save_slot=save_slot, 
+            world_name=sanitized_name, 
             seed=seed,
-            performance_monitor=self.performance_monitor
+            performance_monitor=self.performance_monitor,
+            diagnostics=self.diagnostics
         )
         
-        # Set world name if provided
-        if world_name:
-            self.world.chunk_manager.set_world_name(world_name)
+        # Set world name in metadata (use original name, not sanitized)
+        self.world.chunk_manager.set_world_name(world_name)
         
         # Initialize PlayerDataManager
-        self.player_data_manager = PlayerDataManager(save_slot)
+        self.player_data_manager = PlayerDataManager(sanitized_name)
         
         # Load player data from save (required - no fallback to default spawn)
         player_data = self.player_data_manager.load_player()
         
         if not player_data:
             # No save exists - create initial save at world center
-            print(f"[WorldController] No existing player data found for slot {save_slot}, creating initial save...")
+            if self.diagnostics:
+                self.diagnostics.info("WorldController", f"No existing player data found for world '{world_name}', creating initial save...")
             world_size_pixels = settings.WORLD_SIZE_CHUNKS * settings.CHUNK_SIZE * settings.TILE_SIZE
             initial_x = world_size_pixels / 2.0
             initial_y = world_size_pixels / 2.0
@@ -112,19 +117,20 @@ class WorldController:
             # Reload to get the newly created data
             player_data = self.player_data_manager.load_player()
             if not player_data:
-                raise RuntimeError(f"Failed to create initial player data for slot {save_slot}")
+                raise RuntimeError(f"Failed to create initial player data for world '{world_name}'")
         
         # Extract player data from save
         spawn_pos = self.player_data_manager.get_spawn_position()
         if not spawn_pos:
-            raise RuntimeError(f"Failed to get spawn position from save slot {save_slot}")
+            raise RuntimeError(f"Failed to get spawn position from world '{world_name}'")
         
         # Check if spawn position is traversable, if not find nearest traversable position
         start_world_x, start_world_y = self._find_traversable_spawn_position(spawn_pos[0], spawn_pos[1])
         
         # Update spawn position if it was changed
         if (start_world_x, start_world_y) != spawn_pos:
-            print(f"[WorldController] Spawn position adjusted from {spawn_pos} to ({start_world_x:.0f}, {start_world_y:.0f}) - original was not traversable")
+            if self.diagnostics:
+                self.diagnostics.info("WorldController", f"Spawn position adjusted from {spawn_pos} to ({start_world_x:.0f}, {start_world_y:.0f}) - original was not traversable")
             # Update saved position to traversable position
             inventory_size = player_data.get('inventory_size', None)
             sprint_multiplier = player_data.get('sprint_multiplier', 1.2)
@@ -141,8 +147,9 @@ class WorldController:
         player_inventory = player_data.get('inventory', {})
         player_faction = player_data.get('faction', {'policies': [], 'allies': [], 'enemies': []})
         
-        print(f"[WorldController] Loaded player data from save slot {save_slot}")
-        print(f"[WorldController] Player spawn position: ({start_world_x:.0f}, {start_world_y:.0f})")
+        if self.diagnostics:
+            self.diagnostics.info("WorldController", f"Loaded player data from world '{world_name}'")
+            self.diagnostics.info("WorldController", f"Player spawn position: ({start_world_x:.0f}, {start_world_y:.0f})")
         
         # Get sprint and sneak multipliers from player data
         sprint_multiplier = player_data.get('sprint_multiplier', 1.2)
@@ -180,8 +187,9 @@ class WorldController:
         # So we'll extend the save() method to also save player data
         self.auto_save = AutoSaveSystem(
             world=self.world,
-            save_slot=save_slot,
-            interval_seconds=300.0  # 5 minutes default
+            world_name=sanitized_name,
+            interval_seconds=300.0,  # 5 minutes default
+            diagnostics=self.diagnostics
         )
         
         # Store reference to player_data_manager for saving player data during auto-save
@@ -191,7 +199,8 @@ class WorldController:
         # Mark game as initialized
         self.game_initialized = True
         
-        print(f"[WorldController] Game initialized - Player spawned at ({start_world_x:.0f}, {start_world_y:.0f})")
+        if self.diagnostics:
+            self.diagnostics.info("WorldController", f"Game initialized - Player spawned at ({start_world_x:.0f}, {start_world_y:.0f})")
         
         # Pre-load visible chunks around spawn position
         if self.world and self.world.chunk_manager:
@@ -225,11 +234,13 @@ class WorldController:
                             # Found traversable tile - return center position
                             found_x = check_tile_x * settings.TILE_SIZE + settings.TILE_SIZE / 2.0
                             found_y = check_tile_y * settings.TILE_SIZE + settings.TILE_SIZE / 2.0
-                            print(f"[WorldController] Found traversable spawn position at ({found_x:.0f}, {found_y:.0f})")
+                            if self.diagnostics:
+                                self.diagnostics.info("WorldController", f"Found traversable spawn position at ({found_x:.0f}, {found_y:.0f})")
                             return (found_x, found_y)
         
         # If no traversable tile found, return original position
-        print(f"[WorldController] Warning: Could not find traversable spawn position, using original ({start_x:.0f}, {start_y:.0f})")
+        if self.diagnostics:
+            self.diagnostics.warning("WorldController", f"Could not find traversable spawn position, using original ({start_x:.0f}, {start_y:.0f})")
         return (start_x, start_y)
     
     def update(self, dt: float):
@@ -265,9 +276,11 @@ class WorldController:
                             sprint_multiplier=sprint_multiplier,
                             sneak_multiplier=sneak_multiplier
                         )
-                        print(f"[WorldController] Player data saved during auto-save")
+                        if self.diagnostics:
+                            self.diagnostics.info("WorldController", "Player data saved during auto-save")
                     except Exception as e:
-                        print(f"[WorldController] Error saving player data during auto-save: {e}")
+                        if self.diagnostics:
+                            self.diagnostics.error("WorldController", f"Error saving player data during auto-save: {e}")
         
         self.performance_monitor.end_update()
     
@@ -557,12 +570,15 @@ class WorldController:
             traversable = tile_data.get('traversable', False)
             if traversable:
                 destroyable = self._is_tile_destroyable(tile_data)
-                print(f"[WorldController] Left click on tile ({tile_x}, {tile_y}): destroyable={destroyable}")
+                if self.diagnostics:
+                    self.diagnostics.info("WorldController", f"Left click on tile ({tile_x}, {tile_y}): destroyable={destroyable}")
             else:
-                print(f"[WorldController] Left click on tile ({tile_x}, {tile_y}): nicht zerstörbar (nicht traversable)")
+                if self.diagnostics:
+                    self.diagnostics.info("WorldController", f"Left click on tile ({tile_x}, {tile_y}): nicht zerstörbar (nicht traversable)")
         elif button == 4:  # Right click
             can_build = self._can_build_on_tile(tile_data)
-            print(f"[WorldController] Right click on tile ({tile_x}, {tile_y}): can_build={can_build}")
+            if self.diagnostics:
+                self.diagnostics.info("WorldController", f"Right click on tile ({tile_x}, {tile_y}): can_build={can_build}")
     
     def _get_tile_under_mouse(self, mouse_x: int, mouse_y: int):
         """Get tile under mouse cursor if within 8 tiles of player"""

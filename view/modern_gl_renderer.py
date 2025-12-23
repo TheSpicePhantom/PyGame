@@ -10,7 +10,7 @@ from core import settings
 class ModernGLRenderer:
     """GPU-beschleunigter Renderer für Chunks und Sprites"""
     
-    def __init__(self, ctx: moderngl.Context, screen_width: int, screen_height: int, use_pyglet=False):
+    def __init__(self, ctx: moderngl.Context, screen_width: int, screen_height: int, use_pyglet=False, diagnostics=None):
         """
         Initialize ModernGL Renderer
         
@@ -19,12 +19,14 @@ class ModernGLRenderer:
             screen_width: Screen width in pixels
             screen_height: Screen height in pixels
             use_pyglet: If True, use pyglet coordinate system (Y up), else Pygame (Y down)
+            diagnostics: Optional DiagnosticsService instance for logging
         """
         self.ctx = ctx
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.use_pyglet = use_pyglet
         self.current_zoom = 1.0  # Current zoom level (1.0 = 100%)
+        self.diagnostics = diagnostics  # Store diagnostics service for logging
         
         # Load shaders
         self.chunk_program = self._load_chunk_shader()
@@ -97,12 +99,15 @@ class ModernGLRenderer:
                 vertex_shader=vertex_shader,
                 fragment_shader=fragment_shader
             )
-            print(f"[ModernGL] Sprite shader compiled successfully")
+            if self.diagnostics:
+                self.diagnostics.info("ModernGL", "Sprite shader compiled successfully")
             return program
         except Exception as e:
-            print(f"[ModernGL] Error compiling sprite shader: {e}")
-            import traceback
-            traceback.print_exc()
+            if self.diagnostics:
+                self.diagnostics.error("ModernGL", f"Error compiling sprite shader: {e}")
+            else:
+                import traceback
+                traceback.print_exc()
             raise
     
     def _load_ui_shader(self) -> moderngl.Program:
@@ -473,7 +478,8 @@ class ModernGLRenderer:
                 fragment_shader=simple_fragment_shader
             )
         except Exception as e:
-            print(f"[Debug] Error creating simple shader: {e}")
+            if self.diagnostics:
+                self.diagnostics.error("ModernGL", f"Error creating simple shader: {e}")
             return
         
         # Create a red quad in NDC coordinates (center of screen)

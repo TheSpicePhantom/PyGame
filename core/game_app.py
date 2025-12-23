@@ -111,27 +111,26 @@ class GameApp:
         elif state == GameState.SETTINGS:
             self.ui_controller.hide_settings_menu()
     
-    def start_new_world(self, save_slot: int, world_name: str, seed: Optional[int] = None):
+    def start_new_world(self, world_name: str, seed: Optional[int] = None):
         """
         Starte eine neue Welt
         
         Args:
-            save_slot: Save-Slot Nummer
-            world_name: Name der Welt
+            world_name: Name der Welt (wird als Ordnername verwendet)
             seed: Optionaler Seed für Weltgenerierung
         """
-        self.lifecycle.start_new_world(save_slot, world_name, seed)
+        self.lifecycle.start_new_world(world_name, seed)
         self.game_initialized = True
         self.change_state(GameState.INGAME)
     
-    def load_world(self, save_slot: int):
+    def load_world(self, world_name: str):
         """
         Lade eine bestehende Welt
         
         Args:
-            save_slot: Save-Slot Nummer
+            world_name: Name der Welt (wird als Ordnername verwendet)
         """
-        self.lifecycle.load_world(save_slot)
+        self.lifecycle.load_world(world_name)
         self.game_initialized = True
         self.change_state(GameState.INGAME)
     
@@ -154,12 +153,12 @@ class GameApp:
         self.game_initialized = False
     
     # Legacy method for compatibility
-    def initialize_game(self, save_slot: int = 1, world_name: Optional[str] = None, seed: Optional[int] = None):
+    def initialize_game(self, world_name: Optional[str] = None, seed: Optional[int] = None):
         """Legacy method - use start_new_world() or load_world() instead"""
         if world_name:
-            self.start_new_world(save_slot, world_name, seed)
+            self.start_new_world(world_name, seed)
         else:
-            self.load_world(save_slot)
+            raise ValueError("world_name is required")
     
     def is_menu_active(self) -> bool:
         """Check if any menu is currently active"""

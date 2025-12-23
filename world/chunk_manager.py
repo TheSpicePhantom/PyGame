@@ -18,6 +18,7 @@ from world.region_manager import (
     SeedMismatchError,
     RegionFileError
 )
+from world.world_utils import sanitize_world_name, get_world_save_dir
 
 
 class Chunk:
@@ -63,28 +64,31 @@ class Chunk:
 class ChunkManager:
     """Manages chunk loading/unloading and save/load to JSON"""
 
-    def __init__(self, save_slot: int, terrain_gen, performance_monitor=None):
+    def __init__(self, world_name: str, terrain_gen, performance_monitor=None, diagnostics=None):
         """
-        Initialize ChunkManager for a specific save slot
+        Initialize ChunkManager for a specific world
         
         Args:
-            save_slot: Save slot number (1-3)
+            world_name: World name (will be sanitized for use as directory name)
             terrain_gen: TerrainGenerator instance for new chunk generation
             performance_monitor: Optional PerformanceMonitor instance for metrics
+            diagnostics: Optional DiagnosticsService instance for logging
         """
-        self.save_slot = save_slot
+        self.world_name = world_name
+        self.sanitized_name = sanitize_world_name(world_name)
         self.terrain_gen = terrain_gen
         self.performance_monitor = performance_monitor
+        self.diagnostics = diagnostics  # Store diagnostics service for logging
         self.loaded_chunks: Dict[Tuple[int, int], Chunk] = {}
         self.player_chunk_pos = None  # Changed from (0, 0) to None to force initial load
         
-        # Setup save directories
-        self.save_dir = Path(f"saves/slot_{save_slot}")
+        # Setup save directories using world name
+        self.save_dir = get_world_save_dir(world_name)
         self.chunks_dir = self.save_dir / "chunks"  # Keep for backward compatibility check
         self.chunks_dir.mkdir(parents=True, exist_ok=True)
         
         # Initialize RegionManager for binary region-based storage
-        self.region_manager = RegionManager(save_slot)
+        self.region_manager = RegionManager(world_name)
         
         # Load or create world metadata
         self.metadata_file = self.save_dir / "world_metadata.json"
@@ -133,15 +137,18 @@ class ChunkManager:
                         metadata = self._migrate_metadata(metadata)
                     return metadata
             except Exception as e:
-                print(f"Error loading metadata: {e}")
+                if self.diagnostics:
+                    self.diagnostics.error("ChunkManager", f"Error loading metadata: {e}")
+                else:
+                    print(f"Error loading metadata: {e}")
         
         # Default metadata for new world (new structure)
         from datetime import datetime
-        world_id = f"slot_{self.save_slot}"
+        world_id = self.sanitized_name
         return {
             "version": 1,
             "world_id": world_id,
-            "name": f"World {self.save_slot}",
+            "name": self.world_name,
             "created_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "last_played_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "seed": {
@@ -222,11 +229,11 @@ class ChunkManager:
                     pass
         
         # Create new metadata structure
-        world_id = f"slot_{self.save_slot}"
+        world_id = self.sanitized_name
         return {
             "version": 1,
             "world_id": world_id,
-            "name": old_metadata.get("world_name", f"World {self.save_slot}"),
+            "name": old_metadata.get("world_name", self.world_name),
             "created_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),  # Approximate
             "last_played_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "seed": {
@@ -297,7 +304,10 @@ class ChunkManager:
             with open(self.metadata_file, 'w', encoding='utf-8') as f:
                 json.dump(self.metadata, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"Error saving metadata: {e}")
+            if self.diagnostics:
+                self.diagnostics.error("ChunkManager", f"Error saving metadata: {e}")
+            else:
+                print(f"Error saving metadata: {e}")
 
     def set_seed(self, seed: int):
         """Set the world seed"""
@@ -317,7 +327,7 @@ class ChunkManager:
     
     def get_world_name(self) -> str:
         """Get the world name"""
-        return self.metadata.get("name", f"World {self.save_slot}")
+        return self.metadata.get("name", self.world_name)
     
     def set_world_name(self, name: str):
         """Set the world name"""
@@ -454,10 +464,16 @@ class ChunkManager:
             if self.performance_monitor:
                 self.performance_monitor.record_chunk_save(chunk.chunk_x, chunk.chunk_y, save_time)
         except RegionFileError as e:
-            print(f"[ChunkManager] Failed to save chunk ({chunk.chunk_x}, {chunk.chunk_y}): {e}")
+            if self.diagnostics:
+                self.diagnostics.error("ChunkManager", f"Failed to save chunk ({chunk.chunk_x}, {chunk.chunk_y})", error=str(e))
+            else:
+                print(f"[ChunkManager] Failed to save chunk ({chunk.chunk_x}, {chunk.chunk_y}): {e}")
             # Don't re-raise - allow game to continue
         except Exception as e:
-            print(f"[ChunkManager] Unexpected error saving chunk ({chunk.chunk_x}, {chunk.chunk_y}): {e}")
+            if self.diagnostics:
+                self.diagnostics.error("ChunkManager", f"Unexpected error saving chunk ({chunk.chunk_x}, {chunk.chunk_y})", error=str(e))
+            else:
+                print(f"[ChunkManager] Unexpected error saving chunk ({chunk.chunk_x}, {chunk.chunk_y}): {e}")
             import traceback
             traceback.print_exc()
     
@@ -514,9 +530,12 @@ class ChunkManager:
                 # During shutdown, no delay - save as fast as possible
                 
             except Exception as e:
-                print(f"[ChunkManager] Error in save worker: {e}")
-                import traceback
-                traceback.print_exc()
+                if self.diagnostics:
+                    self.diagnostics.error("ChunkManager", f"Error in save worker: {e}")
+                else:
+                    print(f"[ChunkManager] Error in save worker: {e}")
+                    import traceback
+                    traceback.print_exc()
                 # Clean up on error
                 try:
                     with self._save_lock:
@@ -593,8 +612,11 @@ class ChunkManager:
         except SeedMismatchError as e:
             # Seed mismatch = chunk belongs to a different world
             # Reject it and return None to force regeneration (prevents mixing worlds)
-            print(f"[ChunkManager] SEED MISMATCH: Chunk ({chunk_x}, {chunk_y}) belongs to different world - rejecting and regenerating")
-            print(f"  Details: {e}")
+            if self.diagnostics:
+                self.diagnostics.warning("ChunkManager", f"SEED MISMATCH: Chunk ({chunk_x}, {chunk_y}) belongs to different world - rejecting and regenerating", details=str(e))
+            else:
+                print(f"[ChunkManager] SEED MISMATCH: Chunk ({chunk_x}, {chunk_y}) belongs to different world - rejecting and regenerating")
+                print(f"  Details: {e}")
             # Return None to force regeneration - don't load chunks from different worlds
             return None
         except (ChunkCorruptedError, RegionFileError) as e:

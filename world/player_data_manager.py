@@ -26,9 +26,10 @@ class PlayerDataManager:
     DEFAULT_SPRINT_MULTIPLIER = 1.2  # Default sprint speed multiplier
     DEFAULT_SNEAK_MULTIPLIER = 0.8  # Default sneak speed multiplier
     
-    def __init__(self, save_slot: int):
-        self.save_slot = save_slot
-        self.save_dir = Path(f"saves/slot_{save_slot}")
+    def __init__(self, world_name: str):
+        from world.world_utils import get_world_save_dir
+        self.world_name = world_name
+        self.save_dir = get_world_save_dir(world_name)
         self.player_file = self.save_dir / "player_data.json"
         self.logger = logging.getLogger(__name__)
     

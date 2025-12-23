@@ -100,7 +100,7 @@ class GameWindow(pyglet.window.Window):
         self.diagnostics.info("Main", f"OpenGL version: {self.ctx.info.get('GL_VERSION', 'unknown')}")
         
         # Create ModernGL renderer (with pyglet coordinate system)
-        self.modern_gl_renderer = ModernGLRenderer(self.ctx, width, height, use_pyglet=True)
+        self.modern_gl_renderer = ModernGLRenderer(self.ctx, width, height, use_pyglet=True, diagnostics=self.diagnostics)
         self.diagnostics.info("Main", "Using ModernGL for GPU-accelerated rendering (pyglet mode)")
         self.diagnostics.info("Main", "Performance monitoring enabled")
         
@@ -161,7 +161,7 @@ class GameWindow(pyglet.window.Window):
         # Schedule update loop at 120 FPS (8.33ms per frame)
         pyglet.clock.schedule_interval(self.update, 1.0 / 120.0)
         
-        print(f"[Main] Window created: {width}x{height}, mode: {initial_mode}")
+        self.diagnostics.info("Main", f"Window created: {width}x{height}, mode: {initial_mode}")
     
     def _find_next_available_slot(self) -> int:
         """Find next available save slot number"""
@@ -256,7 +256,8 @@ class GameWindow(pyglet.window.Window):
                             return (found_x, found_y)
         
         # Fallback: return original position if no traversable tile found
-        print(f"[Main] Warning: Could not find traversable position near ({start_x:.0f}, {start_y:.0f}), using original position")
+        if self.diagnostics:
+            self.diagnostics.warning("Main", f"Could not find traversable position near ({start_x:.0f}, {start_y:.0f}), using original position")
         return (start_x, start_y)
     
     def _initialize_game(self, save_slot=1, world_name=None, seed=None):
@@ -288,7 +289,8 @@ class GameWindow(pyglet.window.Window):
         
         if not player_data:
             # No save exists - create initial save at world center
-            print(f"[Main] No existing player data found for slot {save_slot}, creating initial save...")
+            if self.diagnostics:
+                self.diagnostics.info("Main", f"No existing player data found for slot {save_slot}, creating initial save...")
             world_size_pixels = settings.WORLD_SIZE_CHUNKS * settings.CHUNK_SIZE * settings.TILE_SIZE
             initial_x = world_size_pixels / 2.0
             initial_y = world_size_pixels / 2.0
@@ -317,7 +319,8 @@ class GameWindow(pyglet.window.Window):
         
         # Update spawn position if it was changed
         if (start_world_x, start_world_y) != spawn_pos:
-            print(f"[Main] Spawn position adjusted from {spawn_pos} to ({start_world_x:.0f}, {start_world_y:.0f}) - original was not traversable")
+            if self.diagnostics:
+                self.diagnostics.info("Main", f"Spawn position adjusted from {spawn_pos} to ({start_world_x:.0f}, {start_world_y:.0f}) - original was not traversable")
             # Update saved position to traversable position
             # Preserve inventory_size and multipliers from existing data
             inventory_size = player_data.get('inventory_size', None)
@@ -334,15 +337,16 @@ class GameWindow(pyglet.window.Window):
         player_inventory = player_data.get('inventory', {})
         player_faction = player_data.get('faction', {'policies': [], 'allies': [], 'enemies': []})
         
-        print(f"[Main] Loaded player data from save slot {save_slot}")
-        print(f"[Main] Player spawn position: ({start_world_x:.0f}, {start_world_y:.0f})")
-        if isinstance(player_inventory, dict) and 'slots' in player_inventory:
-            # Count items in slots
-            item_count = sum(1 for row in player_inventory.get('slots', []) for slot in row if slot is not None)
-            print(f"[Main] Player inventory: {item_count} items in slots")
-        else:
-            print(f"[Main] Player inventory: {len(player_inventory)} items (old format)")
-        print(f"[Main] Player faction: {len(player_faction.get('policies', []))} policies")
+        if self.diagnostics:
+            self.diagnostics.info("Main", f"Loaded player data from save slot {save_slot}")
+            self.diagnostics.info("Main", f"Player spawn position: ({start_world_x:.0f}, {start_world_y:.0f})")
+            if isinstance(player_inventory, dict) and 'slots' in player_inventory:
+                # Count items in slots
+                item_count = sum(1 for row in player_inventory.get('slots', []) for slot in row if slot is not None)
+                self.diagnostics.info("Main", f"Player inventory: {item_count} items in slots")
+            else:
+                self.diagnostics.info("Main", f"Player inventory: {len(player_inventory)} items (old format)")
+            self.diagnostics.info("Main", f"Player faction: {len(player_faction.get('policies', []))} policies")
         
         # Get sprint and sneak multipliers from player data
         sprint_multiplier = player_data.get('sprint_multiplier', 1.2)
@@ -424,11 +428,14 @@ class GameWindow(pyglet.window.Window):
                         sprint_multiplier=sprint_multiplier,
                         sneak_multiplier=sneak_multiplier
                     )
-                    print(f"[Main] Game saved (slot {save_slot})")
+                    if self.diagnostics:
+                        self.diagnostics.info("Main", f"Game saved (slot {save_slot})")
                 else:
-                    print(f"[Main] Warning: PlayerDataManager not available for saving")
+                    if self.diagnostics:
+                        self.diagnostics.warning("Main", "PlayerDataManager not available for saving")
             except Exception as e:
-                print(f"[Main] Error saving game: {e}")
+                if self.diagnostics:
+                    self.diagnostics.error("Main", f"Error saving game: {e}")
                 raise
         
         self.auto_save = AutoSaveSystem(
@@ -442,12 +449,13 @@ class GameWindow(pyglet.window.Window):
         self.game_initialized = True
         
         # Log spawn information
-        print(f"[Main] Game initialized - Player spawned at position ({start_world_x:.0f}, {start_world_y:.0f})")
-        
-        # Log spawn chunk for debugging
-        spawn_chunk = self.player_data_manager.get_spawn_chunk()
-        if spawn_chunk:
-            print(f"[Main] Player spawn chunk: {spawn_chunk}")
+        if self.diagnostics:
+            self.diagnostics.info("Main", f"Game initialized - Player spawned at position ({start_world_x:.0f}, {start_world_y:.0f})")
+            
+            # Log spawn chunk for debugging
+            spawn_chunk = self.player_data_manager.get_spawn_chunk()
+            if spawn_chunk:
+                self.diagnostics.info("Main", f"Player spawn chunk: {spawn_chunk}")
     
     def update(self, dt):
         """Update game logic"""
@@ -537,9 +545,11 @@ class GameWindow(pyglet.window.Window):
                 # Clip-space test quad setup complete
                 self._clip_space_test_setup = True
             except Exception as e:
-                print(f"[Debug] Error setting up clip-space test: {e}")
-                import traceback
-                traceback.print_exc()
+                if self.diagnostics:
+                    self.diagnostics.error("Main", f"Error setting up clip-space test: {e}")
+                else:
+                    import traceback
+                    traceback.print_exc()
         
         # Render clip-space test quad every frame (DISABLED to see chunks)
         # if hasattr(self, '_clip_test_vao'):
@@ -596,9 +606,11 @@ class GameWindow(pyglet.window.Window):
                 # Yellow quad setup complete
                 self._yellow_quad_setup = True
             except Exception as e:
-                print(f"[Debug] Error setting up yellow quad: {e}")
-                import traceback
-                traceback.print_exc()
+                if self.diagnostics:
+                    self.diagnostics.error("Main", f"Error setting up yellow quad: {e}")
+                else:
+                    import traceback
+                    traceback.print_exc()
         
         # Rendering-Pipeline: World -> Debug -> UI -> Performance Stats
         current_state = self.game_app.current_state
@@ -1301,20 +1313,23 @@ class GameWindow(pyglet.window.Window):
             if traversable:
                 # Check if tile is destroyable (placeholder logic)
                 is_destroyable = self._is_tile_destroyable(tile_data)
-                if is_destroyable:
-                    print(f"[Tile Debug] Linksklick auf Tile ({tile_x}, {tile_y}): zerstörbar (Biome: {biome}, Tile-ID: {tile_id})")
-                else:
-                    print(f"[Tile Debug] Linksklick auf Tile ({tile_x}, {tile_y}): nicht zerstörbar (Biome: {biome}, Tile-ID: {tile_id})")
+                if self.diagnostics:
+                    if is_destroyable:
+                        self.diagnostics.debug("Main", f"Linksklick auf Tile ({tile_x}, {tile_y}): zerstörbar (Biome: {biome}, Tile-ID: {tile_id})")
+                    else:
+                        self.diagnostics.debug("Main", f"Linksklick auf Tile ({tile_x}, {tile_y}): nicht zerstörbar (Biome: {biome}, Tile-ID: {tile_id})")
             else:
-                print(f"[Tile Debug] Linksklick auf Tile ({tile_x}, {tile_y}): nicht zerstörbar (nicht traversable, Biome: {biome}, Tile-ID: {tile_id})")
+                if self.diagnostics:
+                    self.diagnostics.debug("Main", f"Linksklick auf Tile ({tile_x}, {tile_y}): nicht zerstörbar (nicht traversable, Biome: {biome}, Tile-ID: {tile_id})")
         
         elif button == mouse.RIGHT:
             # Right click: Check if buildable (traversable check is irrelevant)
             can_build = self._can_build_on_tile(tile_data)
-            if can_build:
-                print(f"[Tile Debug] Rechtsklick auf Tile ({tile_x}, {tile_y}): darauf kann gebaut werden (Biome: {biome}, Tile-ID: {tile_id})")
-            else:
-                print(f"[Tile Debug] Rechtsklick auf Tile ({tile_x}, {tile_y}): darauf kann nicht gebaut werden (Biome: {biome}, Tile-ID: {tile_id})")
+            if self.diagnostics:
+                if can_build:
+                    self.diagnostics.debug("Main", f"Rechtsklick auf Tile ({tile_x}, {tile_y}): darauf kann gebaut werden (Biome: {biome}, Tile-ID: {tile_id})")
+                else:
+                    self.diagnostics.debug("Main", f"Rechtsklick auf Tile ({tile_x}, {tile_y}): darauf kann nicht gebaut werden (Biome: {biome}, Tile-ID: {tile_id})")
     
     def _is_tile_destroyable(self, tile_data: dict) -> bool:
         """
@@ -1384,7 +1399,8 @@ class GameWindow(pyglet.window.Window):
 def main():
     """Hauptfunktion"""
     window = GameWindow()
-    print("[Main] Starting pyglet application...")
+    if window.diagnostics:
+        window.diagnostics.info("Main", "Starting pyglet application...")
     pyglet.app.run()
     
     # Additional cleanup (in case on_close wasn't called)

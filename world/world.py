@@ -10,15 +10,16 @@ from world.chunk_manager import ChunkManager
 class World:
     """Verwaltet die Spielwelt mit dynamischen Chunks und prozeduralem Terrain"""
     
-    def __init__(self, all_sprites, resource_sprites, save_slot=1, seed=None, performance_monitor=None): 
+    def __init__(self, all_sprites, resource_sprites, world_name: str = "Unnamed World", seed=None, performance_monitor=None, diagnostics=None): 
         self.all_sprites = all_sprites
         self.resource_sprites = resource_sprites
-        self.save_slot = save_slot
+        self.world_name = world_name
+        self.diagnostics = diagnostics  # Store diagnostics service for logging
         
         # Initialize chunk manager first (to check if world already exists)
         # We'll create a temporary terrain generator, then update it with the correct seed
         temp_terrain_gen = TerrainGenerator(seed=None)  # Temporary, will be replaced
-        self.chunk_manager = ChunkManager(save_slot, temp_terrain_gen, performance_monitor=performance_monitor)
+        self.chunk_manager = ChunkManager(world_name, temp_terrain_gen, performance_monitor=performance_monitor, diagnostics=diagnostics)
         
         # Initialize seed (load existing or create new)
         # This will set the correct seed in both chunk_manager and terrain_gen
@@ -28,9 +29,12 @@ class World:
         self.terrain_gen = TerrainGenerator(seed=final_seed)
         # Update chunk manager to use the correct terrain generator
         self.chunk_manager.terrain_gen = self.terrain_gen
-        print(f"[World] Terrain generator initialized with seed: {self.terrain_gen.seed}")
-        
-        print(f"[World] ChunkManager initialized for save slot {save_slot}")
+        if self.diagnostics:
+            self.diagnostics.info("World", f"Terrain generator initialized with seed: {self.terrain_gen.seed}")
+            self.diagnostics.info("World", f"ChunkManager initialized for world '{world_name}'")
+        else:
+            print(f"[World] Terrain generator initialized with seed: {self.terrain_gen.seed}")
+            print(f"[World] ChunkManager initialized for world '{world_name}'")
         self._initial_preload_done = False  # Track initial chunk preload
         self.grid_mode = 0  # 0=Off, 1=Chunks only, 2=Chunks+Tiles (F8 cycles)
     
@@ -52,23 +56,33 @@ class World:
         existing_seed = self.chunk_manager.get_seed()
         if existing_seed is not None:
             # Load existing world seed (world already exists)
-            print(f"[World] DEBUG: Loaded existing world seed: {existing_seed} (save_slot={self.save_slot})")
+            if self.diagnostics:
+                self.diagnostics.debug("World", f"Loaded existing world seed: {existing_seed}", world_name=self.world_name)
+            else:
+                print(f"[World] DEBUG: Loaded existing world seed: {existing_seed} (world='{self.world_name}')")
             return existing_seed
         elif seed is not None:
             # Use provided seed for new world (from menu)
-            print(f"[World] DEBUG: Using seed from menu: {seed} (save_slot={self.save_slot})")
+            if self.diagnostics:
+                self.diagnostics.debug("World", f"Using seed from menu: {seed}", world_name=self.world_name)
+                self.diagnostics.info("World", f"Created new world with seed: {seed}")
+            else:
+                print(f"[World] DEBUG: Using seed from menu: {seed} (world='{self.world_name}')")
+                print(f"[World] Created new world with seed: {seed}")
             self.chunk_manager.set_seed(seed)
-            print(f"[World] Created new world with seed: {seed}")
             return seed
         else:
             # ERROR: No seed provided and no existing world
             # This should not happen when creating a world via CreateWorldMenu
             error_msg = (
-                f"[World] ERROR: No seed provided for new world (save_slot={self.save_slot}). "
+                f"No seed provided for new world (world='{self.world_name}'). "
                 "CreateWorldMenu.get_seed() should always return a valid seed. "
                 "This indicates a bug in the world creation flow - seed generation must happen in CreateWorldMenu."
             )
-            print(error_msg)
+            if self.diagnostics:
+                self.diagnostics.error("World", error_msg, world_name=self.world_name)
+            else:
+                print(f"[World] ERROR: {error_msg}")
             raise ValueError(error_msg)
     
     def update(self, player_pos):

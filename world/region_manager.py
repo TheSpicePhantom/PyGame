@@ -136,21 +136,22 @@ class RegionManager:
     # Each region file is ~5-50KB, so 128 files = ~6.4MB memory (acceptable)
     MAX_OPEN_REGIONS = 128
     
-    def __init__(self, save_slot: int, auto_repair_corrupted: bool = False, backup_corrupted: bool = True):
+    def __init__(self, world_name: str, auto_repair_corrupted: bool = False, backup_corrupted: bool = True):
         """
-        Initialize RegionManager for a specific save slot
+        Initialize RegionManager for a specific world
         
         Args:
-            save_slot: Save slot number (1-3)
+            world_name: World name (will be sanitized for use as directory name)
             auto_repair_corrupted: If True, automatically create new headers for corrupted files.
                                    If False, rename corrupted files to .corrupt and skip them.
             backup_corrupted: If True, rename corrupted files to .corrupt instead of overwriting.
                               Only used if auto_repair_corrupted is True.
         """
-        self.save_slot = save_slot
+        from world.world_utils import get_world_save_dir
+        self.world_name = world_name
         self.auto_repair_corrupted = auto_repair_corrupted
         self.backup_corrupted = backup_corrupted
-        self.save_dir = Path(f"saves/slot_{save_slot}")
+        self.save_dir = get_world_save_dir(world_name)
         self.regions_dir = self.save_dir / "regions"
         self.regions_dir.mkdir(parents=True, exist_ok=True)
         

@@ -57,9 +57,10 @@ class WorldSelectStateHandler(StateHandler):
         if result:
             if result == "create_new":
                 self.game_app.change_state(GameState.CREATE_WORLD)
-            elif result.startswith("slot_"):
-                slot_num = int(result.split("_")[1])
-                self.game_app.load_world(save_slot=slot_num)
+            elif result.startswith("world_"):
+                # Extract world name from result (format: "world_<sanitized_name>")
+                world_name = result.replace("world_", "", 1)
+                self.game_app.load_world(world_name=world_name)
             elif result == "quit":
                 # Quit game cleanly
                 import pyglet
@@ -121,8 +122,7 @@ class CreateWorldStateHandler(StateHandler):
         """Create world with entered name and seed"""
         world_name = self.game_app.ui_controller.create_world_menu.get_world_name()
         seed = self.game_app.ui_controller.create_world_menu.get_seed()
-        next_slot = self.game_app._find_next_available_slot()
-        self.game_app.start_new_world(save_slot=next_slot, world_name=world_name, seed=seed)
+        self.game_app.start_new_world(world_name=world_name, seed=seed)
     
     def _setup_player_inventory(self):
         """Setup player inventory in UI controller after game initialization"""

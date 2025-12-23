@@ -31,23 +31,22 @@ class LifecycleManager:
         
         self._world_active = False
     
-    def start_new_world(self, save_slot: int, world_name: str, seed: Optional[int] = None):
+    def start_new_world(self, world_name: str, seed: Optional[int] = None):
         """
         Starte eine neue Welt
         
         Args:
-            save_slot: Save-Slot Nummer
-            world_name: Name der Welt
+            world_name: Name der Welt (wird als Ordnername verwendet)
             seed: Optionaler Seed für Weltgenerierung
         """
         if self._world_active:
             self.diagnostics.warning("LifecycleManager", "World already active, shutting down first")
             self.shutdown_world()
         
-        self.diagnostics.info("LifecycleManager", f"Starting new world: {world_name} (slot {save_slot}, seed={seed})")
+        self.diagnostics.info("LifecycleManager", f"Starting new world: {world_name} (seed={seed})")
         
         # 1. Initialize world
-        self.world_controller.initialize_game(save_slot, world_name, seed)
+        self.world_controller.initialize_game(world_name, seed)
         
         # 2. Setup UI (player inventory)
         self._setup_player_inventory()
@@ -57,21 +56,21 @@ class LifecycleManager:
         
         self.diagnostics.info("LifecycleManager", f"World '{world_name}' started successfully")
     
-    def load_world(self, save_slot: int):
+    def load_world(self, world_name: str):
         """
         Lade eine bestehende Welt
         
         Args:
-            save_slot: Save-Slot Nummer
+            world_name: Name der Welt (wird als Ordnername verwendet)
         """
         if self._world_active:
             self.diagnostics.warning("LifecycleManager", "World already active, shutting down first")
             self.shutdown_world()
         
-        self.diagnostics.info("LifecycleManager", f"Loading world from slot {save_slot}")
+        self.diagnostics.info("LifecycleManager", f"Loading world: {world_name}")
         
         # 1. Initialize world (loads existing data)
-        self.world_controller.initialize_game(save_slot, world_name=None, seed=None)
+        self.world_controller.initialize_game(world_name, seed=None)
         
         # 2. Setup UI (player inventory)
         self._setup_player_inventory()
@@ -79,7 +78,7 @@ class LifecycleManager:
         # 3. Mark world as active
         self._world_active = True
         
-        self.diagnostics.info("LifecycleManager", f"World from slot {save_slot} loaded successfully")
+        self.diagnostics.info("LifecycleManager", f"World '{world_name}' loaded successfully")
     
     def shutdown_world(self, final_save: bool = True):
         """

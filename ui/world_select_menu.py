@@ -69,7 +69,7 @@ class SlotView:
             ]
         
         # Create labels (static text, will be updated when slot info changes)
-        slot_name = slot_info.world_name if slot_info.exists and slot_info.world_name else f"World {slot_info.slot_num}" if slot_info.exists else "New World"
+        slot_name = slot_info.world_name if slot_info.exists and slot_info.world_name else slot_info.world_dir_name if slot_info.exists else "New World"
         
         self.name_label = pyglet.text.Label(
             slot_name,
@@ -224,10 +224,11 @@ class SlotView:
 class WorldSlotInfo:
     """Information about a world save slot"""
     
-    def __init__(self, slot_num: int):
-        self.slot_num = slot_num
-        self.world_id = f"slot_{slot_num}"  # Initialize before _load_info()
-        self.save_dir = Path(f"saves/slot_{slot_num}")
+    def __init__(self, world_dir_name: str):
+        from world.world_utils import sanitize_world_name
+        self.world_dir_name = world_dir_name  # Sanitized directory name
+        self.world_id = world_dir_name  # Use directory name as world_id
+        self.save_dir = Path(f"saves/{world_dir_name}")
         self.metadata_file = self.save_dir / "world_metadata.json"
         self.player_file = self.save_dir / "player_data.json"
         
@@ -259,7 +260,7 @@ class WorldSlotInfo:
             # Handle new format (version 1)
             if metadata.get("version") == 1:
                 self.world_id = metadata.get("world_id", self.world_id)
-                self.world_name = metadata.get("name", f"World {self.slot_num}")
+                self.world_name = metadata.get("name", self.world_dir_name)
                 self.created_at = metadata.get("created_at")
                 self.last_played_at = metadata.get("last_played_at")
                 
@@ -302,7 +303,7 @@ class WorldSlotInfo:
                 # Old format - migrate on the fly
                 self.seed = metadata.get('seed')
                 self.chunks_generated = metadata.get('chunks_generated', 0)
-                self.world_name = metadata.get('world_name', f"World {self.slot_num}")
+                self.world_name = metadata.get('world_name', self.world_dir_name)
                 
                 # Try to get playtime (might not exist in old format)
                 self.playtime_seconds = metadata.get('playtime_seconds', 0)
@@ -324,7 +325,7 @@ class WorldSlotInfo:
             
             self.exists = True
         except Exception as e:
-            print(f"[WorldSelect] Error loading world info for slot {self.slot_num}: {e}")
+            print(f"[WorldSelect] Error loading world info for world '{self.world_dir_name}': {e}")
             import traceback
             traceback.print_exc()
     
@@ -345,7 +346,7 @@ class WorldSlotInfo:
                 self.exists = False
                 return True
         except Exception as e:
-            print(f"[WorldSelect] Error deleting slot {self.slot_num}: {e}")
+            print(f"[WorldSelect] Error deleting world '{self.world_dir_name}': {e}")
         return False
 
 
@@ -423,7 +424,7 @@ class WorldSelectMenu:
         )
         
         # Create cached create button UI elements
-        button_y = 50
+        button_y = 150  # Moved up to make room for quit button below
         button_height = 60
         button_x = (self.window_width - self.slot_width) // 2
         
@@ -516,18 +517,15 @@ class WorldSelectMenu:
             if not save_dir.is_dir():
                 continue
             
-            # Extract slot number from directory name (slot_1, slot_2, etc.)
-            if save_dir.name.startswith("slot_"):
-                try:
-                    slot_num = int(save_dir.name.split("_")[1])
-                except (ValueError, IndexError):
-                    continue
-            else:
-                # New format: use directory name as world_id
-                # For now, still use numeric IDs for compatibility
+            # Skip hidden directories and system files
+            if save_dir.name.startswith('.'):
                 continue
             
-            slot_info = WorldSlotInfo(slot_num)
+            # Use directory name as world identifier (new format)
+            # Also support old slot_X format for backward compatibility
+            world_dir_name = save_dir.name
+            
+            slot_info = WorldSlotInfo(world_dir_name)
             self.slots.append(slot_info)
             
             # Generate preview if slot exists
@@ -565,7 +563,7 @@ class WorldSelectMenu:
                 # Update existing view
                 self.slot_views[i].update_position(slot_y)
                 # Update labels if slot info changed
-                slot_name = slot_info.world_name if slot_info.exists and slot_info.world_name else f"World {slot_info.slot_num}" if slot_info.exists else "New World"
+                slot_name = slot_info.world_name if slot_info.exists and slot_info.world_name else slot_info.world_dir_name if slot_info.exists else "New World"
                 self.slot_views[i].update_name(slot_name)
                 
                 # Update info labels if they exist
@@ -695,7 +693,7 @@ class WorldSelectMenu:
         
         # Check "Create New World" button hover
         self.create_button_hovered = False
-        create_button_y = 50
+        create_button_y = 150  # Moved up to make room for quit button below
         create_button_height = 60
         create_button_x = (self.window_width - self.slot_width) // 2
         
@@ -741,7 +739,7 @@ class WorldSelectMenu:
         # No conversion needed - use y directly
         
         # Check "Create New World" button first
-        create_button_y = 50
+        create_button_y = 150  # Moved up to make room for quit button below
         create_button_height = 60
         create_button_x = (self.window_width - self.slot_width) // 2
         
@@ -765,7 +763,7 @@ class WorldSelectMenu:
             if (slot_x <= x <= slot_x + self.slot_width and
                 slot_y <= y <= slot_y + self.slot_height):
                 self.selected_slot = i
-                return f"slot_{slot.slot_num}"
+                return f"world_{slot.world_dir_name}"
         
         return None
     
@@ -817,7 +815,7 @@ class WorldSelectMenu:
             if slot.exists:
                 self.rename_mode = True
                 self.renaming_slot = self.selected_slot
-                self.rename_text = f"World {slot.slot_num}"
+                self.rename_text = slot.world_name if slot.world_name else slot.world_dir_name
                 return "rename_start"
         
         return None

@@ -8,22 +8,25 @@ from typing import Optional
 class AutoSaveSystem:
     """Verwaltet automatisches Speichern der Welt"""
     
-    def __init__(self, world, save_slot: int, interval_seconds: float = 300.0):
+    def __init__(self, world, world_name: str, interval_seconds: float = 300.0, diagnostics=None):
         """
         Initialisiert das Auto-Save-System
         
         Args:
             world: World-Instanz zum Speichern
-            save_slot: Speicher-Slot (1-3)
+            world_name: Weltname (wird für Logging verwendet)
             interval_seconds: Zeit zwischen Auto-Saves in Sekunden (Standard: 5 Minuten)
+            diagnostics: Optional DiagnosticsService instance for logging
         """
         self.world = world
-        self.save_slot = save_slot
+        self.world_name = world_name
         self.interval_seconds = interval_seconds
         self.last_save_time = time.time()
         self.enabled = True
+        self.diagnostics = diagnostics  # Store diagnostics service for logging
         
-        print(f"[AutoSave] Initialized for save slot {save_slot}, interval: {interval_seconds}s")
+        if self.diagnostics:
+            self.diagnostics.info("AutoSave", f"Initialized for world '{world_name}'", interval_seconds=interval_seconds)
     
     def update(self, dt: float):
         """Wird jeden Frame aufgerufen, prüft ob gespeichert werden muss"""
@@ -49,9 +52,11 @@ class AutoSaveSystem:
             self.world.chunk_manager.save_metadata()
             
             self.last_save_time = time.time()
-            print(f"[AutoSave] World saved (slot {self.save_slot})")
+            if self.diagnostics:
+                self.diagnostics.info("AutoSave", f"World saved (world '{self.world_name}')")
         except Exception as e:
-            print(f"[AutoSave] Error saving world: {e}")
+            if self.diagnostics:
+                self.diagnostics.error("AutoSave", f"Error saving world: {e}")
     
     def enable(self):
         """Aktiviert Auto-Save"""
@@ -60,3 +65,16 @@ class AutoSaveSystem:
     def disable(self):
         """Deaktiviert Auto-Save"""
         self.enabled = False
+    
+    def stop(self, final_save: bool = False):
+        """
+        Stoppt das Auto-Save-System und führt optional einen finalen Save durch
+        
+        Args:
+            final_save: Wenn True, wird ein finaler Save durchgeführt bevor das System gestoppt wird
+        """
+        if final_save:
+            self.save()
+        self.disable()
+        if self.diagnostics:
+            self.diagnostics.info("AutoSave", f"Stopped (final_save={final_save})")

@@ -37,8 +37,8 @@ class DiagnosticsService:
         self.enable_logging = enable_logging
         self.log_to_file = log_to_file
         
-        # Initialize performance monitoring
-        self.performance_monitor = PerformanceMonitor()
+        # Initialize performance monitoring (pass self as diagnostics service)
+        self.performance_monitor = PerformanceMonitor(diagnostics=self)
         
         # Initialize performance logger (if file logging enabled)
         self.performance_logger: Optional[PerformanceLogger] = None
