@@ -85,7 +85,7 @@ class World:
                 print(f"[World] ERROR: {error_msg}")
             raise ValueError(error_msg)
     
-    def update(self, player_pos, camera_pos=None, screen_width=None, screen_height=None, zoom=1.0):
+    def update(self, player_pos, camera_pos=None, screen_width=None, screen_height=None, zoom=1.0, movement_dir=None):
         """
         Update world based on player and camera position (load/unload chunks)
         
@@ -95,6 +95,7 @@ class World:
             screen_width: Screen width in pixels. If None, uses settings.SCREEN_WIDTH
             screen_height: Screen height in pixels. If None, uses settings.SCREEN_HEIGHT
             zoom: Camera zoom factor (default: 1.0)
+            movement_dir: Optional movement direction tuple (dx, dy) for asymmetric chunk loading.
         """
         # Pre-load visible chunks on first update to prevent stuttering
         if not self._initial_preload_done:
@@ -115,7 +116,8 @@ class World:
             screen_width=screen_width,
             screen_height=screen_height,
             zoom=zoom,
-            preload_radius=preload_radius
+            preload_radius=preload_radius,
+            movement_dir=movement_dir
         )
         
         # Process chunks that finished loading in background threads

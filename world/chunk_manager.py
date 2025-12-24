@@ -100,7 +100,11 @@ class ChunkManager:
         self.chunks_dir.mkdir(parents=True, exist_ok=True)
         
         # Initialize RegionManager for binary region-based storage
-        self.region_manager = RegionManager(world_name, diagnostics=diagnostics)
+        self.region_manager = RegionManager(world_name, diagnostics=diagnostics, performance_monitor=performance_monitor)
+        
+        # Renderer reference (optional, set via set_renderer() method)
+        # Used to mark chunks as dirty when tiles are modified
+        self.renderer = None
         
         # Load or create world metadata
         self.metadata_file = self.save_dir / "world_metadata.json"
@@ -168,7 +172,7 @@ class ChunkManager:
                 if self.diagnostics:
                     self.diagnostics.error("ChunkManager", f"Error loading metadata: {e}")
                 else:
-                    print(f"Error loading metadata: {e}")
+                    print(f"[ChunkManager] Error loading metadata: {e}")
         
         # Default metadata for new world (new structure)
         from datetime import datetime
@@ -200,7 +204,7 @@ class ChunkManager:
             "size": {
                 "world_size_mb": 0.0,
                 "region_files": 0,
-                "chunks_generated": 0,
+            "chunks_generated": 0,
                 "chunks_saved": 0
             },
             "factions": {
@@ -307,8 +311,13 @@ class ChunkManager:
             }
         }
 
-    def save_metadata(self):
-        """Save world metadata to file"""
+    def save_metadata(self, generate_preview: bool = False):
+        """
+        Save world metadata to file
+        
+        Args:
+            generate_preview: If True, generate preview image after saving (only for manual saves)
+        """
         try:
             # Update last_played_at timestamp
             from datetime import datetime
@@ -332,13 +341,21 @@ class ChunkManager:
             with open(self.metadata_file, 'w', encoding='utf-8') as f:
                 json.dump(self.metadata, f, indent=2, ensure_ascii=False)
             
-            # Generate preview image after saving metadata
-            self.generate_preview_image()
+            # Generate preview image only if explicitly requested (manual saves)
+            if generate_preview:
+                if hasattr(self, 'generate_preview_image'):
+                    try:
+                        self.generate_preview_image()
+                    except Exception as e:
+                        if self.diagnostics:
+                            self.diagnostics.warning("ChunkManager", f"Failed to generate preview image: {e}")
+                        else:
+                            print(f"[ChunkManager] Failed to generate preview image: {e}")
         except Exception as e:
             if self.diagnostics:
                 self.diagnostics.error("ChunkManager", f"Error saving metadata: {e}")
             else:
-                print(f"Error saving metadata: {e}")
+                print(f"[ChunkManager] Error saving metadata: {e}")
 
     def set_seed(self, seed: int):
         """Set the world seed"""
@@ -346,7 +363,14 @@ class ChunkManager:
             self.metadata["seed"]["world_seed"] = seed
         else:
             # Fallback for old format
-            self.metadata["seed"] = seed
+            self.metadata["seed"] = {
+                "world_seed": seed,
+                "generator_version": "terrain_v1",
+                "params": {
+                    "biome_config": "biomes_v1",
+                    "noise_profile": "default"
+                }
+            }
         self.save_metadata()
 
     def get_seed(self) -> Optional[int]:
@@ -355,6 +379,84 @@ class ChunkManager:
         if isinstance(seed_data, dict):
             return seed_data.get("world_seed")
         return seed_data  # Old format fallback
+    
+    def set_renderer(self, renderer):
+        """
+        Set the renderer instance for dirty flag management.
+        
+        Args:
+            renderer: ModernGLRenderer instance (or None to remove)
+        """
+        self.renderer = renderer
+    
+    def modify_tile(self, chunk_x: int, chunk_y: int, local_x: int, local_y: int, new_tile_data: dict):
+        """
+        Modify a tile in a chunk and mark the chunk as dirty for GPU update.
+        
+        This method is called when a tile is changed (e.g., build/destroy operations).
+        It updates the tile data and informs the renderer that the chunk needs to be re-rendered.
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+            local_x: Local X coordinate within chunk (0-14)
+            local_y: Local Y coordinate within chunk (0-14)
+            new_tile_data: New tile data dictionary (biome, height, color, traversable, etc.)
+        
+        Raises:
+            KeyError: If chunk is not loaded
+            IndexError: If local coordinates are out of bounds
+        """
+        chunk_key = (chunk_x, chunk_y)
+        
+        # Check if chunk is loaded
+        if chunk_key not in self.loaded_chunks:
+            raise KeyError(f"Chunk ({chunk_x}, {chunk_y}) is not loaded")
+        
+        chunk = self.loaded_chunks[chunk_key]
+        
+        # Validate local coordinates
+        if not (0 <= local_x < settings.CHUNK_SIZE and 0 <= local_y < settings.CHUNK_SIZE):
+            raise IndexError(f"Local coordinates ({local_x}, {local_y}) out of bounds (0-{settings.CHUNK_SIZE-1})")
+        
+        # Update tile data
+        chunk.tiles[local_y][local_x] = new_tile_data
+        
+        # Mark chunk as dirty in renderer (if available)
+        if self.renderer is not None:
+            self.renderer.mark_chunk_dirty(chunk_x, chunk_y)
+        
+        # Mark chunk for saving (async save will happen later)
+        self._save_chunk_to_file(chunk)
+    
+    def modify_tile_at_world_pos(self, world_x: float, world_y: float, new_tile_data: dict):
+        """
+        Modify a tile at world coordinates and mark the chunk as dirty.
+        
+        Convenience method that converts world coordinates to chunk coordinates
+        and calls modify_tile().
+        
+        Args:
+            world_x: World X coordinate (pixels)
+            world_y: World Y coordinate (pixels)
+            new_tile_data: New tile data dictionary
+        
+        Raises:
+            KeyError: If chunk is not loaded
+            IndexError: If coordinates are out of bounds
+        """
+        # Convert world coordinates to chunk coordinates
+        chunk_x = math.floor(world_x / (settings.CHUNK_SIZE * settings.TILE_SIZE))
+        chunk_y = math.floor(world_y / (settings.CHUNK_SIZE * settings.TILE_SIZE))
+        
+        # Calculate local coordinates within chunk
+        chunk_world_x = chunk_x * settings.CHUNK_SIZE * settings.TILE_SIZE
+        chunk_world_y = chunk_y * settings.CHUNK_SIZE * settings.TILE_SIZE
+        local_x = int((world_x - chunk_world_x) // settings.TILE_SIZE)
+        local_y = int((world_y - chunk_world_y) // settings.TILE_SIZE)
+        
+        # Call modify_tile with calculated coordinates
+        self.modify_tile(chunk_x, chunk_y, local_x, local_y, new_tile_data)
     
     def get_world_name(self) -> str:
         """Get the world name"""
@@ -387,12 +489,15 @@ class ChunkManager:
         chunk_x = math.floor(world_x / (settings.CHUNK_SIZE * settings.TILE_SIZE))
         chunk_y = math.floor(world_y / (settings.CHUNK_SIZE * settings.TILE_SIZE))
         return (chunk_x, chunk_y)
-    
+
     def get_visible_chunk_range(self, camera_x: float, camera_y: float, 
                                  screen_width: int, screen_height: int,
-                                 zoom: float = 1.0, padding_chunks: int = 3) -> Tuple[int, int, int, int]:
+                                 zoom: float = 1.0, padding_chunks: int = 3,
+                                 movement_dir: Optional[Tuple[float, float]] = None) -> Tuple[int, int, int, int]:
         """
         Calculate visible chunk range based on camera position and screen size.
+        
+        Supports asymmetric loading: more chunks in movement direction for better preload during fast movement.
         
         Args:
             camera_x: Camera X position in world coordinates (pixels)
@@ -401,6 +506,7 @@ class ChunkManager:
             screen_height: Screen height in pixels
             zoom: Camera zoom factor (default: 1.0)
             padding_chunks: Number of chunks to add as padding in all directions (default: 3, increased for smoother preload ring)
+            movement_dir: Optional movement direction tuple (dx, dy) for asymmetric loading. If provided, adds extra chunks in movement direction.
         
         Returns:
             Tuple of (min_chunk_x, max_chunk_x, min_chunk_y, max_chunk_y)
@@ -427,11 +533,42 @@ class ChunkManager:
         min_chunk_y = int(world_min_y // chunk_size_pixels)
         max_chunk_y = int(world_max_y // chunk_size_pixels) + 1
         
-        # Add padding chunks in all directions
-        min_chunk_x -= padding_chunks
-        max_chunk_x += padding_chunks
-        min_chunk_y -= padding_chunks
-        max_chunk_y += padding_chunks
+        # Calculate asymmetric padding based on movement direction
+        forward_buffer = getattr(settings, 'CHUNK_LOAD_FORWARD_BUFFER', 1)
+        
+        if movement_dir is not None and (movement_dir[0] != 0.0 or movement_dir[1] != 0.0):
+            # Determine dominant movement direction
+            move_x, move_y = movement_dir
+            
+            # Add extra padding in movement direction
+            if abs(move_x) > abs(move_y):
+                # Horizontal movement dominant
+                if move_x > 0:
+                    # Moving right: more chunks to the right
+                    max_chunk_x += forward_buffer
+                else:
+                    # Moving left: more chunks to the left
+                    min_chunk_x -= forward_buffer
+            else:
+                # Vertical movement dominant
+                if move_y > 0:
+                    # Moving down (positive Y): more chunks below
+                    max_chunk_y += forward_buffer
+                else:
+                    # Moving up (negative Y): more chunks above
+                    min_chunk_y -= forward_buffer
+            
+            # Also add standard padding
+            min_chunk_x -= padding_chunks
+            max_chunk_x += padding_chunks
+            min_chunk_y -= padding_chunks
+            max_chunk_y += padding_chunks
+        else:
+            # No movement direction: symmetric padding
+            min_chunk_x -= padding_chunks
+            max_chunk_x += padding_chunks
+            min_chunk_y -= padding_chunks
+            max_chunk_y += padding_chunks
         
         # Clamp to world bounds
         min_chunk_x = max(0, min_chunk_x)
@@ -443,12 +580,16 @@ class ChunkManager:
     
     def update_visible_chunks(self, camera_x: float, camera_y: float,
                               screen_width: int, screen_height: int,
-                              zoom: float = 1.0, padding_chunks: int = 3):
+                              zoom: float = 1.0, padding_chunks: int = 3,
+                              movement_dir: Optional[Tuple[float, float]] = None):
         """
         Update visible chunks by requesting load for all chunks in visible range.
         
-        Iterates over the visible chunk range and triggers request_chunk_load for chunks
-        that are neither in loaded_chunks nor in pending_chunks.
+        ABSOLUTE PRIORITIZATION:
+        - Chunks that are actually visible on screen → priority = 0 (highest priority)
+        - Padding chunks (ring outside visible area) → priority >= REGION_PREFETCH_PRIORITY_OFFSET (lower priority)
+        
+        This ensures visible chunks are always loaded before prefetch/padding chunks.
         
         Args:
             camera_x: Camera X position in world coordinates (pixels)
@@ -458,19 +599,26 @@ class ChunkManager:
             zoom: Camera zoom factor (default: 1.0)
             padding_chunks: Number of chunks to add as padding in all directions (default: 3, increased for smoother preload ring)
         """
-        # Get visible chunk range
-        min_chunk_x, max_chunk_x, min_chunk_y, max_chunk_y = self.get_visible_chunk_range(
-            camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks
+        from core import settings
+        
+        # Get visible chunk range WITHOUT padding (truly visible chunks)
+        visible_min_x, visible_max_x, visible_min_y, visible_max_y = self.get_visible_chunk_range(
+            camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=0, movement_dir=movement_dir
         )
         
-        # Calculate camera chunk position for priority calculation
-        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
-        camera_chunk_x = int(camera_x // chunk_size_pixels)
-        camera_chunk_y = int(camera_y // chunk_size_pixels)
+        # Get full range WITH padding (includes padding ring + forward buffer)
+        full_min_x, full_max_x, full_min_y, full_max_y = self.get_visible_chunk_range(
+            camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks, movement_dir=movement_dir
+        )
         
-        # Iterate over all chunks in visible range
-        for chunk_x in range(min_chunk_x, max_chunk_x + 1):
-            for chunk_y in range(min_chunk_y, max_chunk_y + 1):
+        # Priority offset for padding/prefetch chunks
+        # Use priority=1 for prefetch chunks, offset will be applied automatically in request_chunk_load
+        prefetch_priority = 1
+        
+        # FIRST: Load visible chunks with priority = 0 (absolute highest priority)
+        visible_chunks = []
+        for chunk_x in range(visible_min_x, visible_max_x + 1):
+            for chunk_y in range(visible_min_y, visible_max_y + 1):
                 # Check world bounds
                 if not (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
                         0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
@@ -484,19 +632,46 @@ class ChunkManager:
                 if chunk_key in self.pending_chunks:
                     continue
                 
-                # Calculate priority based on distance from camera (closer = higher priority)
-                dx = abs(chunk_x - camera_chunk_x)
-                dy = abs(chunk_y - camera_chunk_y)
-                distance = dx + dy  # Manhattan distance
-                priority = distance
+                visible_chunks.append((chunk_x, chunk_y))
+        
+        # Load visible chunks with priority = 0
+        for chunk_x, chunk_y in visible_chunks:
+            self.request_chunk_load(chunk_x, chunk_y, priority=0)
+        
+        # SECOND: Load padding chunks (ring outside visible area) with lower priority
+        padding_chunks = []
+        for chunk_x in range(full_min_x, full_max_x + 1):
+            for chunk_y in range(full_min_y, full_max_y + 1):
+                # Check world bounds
+                if not (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
+                        0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
+                    continue
                 
-                # Request chunk load
-                self.request_chunk_load(chunk_x, chunk_y, priority=priority)
+                # Skip if in visible area (already handled above)
+                if (visible_min_x <= chunk_x <= visible_max_x and
+                    visible_min_y <= chunk_y <= visible_max_y):
+                    continue
+                
+                chunk_key = (chunk_x, chunk_y)
+                
+                # Skip if already loaded or pending
+                if chunk_key in self.loaded_chunks:
+                    continue
+                if chunk_key in self.pending_chunks:
+                    continue
+                
+                padding_chunks.append((chunk_x, chunk_y))
+        
+        # Load padding chunks with lower priority (same as prefetch)
+        # Priority 1 will be automatically offset to REGION_PREFETCH_PRIORITY_OFFSET + 1
+        for chunk_x, chunk_y in padding_chunks:
+            self.request_chunk_load(chunk_x, chunk_y, priority=prefetch_priority)
     
     def unload_chunks_outside_view(self, camera_x: float, camera_y: float,
                                     screen_width: int, screen_height: int,
                                     zoom: float = 1.0, padding_chunks: int = 3,
-                                    max_unloads_per_call: int = 3):
+                                    max_unloads_per_call: int = 3,
+                                    movement_dir: Optional[Tuple[float, float]] = None):
         """
         Unload chunks that are outside the visible view area (with padding).
         
@@ -511,10 +686,11 @@ class ChunkManager:
             zoom: Camera zoom factor (default: 1.0)
             padding_chunks: Number of chunks padding around visible area (default: 3, increased for smoother preload ring)
             max_unloads_per_call: Maximum number of chunks to unload per call (default: 3)
+            movement_dir: Optional movement direction tuple (dx, dy) for asymmetric unload range.
         """
-        # Get visible chunk range (with padding)
+        # Get visible chunk range (with padding + forward buffer)
         min_chunk_x, max_chunk_x, min_chunk_y, max_chunk_y = self.get_visible_chunk_range(
-            camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks
+            camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks, movement_dir=movement_dir
         )
         
         # Collect chunks to unload (with cooldown check)
@@ -705,7 +881,8 @@ class ChunkManager:
         # Prefetch some center chunks from the region
         # These are the chunks most likely to be visible when entering the region
         chunks_per_region = getattr(settings, 'REGION_PREFETCH_CHUNKS_PER_REGION', 5)
-        priority_offset = getattr(settings, 'REGION_PREFETCH_PRIORITY_OFFSET', 50)
+        # Use priority=1 for prefetch chunks, offset will be applied automatically in request_chunk_load
+        prefetch_priority = 1
         
         # Calculate center chunk of region
         center_local_x = RegionManager.REGION_SIZE_CHUNKS // 2
@@ -728,6 +905,7 @@ class ChunkManager:
         prefetch_chunks = prefetch_chunks[:chunks_per_region]
         
         # Request prefetch with lower priority (higher priority number)
+        # Priority 1 will be automatically offset to REGION_PREFETCH_PRIORITY_OFFSET + 1
         for chunk_x, chunk_y in prefetch_chunks:
             # Check world bounds
             if not (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
@@ -743,7 +921,7 @@ class ChunkManager:
                 continue
             
             # Request with lower priority (prefetch should not interfere with visible chunks)
-            self.request_chunk_load(chunk_x, chunk_y, priority=priority_offset)
+            self.request_chunk_load(chunk_x, chunk_y, priority=prefetch_priority)
 
     def get_or_create_chunk(self, chunk_x, chunk_y, async_load: bool = True):
         """
@@ -838,7 +1016,7 @@ class ChunkManager:
         
         # Check legacy JSON file (for migration)
         return self._get_chunk_filename(chunk_x, chunk_y).exists()
-    
+
     def _wait_until_not_saving(self, chunk_key: Tuple[int, int], max_retries: int = 3) -> bool:
         """
         Wait until a chunk is no longer being saved (thread-safe)
@@ -1260,6 +1438,11 @@ class ChunkManager:
             
             # Mark chunk for saving
             self._save_chunk_to_file(chunk)
+            
+            # Release GPU buffer resources (if renderer is available)
+            if self.renderer is not None:
+                self.renderer.release_chunk_buffer(chunk_x, chunk_y)
+            
             del self.loaded_chunks[key]
             
             # Clean up load time tracking
@@ -1331,7 +1514,8 @@ class ChunkManager:
     
     def update(self, player_pos: Tuple[float, float], camera_pos: Optional[Tuple[float, float]] = None,
                screen_width: Optional[int] = None, screen_height: Optional[int] = None,
-               zoom: float = 1.0, preload_radius: Optional[int] = None):
+               zoom: float = 1.0, preload_radius: Optional[int] = None,
+               movement_dir: Optional[Tuple[float, float]] = None):
         """
         Update chunk loading/unloading based on camera position (screen-based).
         
@@ -1343,6 +1527,8 @@ class ChunkManager:
             zoom: Camera zoom factor (default: 1.0)
             preload_radius: Optional radius for preloading chunks around player (for initial load).
                           If None, preloading is skipped.
+            movement_dir: Optional movement direction tuple (dx, dy) for asymmetric loading.
+                         If provided, loads more chunks in movement direction for better preload during fast movement.
         """
         # Use camera position if provided, otherwise use player position
         if camera_pos is None:
@@ -1368,11 +1554,13 @@ class ChunkManager:
         
         # Update visible chunks based on camera position and screen size
         # Increased padding to 3 chunks for smoother preload/cooldown ring, reducing disk loads
-        self.update_visible_chunks(camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=3)
+        # Pass movement direction for asymmetric loading (more chunks in movement direction)
+        self.update_visible_chunks(camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=3, movement_dir=movement_dir)
         
         # Unload chunks outside visible view
         # Increased padding to 3 chunks for smoother preload/cooldown ring, reducing disk loads
-        self.unload_chunks_outside_view(camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=3)
+        # Use movement direction for asymmetric unload range as well
+        self.unload_chunks_outside_view(camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=3, movement_dir=movement_dir)
     
     def load_chunks_around_player(self, player_chunk_x: int, player_chunk_y: int, radius: int):
         """
@@ -1446,7 +1634,7 @@ class ChunkManager:
                 if self.diagnostics:
                     self.diagnostics.error("ChunkManager", f"Error deleting save", error=str(e))
                 else:
-                    print(f"Error deleting save: {e}")
+                    print(f"[ChunkManager] Error deleting save: {e}")
 
     @staticmethod
     def save_exists(save_slot: int) -> bool:
@@ -1608,16 +1796,29 @@ class ChunkManager:
             chunk_x: Chunk X coordinate
             chunk_y: Chunk Y coordinate
             priority: Priority (lower = higher priority, based on distance from player)
-                     - Priority 0 = immediate area around player (highest priority)
-                     - Priority 1-2 = nearby chunks
-                     - Priority 3+ = distant chunks (lowest priority)
+                     - Priority 0 = visible chunks (highest priority, no offset applied)
+                     - Priority 1+ = prefetch chunks (deprioritized with REGION_PREFETCH_PRIORITY_OFFSET)
         
         Note: Uses PriorityQueue to ensure chunks closer to player are loaded first.
-              This prevents loading distant chunks while nearby chunks are still missing.
+              Prefetch chunks (priority > 0) are automatically deprioritized to ensure
+              visible chunks are always loaded first, even during zoom changes.
+              If priority already includes the offset (priority >= REGION_PREFETCH_PRIORITY_OFFSET),
+              no additional offset is applied to avoid double-deprioritization.
         """
         chunk_key = (chunk_x, chunk_y)
         if chunk_key not in self.loaded_chunks and chunk_key not in self.pending_chunks:
             self.pending_chunks.add(chunk_key)
+            
+            # Apply priority offset for prefetch chunks (priority > 0)
+            # This ensures visible chunks (priority=0) are always loaded first
+            # Prefetch chunks get deprioritized to prevent them from blocking visible chunks
+            # Only apply offset if priority doesn't already include it (to avoid double-offset)
+            if priority > 0:
+                priority_offset = getattr(settings, 'REGION_PREFETCH_PRIORITY_OFFSET', 50)
+                # Only add offset if priority is still low (hasn't been offset yet)
+                if priority < priority_offset:
+                    priority += priority_offset
+            
             self.chunk_priority[chunk_key] = priority
             # PriorityQueue requires tuple: (priority, chunk_x, chunk_y)
             # Lower priority number = higher priority (loaded first)
@@ -1627,31 +1828,34 @@ class ChunkManager:
         """
         Process chunks that have finished loading in background threads.
         
-        HARD TIME BUDGET ENFORCEMENT:
-        - Time budget: CHUNK_UPLOAD_BUDGET_MS (1-2 ms) per frame - STRICTLY enforced
-        - Budget check happens BEFORE processing each chunk - IMMEDIATE BREAK if exceeded
-        - Even if 20+ chunks are ready in queue, only process within budget
-        - Effect: 80ms disk spike spreads as 40×2ms work over many frames → no visible stutter
+        TIME BUDGET WITH MINIMUM GUARANTEE:
+        - Time budget: CHUNK_UPLOAD_BUDGET_MS (4.5 ms) per frame - enforced with minimum chunk guarantee
+        - Minimum chunks per frame: CHUNK_UPLOAD_MIN_PER_FRAME (2 chunks) - ensures progress even if single chunk is expensive
+        - Budget check happens BEFORE processing each chunk, but allows processing minimum chunks even if budget exceeded
+        - Effect: Guarantees at least 2 chunks per frame while staying within budget in normal cases
         - Prevents frame drops by spreading chunk processing across multiple frames
         - Chunks are added to sprite groups and marked for saving asynchronously
         """
         frame_start = time.perf_counter()
         loaded_count = 0
         current_time = time.time()
+        # Minimum chunks per frame - ensures progress even if single chunk is expensive
+        # Increased to 3 for better responsiveness during zoom changes
+        MIN_CHUNKS_PER_FRAME = getattr(settings, 'CHUNK_UPLOAD_MIN_PER_FRAME', 3)
         
-        # HARD BUDGET ENFORCEMENT: Only check budget, no max_per_frame limit
-        # This ensures that even if many chunks are ready, we never exceed the time budget
+        # BUDGET ENFORCEMENT WITH MINIMUM GUARANTEE:
+        # Process at least MIN_CHUNKS_PER_FRAME chunks, even if budget is exceeded
+        # This ensures progress during fast movement and zoom changes, even if a single chunk takes longer
         while not self.chunk_load_results.empty():
-            # STRICT budget check: Check BEFORE processing next chunk
-            # This ensures we never exceed the budget, even if a single chunk takes a long time
+            # Budget check: Stop if budget exceeded AND minimum chunks already processed
+            # This allows processing minimum chunks even if budget is exceeded (prevents stalling)
             elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
-            if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS:
-                # Budget exceeded - stop processing IMMEDIATELY, even if queue has more chunks
-                # This is the HARD LIMIT - no exceptions, no "just one more chunk"
+            if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS and loaded_count >= MIN_CHUNKS_PER_FRAME:
+                # Budget exceeded AND minimum chunks processed - stop processing
                 if self.diagnostics:
                     self.diagnostics.debug("ChunkManager", 
-                        f"Upload budget ({settings.CHUNK_UPLOAD_BUDGET_MS:.2f}ms) exceeded. "
-                        f"Processed {loaded_count} chunks, {self.chunk_load_results.qsize()} remaining in queue.")
+                        f"Upload budget ({settings.CHUNK_UPLOAD_BUDGET_MS:.2f}ms) exceeded after {loaded_count} chunks. "
+                        f"{self.chunk_load_results.qsize()} remaining in queue.")
                 break
             
             try:
@@ -1679,10 +1883,10 @@ class ChunkManager:
                 loaded_count += 1
                 
                 # Additional budget check AFTER processing (safety net)
-                # This catches cases where processing took longer than expected
+                # Stop if budget exceeded AND minimum chunks already processed
                 elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
-                if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS:
-                    # Budget exceeded after processing - stop immediately
+                if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS and loaded_count >= MIN_CHUNKS_PER_FRAME:
+                    # Budget exceeded after processing AND minimum chunks processed - stop immediately
                     break
             except queue.Empty:
                 break
@@ -1709,6 +1913,78 @@ class ChunkManager:
         
         # Load additional chunks that are now visible
         self.load_chunks_around_player(player_chunk_x, player_chunk_y, load_distance)
+    
+    def refresh_visible_chunks_for_zoom(self, camera_pos: Tuple[float, float], zoom: float,
+                                         screen_width: int = None, screen_height: int = None):
+        """
+        Refresh chunk loading after zoom change.
+        
+        This method should be called when the zoom level changes (e.g., via mouse wheel)
+        to ensure the correct chunks are loaded for the new visible area.
+        
+        Args:
+            camera_pos: Camera position (x, y) in world coordinates (pixels)
+            zoom: Camera zoom factor (1.0 = 100%, 1.5 = 150% nah, 0.75 = 75% weit weg)
+            screen_width: Screen width in pixels (optional, uses settings if not provided)
+            screen_height: Screen height in pixels (optional, uses settings if not provided)
+        """
+        camera_x, camera_y = camera_pos
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        
+        # Get current screen size
+        if screen_width is None:
+            screen_width = settings.get_screen_width()
+        if screen_height is None:
+            screen_height = settings.get_screen_height()
+        
+        if self.diagnostics:
+            self.diagnostics.debug("ChunkManager", f"Refreshing visible chunks for zoom change (zoom={zoom:.2f})...")
+        
+        # Calculate visible area in world coordinates
+        # When zoom < 1.0 (zoomed out): more world visible → more chunks
+        # When zoom > 1.0 (zoomed in): less world visible → fewer chunks
+        half_w = (screen_width / 2.0) / zoom
+        half_h = (screen_height / 2.0) / zoom
+        
+        world_min_x = camera_x - half_w
+        world_max_x = camera_x + half_w
+        world_min_y = camera_y - half_h
+        world_max_y = camera_y + half_h
+        
+        # Convert to chunk coordinates (with padding)
+        min_chunk_x = int(math.floor(world_min_x / chunk_size_pixels)) - 1
+        max_chunk_x = int(math.floor(world_max_x / chunk_size_pixels)) + 1
+        min_chunk_y = int(math.floor(world_min_y / chunk_size_pixels)) - 1
+        max_chunk_y = int(math.floor(world_max_y / chunk_size_pixels)) + 1
+        
+        # Collect visible chunks
+        visible_chunks = []
+        for cx in range(min_chunk_x, max_chunk_x + 1):
+            for cy in range(min_chunk_y, max_chunk_y + 1):
+                if 0 <= cx < settings.WORLD_SIZE_CHUNKS and 0 <= cy < settings.WORLD_SIZE_CHUNKS:
+                    visible_chunks.append((cx, cy))
+        
+        # Load visible chunks with highest priority (priority 0)
+        # Force all visible chunks to Priority 0, even if they were previously requested with lower priority
+        # This ensures visible chunks are loaded immediately, even if they were prefetched earlier
+        for chunk_x, chunk_y in visible_chunks:
+            chunk_key = (chunk_x, chunk_y)
+            # Skip if already loaded
+            if chunk_key not in self.loaded_chunks:
+                # Remove from pending_chunks if it was there with lower priority
+                # This allows re-queuing with Priority 0
+                if chunk_key in self.pending_chunks:
+                    self.pending_chunks.discard(chunk_key)
+                # Request with highest priority (Priority 0)
+                self.request_chunk_load(chunk_x, chunk_y, priority=0)
+        
+        # Also unload chunks that are now outside the visible area
+        self.unload_chunks_outside_view(
+            camera_x, camera_y,
+            screen_width, screen_height,
+            zoom=zoom,
+            padding_chunks=3
+        )
     
     def save_all_chunks(self):
         """

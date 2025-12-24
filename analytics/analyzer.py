@@ -45,6 +45,7 @@ class PerformanceAnalyzer:
             'chunk_modification': self._analyze_chunk_modification(),
             'chunk_loaded_from_disk': self._analyze_chunk_loaded_from_disk(),
             'chunk_migrated_legacy': self._analyze_chunk_migrated_legacy(),
+            'region_file_performance': self._analyze_region_file_performance(),
             'movement': self._analyze_movement(),
             'insights': []
         }
@@ -80,7 +81,11 @@ class PerformanceAnalyzer:
         chunk_upload_stats = stats.get('chunk_upload_times', {})
         chunk_render_stats = stats.get('chunk_render_times', {})
         
-        # Disk Load Times (aus chunk_loaded_from_disk_events)
+        # Disk Load/Save Times (aus stats, falls verfügbar)
+        disk_load_stats = stats.get('disk_load_times', {})
+        disk_save_stats = stats.get('disk_save_times', {})
+        
+        # Fallback: Disk Load Times aus chunk_loaded_from_disk_events (für alte Logs)
         disk_load_times = []
         if 'chunk_loaded_from_disk_events' in self.data:
             disk_load_times = [e['load_time'] for e in self.data['chunk_loaded_from_disk_events']]
@@ -137,14 +142,32 @@ class PerformanceAnalyzer:
                 'median_ms': chunk_render_stats.get('median', 0),
             }
         
-        # Disk Load Times hinzufügen (falls verfügbar)
-        if disk_load_times:
+        # Disk Load Times hinzufügen (aus stats, falls verfügbar)
+        if disk_load_stats:
+            result['disk_load_times'] = {
+                'min_ms': disk_load_stats.get('min', 0),
+                'max_ms': disk_load_stats.get('max', 0),
+                'avg_ms': disk_load_stats.get('avg', 0),
+                'median_ms': disk_load_stats.get('median', 0),
+                'total_events': disk_load_stats.get('count', 0),
+            }
+        elif disk_load_times:  # Fallback für alte Logs
             result['disk_load_times'] = {
                 'min_ms': min(disk_load_times) if disk_load_times else 0,
                 'max_ms': max(disk_load_times) if disk_load_times else 0,
                 'avg_ms': mean(disk_load_times) if disk_load_times else 0,
                 'median_ms': median(disk_load_times) if disk_load_times else 0,
                 'total_events': len(disk_load_times),
+            }
+        
+        # Disk Save Times hinzufügen (aus stats, falls verfügbar)
+        if disk_save_stats:
+            result['disk_save_times'] = {
+                'min_ms': disk_save_stats.get('min', 0),
+                'max_ms': disk_save_stats.get('max', 0),
+                'avg_ms': disk_save_stats.get('avg', 0),
+                'median_ms': disk_save_stats.get('median', 0),
+                'total_events': disk_save_stats.get('count', 0),
             }
         
         return result
@@ -424,109 +447,26 @@ class PerformanceAnalyzer:
             'events_per_second': len(chunk_events) / session_duration if session_duration > 0 else 0,
         }
     
-    def _analyze_chunk_loaded_from_disk(self) -> Dict:
-        """Analysiert Chunk-Loading von Disk (IO-Operationen, getrennt von Generation)"""
-        chunk_events = self.data.get('chunk_loaded_from_disk_events', [])
+    def _analyze_region_file_performance(self) -> Dict:
+        """Analysiert Region-Datei-Performance (nur schnellste/langsamste 5)"""
+        stats = self.data.get('stats', {})
+        region_stats = stats.get('region_file_stats', {})
         
-        if not chunk_events:
+        if not region_stats:
             return {
-                'total_events': 0,
-                'load_times': None,
-                'distribution': None,
-                'slowest_chunks': [],
-                'events_per_second': 0
+                'total_regions_tracked': 0,
+                'fastest_5': [],
+                'slowest_5': [],
             }
         
-        load_times = [e['load_time'] for e in chunk_events if 'load_time' in e]
+        fastest_5 = region_stats.get('fastest_5', [])
+        slowest_5 = region_stats.get('slowest_5', [])
+        total_tracked = region_stats.get('total_regions_tracked', 0)
         
-        if not load_times:
-            return {
-                'total_events': len(chunk_events),
-                'load_times': None,
-                'distribution': None,
-                'slowest_chunks': [],
-                'events_per_second': 0
-            }
-        
-        # Verteilung
-        fast_loads = [t for t in load_times if t < 2.0]
-        medium_loads = [t for t in load_times if 2.0 <= t < 5.0]
-        slow_loads = [t for t in load_times if t >= 5.0]
-        
-        # Langsamste Chunks
-        sorted_events = sorted(chunk_events, key=lambda x: x.get('load_time', 0), reverse=True)
-        slowest = [
-            {
-                'chunk': (e['chunk_x'], e['chunk_y']),
-                'load_time_ms': e.get('load_time', 0),
-            }
-            for e in sorted_events[:10]
-        ]
-        
-        session_duration = self._analyze_session()['duration_seconds']
         return {
-            'total_events': len(chunk_events),
-            'load_times': {
-                'min_ms': min(load_times),
-                'max_ms': max(load_times),
-                'avg_ms': mean(load_times),
-                'median_ms': median(load_times),
-            },
-            'distribution': {
-                'fast_count': len(fast_loads),
-                'fast_percent': len(fast_loads) / len(load_times) * 100,
-                'medium_count': len(medium_loads),
-                'medium_percent': len(medium_loads) / len(load_times) * 100,
-                'slow_count': len(slow_loads),
-                'slow_percent': len(slow_loads) / len(load_times) * 100,
-            },
-            'slowest_chunks': slowest,
-            'events_per_second': len(chunk_events) / session_duration if session_duration > 0 else 0,
-        }
-    
-    def _analyze_chunk_migrated_legacy(self) -> Dict:
-        """Analysiert Legacy-Migration-Performance (Migration von JSON zu Region-Format)"""
-        chunk_events = self.data.get('chunk_migrated_legacy_events', [])
-        
-        if not chunk_events:
-            return {
-                'total_events': 0,
-                'migration_times': None,
-                'slowest_chunks': [],
-                'events_per_second': 0
-            }
-        
-        migration_times = [e['migration_time'] for e in chunk_events if 'migration_time' in e]
-        
-        if not migration_times:
-            return {
-                'total_events': len(chunk_events),
-                'migration_times': None,
-                'slowest_chunks': [],
-                'events_per_second': 0
-            }
-        
-        # Langsamste Migrationen
-        sorted_events = sorted(chunk_events, key=lambda x: x.get('migration_time', 0), reverse=True)
-        slowest = [
-            {
-                'chunk': (e['chunk_x'], e['chunk_y']),
-                'migration_time_ms': e.get('migration_time', 0),
-            }
-            for e in sorted_events[:10]
-        ]
-        
-        session_duration = self._analyze_session()['duration_seconds']
-        return {
-            'total_events': len(chunk_events),
-            'migration_times': {
-                'min_ms': min(migration_times),
-                'max_ms': max(migration_times),
-                'avg_ms': mean(migration_times),
-                'median_ms': median(migration_times),
-            },
-            'slowest_chunks': slowest,
-            'events_per_second': len(chunk_events) / session_duration if session_duration > 0 else 0,
+            'total_regions_tracked': total_tracked,
+            'fastest_5': fastest_5,
+            'slowest_5': slowest_5,
         }
     
     def _analyze_movement(self) -> Dict:
@@ -675,7 +615,7 @@ class PerformanceAnalyzer:
             else:
                 insights.append("[OK] Movement-Verarbeitung ist konsistent ({:.2f}ms Durchschnitt)".format(avg_delay*1000))
         
-        # Upload vs Disk Load Insights
+        # Upload vs Disk Load/Save Insights
         if 'chunk_upload_times' in frame_perf and 'disk_load_times' in frame_perf:
             avg_upload_time = frame_perf['chunk_upload_times']['avg_ms']
             avg_disk_load_time = frame_perf['disk_load_times']['avg_ms']
@@ -686,12 +626,37 @@ class PerformanceAnalyzer:
             else:
                 insights.append("[OK] Upload-Zeit ({:.2f}ms) ist innerhalb des Budgets ({:.2f}ms)".format(avg_upload_time, upload_budget))
             
+            # Disk Save Performance
+            if 'disk_save_times' in frame_perf:
+                avg_disk_save_time = frame_perf['disk_save_times']['avg_ms']
+                if avg_disk_save_time > 20.0:
+                    insights.append("[WARN] Durchschnittliche Disk-Save-Zeit ({:.2f}ms) ist sehr hoch - möglicher IO-Bottleneck".format(avg_disk_save_time))
+                elif avg_disk_save_time > 10.0:
+                    insights.append("[INFO] Durchschnittliche Disk-Save-Zeit ({:.2f}ms) ist moderat hoch".format(avg_disk_save_time))
+            
             # Vergleich: Wenn Frame-Zeiten hoch sind, aber Upload-Zeiten niedrig, liegt das Problem bei IO
             avg_frame_time = frame_perf['frame_times']['avg_ms']
             if avg_frame_time > 16.67 and avg_upload_time <= upload_budget:
                 insights.append("[INFO] Hohe Frame-Zeiten ({:.2f}ms) bei niedrigen Upload-Zeiten ({:.2f}ms) deuten auf IO-Bottleneck hin".format(avg_frame_time, avg_upload_time))
             elif avg_frame_time > 16.67 and avg_upload_time > upload_budget:
                 insights.append("[WARN] Hohe Frame-Zeiten ({:.2f}ms) UND hohe Upload-Zeiten ({:.2f}ms) - möglicherweise GPU-Bottleneck".format(avg_frame_time, avg_upload_time))
+        
+        # Region File Performance Insights
+        region_file_perf = analysis['region_file_performance']
+        if region_file_perf['total_regions_tracked'] > 0:
+            fastest = region_file_perf['fastest_5']
+            slowest = region_file_perf['slowest_5']
+            
+            if fastest and slowest:
+                fastest_combined = fastest[0]['combined_avg'] if fastest else 0
+                slowest_combined = slowest[-1]['combined_avg'] if slowest else 0
+                
+                if slowest_combined > fastest_combined * 3:
+                    insights.append("[WARN] Langsamste Region-Datei ({:.2f}ms) ist deutlich langsamer als schnellste ({:.2f}ms) - mögliche Fragmentierung oder Hardware-Probleme".format(
+                        slowest_combined, fastest_combined))
+                elif slowest_combined > fastest_combined * 2:
+                    insights.append("[INFO] Langsamste Region-Datei ({:.2f}ms) ist langsamer als schnellste ({:.2f}ms) - möglicherweise Fragmentierung".format(
+                        slowest_combined, fastest_combined))
         
         return insights
     
@@ -770,6 +735,16 @@ class PerformanceAnalyzer:
         else:
             print("\nDisk-Load-Zeiten: Nicht verfügbar")
         
+        # Disk Save Times (falls verfügbar)
+        if 'disk_save_times' in frame_perf:
+            disk_save_stats = frame_perf['disk_save_times']
+            print(f"\nDisk-Save-Zeiten (IO pro Chunk, ms):")
+            print(f"  Minimum:  {disk_save_stats['min_ms']:>8.2f}")
+            print(f"  Maximum:  {disk_save_stats['max_ms']:>8.2f}")
+            print(f"  Durchschnitt: {disk_save_stats['avg_ms']:>8.2f}")
+            print(f"  Median:   {disk_save_stats['median_ms']:>8.2f}")
+            print(f"  Total Events: {disk_save_stats['total_events']}")
+        
         # Vergleich: Frame-Zeit vs Upload-Zeit vs Disk-Load-Zeit
         if 'chunk_upload_times' in frame_perf and 'disk_load_times' in frame_perf:
             avg_frame_time = frame_perf['frame_times']['avg_ms']
@@ -782,6 +757,9 @@ class PerformanceAnalyzer:
             print(f"Frame-Zeit:        {avg_frame_time:>8.2f} ms")
             print(f"Upload-Zeit:       {avg_upload_time:>8.2f} ms ({avg_upload_time/avg_frame_time*100:.1f}% des Frames)")
             print(f"Disk-Load-Zeit:    {avg_disk_load_time:>8.2f} ms (pro Chunk)")
+            if 'disk_save_times' in frame_perf:
+                avg_disk_save_time = frame_perf['disk_save_times']['avg_ms']
+                print(f"Disk-Save-Zeit:    {avg_disk_save_time:>8.2f} ms (pro Chunk)")
             upload_budget = 2.5  # CHUNK_UPLOAD_BUDGET_MS (tightened from 3.5ms)
             print(f"\nUpload-Budget ({upload_budget}ms): {'OK' if avg_upload_time <= upload_budget else 'ÜBERSCHRITTEN'}")
             print(f"  Upload-Zeit ist {'innerhalb' if avg_upload_time <= upload_budget else 'außerhalb'} des Budgets")
@@ -931,6 +909,32 @@ class PerformanceAnalyzer:
             print(f"  Maximum:  {render_stats['max']:>8.2f}")
             print(f"  Durchschnitt: {render_stats['avg']:>8.2f}")
             print(f"  Median:   {render_stats['median']:>8.2f}")
+        
+        # Region File Performance (Fastest & Slowest 5)
+        region_file_perf = analysis['region_file_performance']
+        if region_file_perf['total_regions_tracked'] > 0:
+            print(f"\n{'=' * 80}")
+            print("REGION-DATEI PERFORMANCE (Top 5 Schnellste & Langsamste)")
+            print(f"{'=' * 80}")
+            print(f"Gesamt getrackte Regionen: {region_file_perf['total_regions_tracked']}")
+            
+            fastest = region_file_perf['fastest_5']
+            if fastest:
+                print(f"\nSchnellste 5 Region-Dateien:")
+                for i, region in enumerate(fastest, 1):
+                    print(f"  {i:>2}. Region ({region['region_x']:>4}, {region['region_y']:>4}): "
+                          f"Load={region['avg_load']:>6.2f}ms, Save={region['avg_save']:>6.2f}ms, "
+                          f"Combined={region['combined_avg']:>6.2f}ms "
+                          f"(Loads: {region['load_count']}, Saves: {region['save_count']})")
+            
+            slowest = region_file_perf['slowest_5']
+            if slowest:
+                print(f"\nLangsamste 5 Region-Dateien:")
+                for i, region in enumerate(slowest, 1):
+                    print(f"  {i:>2}. Region ({region['region_x']:>4}, {region['region_y']:>4}): "
+                          f"Load={region['avg_load']:>6.2f}ms, Save={region['avg_save']:>6.2f}ms, "
+                          f"Combined={region['combined_avg']:>6.2f}ms "
+                          f"(Loads: {region['load_count']}, Saves: {region['save_count']})")
         
         # Movement
         movement = analysis['movement']

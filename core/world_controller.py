@@ -260,12 +260,18 @@ class WorldController:
             screen_width = self.modern_gl_renderer.screen_width if self.modern_gl_renderer else None
             screen_height = self.modern_gl_renderer.screen_height if self.modern_gl_renderer else None
             
+            # Get movement direction from input handler (if available) for asymmetric chunk loading
+            movement_dir = None
+            if hasattr(self, 'input_handler') and self.input_handler:
+                movement_dir = self.input_handler.move_dir
+            
             self.world.update(
                 player_pos=self.player.rect.center if self.player else (0, 0),
                 camera_pos=camera_pos,
                 screen_width=screen_width,
                 screen_height=screen_height,
-                zoom=self.camera_zoom
+                zoom=self.camera_zoom,
+                movement_dir=movement_dir
             )
         
         # Process chunks that finished loading asynchronously
@@ -627,8 +633,26 @@ class WorldController:
         # Zoom only when Control is pressed
         if key.LCTRL in modifiers or key.RCTRL in modifiers:
             zoom_speed = 0.1
+            old_zoom = self.camera_zoom
             self.camera_zoom += scroll_y * zoom_speed
             self.camera_zoom = max(0.5, min(2.0, self.camera_zoom))  # Clamp between 0.5x and 2.0x
+            
+            # Refresh visible chunks if zoom actually changed
+            if self.camera_zoom != old_zoom and self.game_initialized and self.world and self.world.chunk_manager:
+                if self.camera:
+                    camera_pos = (self.camera.x, self.camera.y)
+                else:
+                    camera_pos = (0.0, 0.0)
+                
+                screen_width = self.modern_gl_renderer.screen_width
+                screen_height = self.modern_gl_renderer.screen_height
+                
+                self.world.chunk_manager.refresh_visible_chunks_for_zoom(
+                    camera_pos, 
+                    self.camera_zoom,
+                    screen_width,
+                    screen_height
+                )
     
     def _handle_tile_click(self, mouse_x: int, mouse_y: int, button: int):
         """Handle tile click for debug output"""

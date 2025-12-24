@@ -62,6 +62,9 @@ WORLD_SIZE_TILES = CHUNK_SIZE * WORLD_SIZE_CHUNKS  # 1920x1920 tiles total
 _BASE_CHUNK_LOAD_DISTANCE = 2
 _BASE_CHUNK_UNLOAD_DISTANCE = 4
 
+# Asymmetric load ring (focus on movement direction)
+CHUNK_LOAD_FORWARD_BUFFER = 1  # Extra chunks to load in movement direction (1-2 chunks recommended)
+
 def get_chunk_load_distance():
     """Calculate chunk load distance based on screen size"""
     screen_width, screen_height = get_screen_size()
@@ -74,18 +77,19 @@ def get_chunk_load_distance():
     # Load visible area + 1 chunk buffer to prevent black edges
     min_distance = max(chunks_horizontal, chunks_vertical) // 2 + 1  # +1 buffer
     
-    # Cap at maximum for performance
-    return min(max(_BASE_CHUNK_LOAD_DISTANCE, min_distance), 6)  # Max 6 chunks distance
+    # Cap at maximum for performance (increased to 8 for larger buffer zone during fast movement)
+    return min(max(_BASE_CHUNK_LOAD_DISTANCE, min_distance), 8)  # Max 8 chunks distance
 
 # Chunk processing time budget (in milliseconds per frame)
-CHUNK_UPLOAD_BUDGET_MS = 1.5  # Maximum time allowed for chunk uploads per frame (1-2 ms, HARD LIMIT - strictly enforced)
+CHUNK_UPLOAD_BUDGET_MS = 4.5  # Maximum time allowed for chunk uploads per frame (increased from 3.0ms, avg 0.64ms, max 4.83ms observed)
+CHUNK_UPLOAD_MIN_PER_FRAME = 3  # Minimum chunks to process per frame (guarantees progress even if single chunk is expensive, increased for better zoom responsiveness)
 
 # Chunk load rate limiting (HARD CAPS to prevent IO spikes)
-CHUNK_LOAD_RATE_LIMIT = 35  # Maximum disk loads per second globally (30-40 range) - HARD CAP
+CHUNK_LOAD_RATE_LIMIT = 60  # Maximum disk loads per second globally (30-40 range) - HARD CAP
 CHUNK_LOAD_RATE_WINDOW_MS = 1000  # Time window for measuring load rate (1 second)
 CHUNK_LOAD_RATE_SLEEP_MS = 0.025  # Sleep time when rate limit exceeded (25ms - longer sleep for stricter limit)
-CHUNK_LOAD_WORKER_RATE_LIMIT = 12  # Maximum chunks per second per worker (with 3 workers: ~36 total, limited by global cap)
-CHUNK_LOAD_TOKEN_BUCKET_SIZE = 3  # Token bucket size per worker (smaller bursts)
+CHUNK_LOAD_WORKER_RATE_LIMIT = 20  # Maximum chunks per second per worker (with 3 workers: ~36 total, limited by global cap)
+CHUNK_LOAD_TOKEN_BUCKET_SIZE = 8  # Token bucket size per worker (smaller bursts)
 CHUNK_LOAD_TOKEN_REFILL_RATE = CHUNK_LOAD_WORKER_RATE_LIMIT / 1000.0  # Tokens per millisecond
 
 # Chunk save rate limiting (HARD CAPS to prevent IO spikes)

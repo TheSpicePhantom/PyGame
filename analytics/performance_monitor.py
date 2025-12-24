@@ -3,8 +3,10 @@ Performance Monitor: Collects detailed performance metrics during gameplay
 """
 import time
 import os
+import threading
 from collections import deque
 from statistics import mean, median
+from typing import Dict, Tuple
 
 # Try to import psutil for CPU/GPU monitoring
 try:
@@ -60,6 +62,15 @@ class PerformanceMonitor:
         
         # Chunk upload times (per frame) - time spent uploading vertex data to GPU
         self.chunk_upload_times = deque(maxlen=300)
+        
+        # Disk I/O times (per operation) - separate tracking for load and save
+        self.disk_load_times = deque(maxlen=300)  # Track all disk load times
+        self.disk_save_times = deque(maxlen=300)  # Track all disk save times
+        
+        # Region file performance tracking (only fastest and slowest 5)
+        # Structure: {region_key: {'load_times': [...], 'save_times': [...], 'avg_load': float, 'avg_save': float}}
+        self.region_file_stats: Dict[Tuple[int, int], Dict] = {}
+        self._region_stats_lock = threading.Lock()  # Thread-safe access to region stats
         
         # Optional logger reference for automatic event logging
         self.logger = None
@@ -249,6 +260,112 @@ class PerformanceMonitor:
             return
         self.chunk_upload_times.append(upload_time * 1000)  # Convert to ms
     
+    def record_region_file_load(self, region_x: int, region_y: int, load_time: float):
+        """
+        Record a region file load operation (Disk I/O)
+        Only tracks the fastest and slowest 5 region files.
+        
+        Args:
+            region_x: Region X coordinate
+            region_y: Region Y coordinate
+            load_time: Time taken to load from region file (in seconds)
+        """
+        if not self.enabled:
+            return
+        
+        load_time_ms = load_time * 1000  # Convert to ms
+        self.disk_load_times.append(load_time_ms)
+        
+        region_key = (region_x, region_y)
+        
+        with self._region_stats_lock:
+            if region_key not in self.region_file_stats:
+                self.region_file_stats[region_key] = {
+                    'load_times': deque(maxlen=100),  # Keep last 100 load times per region
+                    'save_times': deque(maxlen=100),  # Keep last 100 save times per region
+                    'avg_load': 0.0,
+                    'avg_save': 0.0,
+                    'load_count': 0,
+                    'save_count': 0
+                }
+            
+            stats = self.region_file_stats[region_key]
+            stats['load_times'].append(load_time_ms)
+            stats['load_count'] += 1
+            stats['avg_load'] = mean(stats['load_times']) if stats['load_times'] else 0.0
+            
+            # Keep only fastest and slowest 5 regions
+            self._prune_region_stats()
+    
+    def record_region_file_save(self, region_x: int, region_y: int, save_time: float):
+        """
+        Record a region file save operation (Disk I/O)
+        Only tracks the fastest and slowest 5 region files.
+        
+        Args:
+            region_x: Region X coordinate
+            region_y: Region Y coordinate
+            save_time: Time taken to save to region file (in seconds)
+        """
+        if not self.enabled:
+            return
+        
+        save_time_ms = save_time * 1000  # Convert to ms
+        self.disk_save_times.append(save_time_ms)
+        
+        region_key = (region_x, region_y)
+        
+        with self._region_stats_lock:
+            if region_key not in self.region_file_stats:
+                self.region_file_stats[region_key] = {
+                    'load_times': deque(maxlen=100),
+                    'save_times': deque(maxlen=100),
+                    'avg_load': 0.0,
+                    'avg_save': 0.0,
+                    'load_count': 0,
+                    'save_count': 0
+                }
+            
+            stats = self.region_file_stats[region_key]
+            stats['save_times'].append(save_time_ms)
+            stats['save_count'] += 1
+            stats['avg_save'] = mean(stats['save_times']) if stats['save_times'] else 0.0
+            
+            # Keep only fastest and slowest 5 regions
+            self._prune_region_stats()
+    
+    def _prune_region_stats(self):
+        """
+        Prune region stats to keep only the fastest and slowest 5 regions.
+        Uses average load time as the metric for ranking.
+        """
+        if len(self.region_file_stats) <= 10:  # Keep all if 10 or fewer
+            return
+        
+        # Calculate combined performance score (avg_load + avg_save) for ranking
+        regions_with_scores = []
+        for region_key, stats in self.region_file_stats.items():
+            # Use combined average time as performance metric
+            combined_avg = stats['avg_load'] + stats['avg_save']
+            if combined_avg > 0:  # Only include regions with actual operations
+                regions_with_scores.append((region_key, combined_avg))
+        
+        if len(regions_with_scores) <= 10:
+            return  # Not enough regions to prune
+        
+        # Sort by combined average time (ascending = fastest first)
+        regions_with_scores.sort(key=lambda x: x[1])
+        
+        # Keep fastest 5 and slowest 5
+        fastest_5 = {key for key, _ in regions_with_scores[:5]}
+        slowest_5 = {key for key, _ in regions_with_scores[-5:]}
+        keep_regions = fastest_5 | slowest_5
+        
+        # Remove regions not in keep list
+        regions_to_remove = [key for key in self.region_file_stats.keys() if key not in keep_regions]
+        for key in regions_to_remove:
+            del self.region_file_stats[key]
+    
     def record_movement(self, direction):
         """Record a player movement event"""
         if not self.enabled:
@@ -305,6 +422,27 @@ class PerformanceMonitor:
                 'avg': mean(self.chunk_render_times) if self.chunk_render_times else 0,
                 'median': median(self.chunk_render_times) if self.chunk_render_times else 0,
             },
+            'chunk_upload_times': {
+                'min': min(self.chunk_upload_times) if self.chunk_upload_times else 0,
+                'max': max(self.chunk_upload_times) if self.chunk_upload_times else 0,
+                'avg': mean(self.chunk_upload_times) if self.chunk_upload_times else 0,
+                'median': median(self.chunk_upload_times) if self.chunk_upload_times else 0,
+            },
+            'disk_load_times': {
+                'min': min(self.disk_load_times) if self.disk_load_times else 0,
+                'max': max(self.disk_load_times) if self.disk_load_times else 0,
+                'avg': mean(self.disk_load_times) if self.disk_load_times else 0,
+                'median': median(self.disk_load_times) if self.disk_load_times else 0,
+                'count': len(self.disk_load_times),
+            },
+            'disk_save_times': {
+                'min': min(self.disk_save_times) if self.disk_save_times else 0,
+                'max': max(self.disk_save_times) if self.disk_save_times else 0,
+                'avg': mean(self.disk_save_times) if self.disk_save_times else 0,
+                'median': median(self.disk_save_times) if self.disk_save_times else 0,
+                'count': len(self.disk_save_times),
+            },
+            'region_file_stats': self._get_region_file_stats_summary(),
             'movement_count': len(self.movement_events),
             'cpu_usage': {
                 'current': self.cpu_usage_samples[-1] if self.cpu_usage_samples else 0,
@@ -326,6 +464,36 @@ class PerformanceMonitor:
         sorted_data = sorted(data)
         index = int(len(sorted_data) * percentile / 100)
         return sorted_data[min(index, len(sorted_data) - 1)]
+    
+    def _get_region_file_stats_summary(self):
+        """Get summary of region file statistics (fastest and slowest 5)"""
+        with self._region_stats_lock:
+            if not self.region_file_stats:
+                return {}
+            
+            # Sort regions by combined average time
+            regions_list = []
+            for region_key, stats in self.region_file_stats.items():
+                combined_avg = stats['avg_load'] + stats['avg_save']
+                if combined_avg > 0:
+                    regions_list.append({
+                        'region_x': region_key[0],
+                        'region_y': region_key[1],
+                        'avg_load': stats['avg_load'],
+                        'avg_save': stats['avg_save'],
+                        'combined_avg': combined_avg,
+                        'load_count': stats['load_count'],
+                        'save_count': stats['save_count'],
+                    })
+            
+            # Sort by combined average (ascending = fastest first)
+            regions_list.sort(key=lambda x: x['combined_avg'])
+            
+            return {
+                'fastest_5': regions_list[:5] if len(regions_list) >= 5 else regions_list,
+                'slowest_5': regions_list[-5:] if len(regions_list) >= 5 else [],
+                'total_regions_tracked': len(self.region_file_stats),
+            }
     
     def print_stats(self):
         """Print performance statistics using diagnostics service"""
@@ -391,6 +559,50 @@ class PerformanceMonitor:
                 f"Max: {upload_stats['max']:.2f}, "
                 f"Avg: {upload_stats['avg']:.2f}, "
                 f"Median: {upload_stats['median']:.2f}")
+        
+        # Disk I/O Statistics
+        if self.disk_load_times:
+            load_stats = stats['disk_load_times']
+            self.diagnostics.info("PerformanceMonitor",
+                f"Disk Load Times (ms) - Min: {load_stats['min']:.2f}, "
+                f"Max: {load_stats['max']:.2f}, "
+                f"Avg: {load_stats['avg']:.2f}, "
+                f"Median: {load_stats['median']:.2f}, "
+                f"Count: {load_stats['count']}")
+        
+        if self.disk_save_times:
+            save_stats = stats['disk_save_times']
+            self.diagnostics.info("PerformanceMonitor",
+                f"Disk Save Times (ms) - Min: {save_stats['min']:.2f}, "
+                f"Max: {save_stats['max']:.2f}, "
+                f"Avg: {save_stats['avg']:.2f}, "
+                f"Median: {save_stats['median']:.2f}, "
+                f"Count: {save_stats['count']}")
+        
+        # Region File Performance (Fastest and Slowest 5)
+        region_stats = stats['region_file_stats']
+        if region_stats and (region_stats.get('fastest_5') or region_stats.get('slowest_5')):
+            self.diagnostics.info("PerformanceMonitor", "Region File Performance (Top 5 Fastest & Slowest):")
+            
+            fastest = region_stats.get('fastest_5', [])
+            if fastest:
+                self.diagnostics.info("PerformanceMonitor", "  Fastest 5 Regions:")
+                for i, region in enumerate(fastest, 1):
+                    self.diagnostics.info("PerformanceMonitor",
+                        f"    {i}. Region ({region['region_x']}, {region['region_y']}): "
+                        f"Load={region['avg_load']:.2f}ms, Save={region['avg_save']:.2f}ms, "
+                        f"Combined={region['combined_avg']:.2f}ms "
+                        f"(Loads: {region['load_count']}, Saves: {region['save_count']})")
+            
+            slowest = region_stats.get('slowest_5', [])
+            if slowest:
+                self.diagnostics.info("PerformanceMonitor", "  Slowest 5 Regions:")
+                for i, region in enumerate(slowest, 1):
+                    self.diagnostics.info("PerformanceMonitor",
+                        f"    {i}. Region ({region['region_x']}, {region['region_y']}): "
+                        f"Load={region['avg_load']:.2f}ms, Save={region['avg_save']:.2f}ms, "
+                        f"Combined={region['combined_avg']:.2f}ms "
+                        f"(Loads: {region['load_count']}, Saves: {region['save_count']})")
         
         # Movement Events
         self.diagnostics.info("PerformanceMonitor", f"Movement Events: {stats['movement_count']}")

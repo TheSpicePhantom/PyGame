@@ -48,8 +48,8 @@ class AutoSaveSystem:
             # Speichere alle geladenen Chunks
             self.world.chunk_manager.save_all_chunks()
             
-            # Speichere Metadaten
-            self.world.chunk_manager.save_metadata()
+            # Speichere Metadaten mit Preview-Generierung (nur bei manuellem Speichern)
+            self.world.chunk_manager.save_metadata(generate_preview=True)
             
             self.last_save_time = time.time()
             if self.diagnostics:

@@ -39,12 +39,13 @@ class ModernGLRenderer:
         # self._setup_projection(use_pyglet=use_pyglet)  # DISABLED: Simplified shader doesn't use matrices
         
         # Chunk buffer cache (like Pygame surface cache)
-        # IMPORTANT: Buffer are created with view matrix and zoom baked in, so they must be
-        # invalidated when camera or zoom changes. We don't cache by camera/zoom because
-        # that would create too many buffers. Instead, we invalidate all buffers on change.
+        # IMPORTANT: Buffers contain world coordinates only. Camera and zoom are applied via shader uniforms,
+        # so buffers don't need to be invalidated when camera or zoom changes. Only chunk data changes
+        # (tile modifications) require buffer invalidation.
         self.chunk_buffers = {}  # (chunk_x, chunk_y) -> (vbo, vao, vertex_count, pool_index)
-        self.last_camera_pos = (0.0, 0.0)  # Track camera changes for cache invalidation
-        self.last_zoom = 1.0  # Track zoom changes for cache invalidation
+        self.chunk_dirty = set()  # Set[(chunk_x, chunk_y)] - Chunks, deren Daten sich geändert haben
+        self.last_camera_pos = (0.0, 0.0)  # Track camera changes (for reference, no invalidation needed)
+        self.last_zoom = 1.0  # Track zoom changes (for reference, no invalidation needed)
         
         # Merged chunk buffer for batched rendering (single draw call)
         self._merged_chunk_vbo = None
@@ -333,11 +334,10 @@ class ModernGLRenderer:
         
         # Store camera position and zoom for shader uniforms
         # Buffers are now created with world coordinates only, so they don't need to be
-        # invalidated when camera moves - only when zoom changes (or chunk data changes)
+        # invalidated when camera moves or zoom changes - zoom is applied via shader uniform
         camera_pos = (camera_x, camera_y)
         if zoom != self.last_zoom:
-            # Only invalidate on zoom change (buffers contain zoom-dependent data)
-            self._invalidate_all_chunk_buffers()
+            # No buffer invalidation needed - zoom is applied via shader uniform, buffers contain world coordinates
             self.last_zoom = zoom
         self.last_camera_pos = camera_pos
         
@@ -402,16 +402,30 @@ class ModernGLRenderer:
             chunk_x: Chunk X coordinate
             chunk_y: Chunk Y coordinate
             tiles: 15x15 grid of tile dictionaries
-            
+        
         Returns:
             (vbo, vao, vertex_count) tuple
         """
         chunk_key = (chunk_x, chunk_y)
         
-        # Check if buffer already exists
-        if chunk_key in self.chunk_buffers:
+        # Wenn Buffer existiert und Chunk nicht dirty ist, einfach zurückgeben
+        if chunk_key in self.chunk_buffers and chunk_key not in self.chunk_dirty:
             vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
             return (vbo, vao, vertex_count)
+        
+        # Ab hier: neu oder dirty -> GPU-Daten neu aufbauen
+        # Wenn Chunk dirty ist und bereits Buffer existiert, alten Buffer freigeben
+        if chunk_key in self.chunk_buffers:
+            old_vbo, old_vao, old_vertex_count, old_pool_index = self.chunk_buffers[chunk_key]
+            # Release buffer back to pool if it came from pool
+            if old_pool_index is not None:
+                self.chunk_vbo_pool.release(old_pool_index)
+            else:
+                # Manually created buffer - release normally
+                old_vao.release()
+                old_vbo.release()
+            # Remove from cache (will be re-added below)
+            del self.chunk_buffers[chunk_key]
         
         chunk_size = settings.CHUNK_SIZE
         tile_size = float(settings.TILE_SIZE)
@@ -468,10 +482,10 @@ class ModernGLRenderer:
         vertex_array = np.array(vertices, dtype=np.float32)
         vertex_count = len(vertices)
         
-        # Acquire buffer from pool
+        # Buffer aus Pool holen oder neuen erstellen
         pool_result = self.chunk_vbo_pool.acquire()
         if pool_result is None:
-            # Pool exhausted - fallback to creating new buffer (should not happen in normal operation)
+            # Fallback: neuer Buffer
             if self.diagnostics:
                 self.diagnostics.warning("ModernGLRenderer", "VBO pool exhausted, creating new buffer", chunk_x=chunk_x, chunk_y=chunk_y)
             vbo = self.ctx.buffer(vertex_array.tobytes())
@@ -479,21 +493,18 @@ class ModernGLRenderer:
                 self.chunk_program,
                 [(vbo, "2f 1f", "in_position", "in_color_index")]
             )
-            # Cache without pool index (will be released normally)
             self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, None)
-            return (vbo, vao, vertex_count)
+        else:
+            vbo, vao, pool_index = pool_result
+            self.chunk_vbo_pool.write_data(vbo, vertex_array)
+            self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, pool_index)
         
-        vbo, vao, pool_index = pool_result
-        
-        # Write vertex data to buffer (reuse existing buffer)
-        self.chunk_vbo_pool.write_data(vbo, vertex_array)
-        
-        # Cache buffer with pool index
-        self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, pool_index)
+        # Nach Upload ist der Chunk wieder "clean"
+        self.mark_chunk_clean(chunk_x, chunk_y)
         
         return (vbo, vao, vertex_count)
     
-    def render_chunks(self, chunks_data: List[Tuple[int, int, List[List[dict]]]], performance_monitor=None):
+    def render_chunks(self, chunks_data: List[Tuple[int, int, List[List[dict]]]], performance_monitor=None, max_new_chunks_per_frame: int = 8):
         """
         Render chunks using GPU (with caching - similar to Pygame surface cache)
         
@@ -501,49 +512,60 @@ class ModernGLRenderer:
             chunks_data: List of (chunk_x, chunk_y, tiles) tuples
                 tiles: 15x15 grid of tile dictionaries with 'color' key
             performance_monitor: Optional PerformanceMonitor instance for timing
+            max_new_chunks_per_frame: Maximum number of new/dirty chunks to upload per frame
+                (prevents frame time spikes when loading many chunks at once)
         """
         if not chunks_data:
             return
         
-        # Measure chunk rendering time
         import time
         chunk_render_start = time.perf_counter()
         
-        # Render chunks
-        
-        # IMPORTANT: Ensure shader uniforms are up-to-date before rendering
-        # The uniforms (screen_size, view_translation, zoom) are set in update_view(),
-        # but we verify they're set here to ensure zoom changes are applied
+        # Shader-Uniforms sicherstellen
         if self.chunk_program:
             if 'screen_size' in self.chunk_program:
                 self.chunk_program['screen_size'].value = (float(self.screen_width), float(self.screen_height))
             if 'zoom' in self.chunk_program:
-                # Ensure zoom is current (should already be set in update_view, but double-check)
                 self.chunk_program['zoom'].value = self.current_zoom
         
-        # Enable OpenGL state
+        # GL State
         self.ctx.enable(moderngl.BLEND)
         self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
         self.ctx.disable(moderngl.DEPTH_TEST)
         self.ctx.disable(moderngl.CULL_FACE)
         
-        # Measure upload time separately (time spent uploading vertex data to GPU)
         upload_start_time = time.perf_counter()
+        new_chunks_uploaded = 0
         
-        # Build or reuse merged chunk buffer (single VBO for all visible chunks)
-        self._build_merged_chunk_buffer(chunks_data)
+        # Pro Chunk: ggf. Buffer neu aufbauen und einmal drawen
+        for chunk_x, chunk_y, tiles in chunks_data:
+            chunk_key = (chunk_x, chunk_y)
+            is_dirty = chunk_key in self.chunk_dirty or chunk_key not in self.chunk_buffers
+            
+            # Upload-Budget begrenzen
+            if is_dirty and new_chunks_uploaded >= max_new_chunks_per_frame:
+                # Noch nicht im GPU-Cache? Dann diesen Chunk in diesem Frame überspringen
+                if chunk_key not in self.chunk_buffers:
+                    continue
+                # Im Cache aber dirty? Mit altem Buffer rendern (ohne Upload)
+                if chunk_key in self.chunk_buffers:
+                    vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
+                    if vao and vertex_count > 0:
+                        vao.render(moderngl.TRIANGLES, vertices=vertex_count)
+                    continue
+            
+            # Normaler Pfad: Buffer erstellen/aktualisieren
+            vbo, vao, vertex_count = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
+            if is_dirty:
+                new_chunks_uploaded += 1
+            
+            if vao and vertex_count > 0:
+                vao.render(moderngl.TRIANGLES, vertices=vertex_count)
         
         upload_time = time.perf_counter() - upload_start_time
-        
-        # Record upload time separately
         if performance_monitor:
             performance_monitor.record_chunk_upload_time(upload_time)
         
-        # Single draw call for all chunks
-        if self._merged_chunk_vao and self._merged_chunk_vertex_count > 0:
-            self._merged_chunk_vao.render(moderngl.TRIANGLES, vertices=self._merged_chunk_vertex_count)
-        
-        # Record chunk rendering time (total time including upload and draw)
         chunk_render_time = time.perf_counter() - chunk_render_start
         if performance_monitor:
             performance_monitor.record_chunk_render_time(chunk_render_time)
@@ -723,7 +745,22 @@ class ModernGLRenderer:
         # Test quad rendered
     
     def _invalidate_all_chunk_buffers(self):
-        """Invalidate all chunk buffers (called when camera or zoom changes)"""
+        """
+        Invalidate all chunk buffers.
+        
+        WARNING: This method should ONLY be called for:
+        - Renderer reset/reinitialization (e.g., shader changes, format changes)
+        - Vertex format changes (e.g., new shader attributes)
+        - Complete buffer cache invalidation (e.g., after major renderer updates)
+        
+        DO NOT call this for:
+        - Camera position changes (buffers contain world coordinates)
+        - Zoom changes (zoom is applied via shader uniform)
+        - Individual chunk data changes (use invalidate_chunk() instead)
+        
+        Buffers contain world coordinates only and are transformed via shader uniforms,
+        so they remain valid across camera/zoom changes.
+        """
         for chunk_key, buffer_data in list(self.chunk_buffers.items()):
             vbo, vao, vertex_count, pool_index = buffer_data
             # Release buffer back to pool if it came from pool
@@ -746,6 +783,19 @@ class ModernGLRenderer:
         self._merged_chunk_map = {}
         self._merged_chunk_order = []
     
+    def reset_renderer(self):
+        """
+        Reset renderer (invalidates all buffers).
+        
+        Call this when:
+        - Shader programs are reloaded
+        - Vertex format changes
+        - Renderer needs complete reinitialization
+        
+        This will force all chunks to be re-uploaded on next render.
+        """
+        self._invalidate_all_chunk_buffers()
+    
     def invalidate_chunk(self, chunk_x: int, chunk_y: int):
         """Invalidate cached buffer for a chunk (call when chunk changes)"""
         chunk_key = (chunk_x, chunk_y)
@@ -759,6 +809,72 @@ class ModernGLRenderer:
                 vao.release()
                 vbo.release()
             del self.chunk_buffers[chunk_key]
+        
+        # Mark chunk as dirty when invalidated
+        self.chunk_dirty.add(chunk_key)
+    
+    def release_chunk_buffer(self, chunk_x: int, chunk_y: int):
+        """
+        Release chunk buffer resources when chunk is no longer visible.
+        
+        This method should be called when a chunk becomes invisible to free up
+        GPU resources and prevent the VBO pool from filling up.
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+        """
+        chunk_key = (chunk_x, chunk_y)
+        if chunk_key in self.chunk_buffers:
+            vbo, vao, vertex_count, pool_index = self.chunk_buffers.pop(chunk_key)
+            # Remove from dirty set (chunk is being released, no need to track dirty state)
+            self.chunk_dirty.discard(chunk_key)
+            
+            if pool_index is not None:
+                # Return buffer to pool for reuse
+                self.chunk_vbo_pool.release(pool_index)
+            else:
+                # Manually created buffer (pool exhausted) - release normally
+                vao.release()
+                vbo.release()
+    
+    def mark_chunk_dirty(self, chunk_x: int, chunk_y: int):
+        """
+        Markiere einen Chunk als dirty (Daten haben sich geändert).
+        
+        Wird extern aufgerufen, wenn sich die Tiles eines Chunks geändert haben
+        (z.B. durch Build/Abbau im ChunkManager oder Multiplayer-Updates).
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+        """
+        self.chunk_dirty.add((chunk_x, chunk_y))
+    
+    def mark_chunk_clean(self, chunk_x: int, chunk_y: int):
+        """
+        Markiere einen Chunk als clean (Daten sind aktuell).
+        
+        Wird aufgerufen, nachdem ein Chunk erfolgreich aktualisiert wurde.
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+        """
+        self.chunk_dirty.discard((chunk_x, chunk_y))
+    
+    def is_chunk_dirty(self, chunk_x: int, chunk_y: int) -> bool:
+        """
+        Prüfe, ob ein Chunk dirty ist (Daten müssen aktualisiert werden).
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+        
+        Returns:
+            True wenn der Chunk dirty ist, False sonst
+        """
+        return (chunk_x, chunk_y) in self.chunk_dirty
     
     def cleanup(self):
         """Cleanup all cached buffers"""
@@ -772,6 +888,9 @@ class ModernGLRenderer:
                 vao.release()
                 vbo.release()
         self.chunk_buffers.clear()
+        
+        # Clear dirty tracking
+        self.chunk_dirty.clear()
         
         # Release merged chunk buffer
         if self._merged_chunk_vao is not None:
