@@ -1,61 +1,199 @@
 {
-  "noise_settings": {
+  "noisesettings": {
     "seed": null,
-    "octaves": 6,
+    "octaves": 7,
     "persistence": 0.5,
-    "lacunarity": 2.0,
-    "scale": 200.0
+    "lacunarity": 2.2,
+    "scale": 200.0,
+
+    "temp_scale": 400.0,
+    "temp_octaves": 3,
+    "temp_persistence": 0.45,
+    "temp_lacunarity": 2.0
   },
   "biomes": {
     "water:deep": {
       "height_min": -1.0,
       "height_max": -0.3,
+      "temp_min": 0.0,
+      "temp_max": 1.0,
       "color": [20, 60, 120],
-      "tile_id": "core:deep_water",
+      "tile_id": "core:deepwater",
       "traversable": false
     },
     "water:shallow": {
       "height_min": -0.3,
-      "height_max": 0.0,
+      "height_max": 0.10,
+      "temp_min": 0.0,
+      "temp_max": 1.0,
       "color": [40, 100, 180],
-      "tile_id": "core:shallow_water",
+      "tile_id": "core:shallowwater",
       "traversable": false
     },
+
     "terrain:beach": {
-      "height_min": 0.0,
-      "height_max": 0.15,
+      "height_min": -0.15,
+      "height_max": 0.22,
+      "temp_min": 0.45,
+      "temp_max": 1.0,
+      "target_temp": 0.65,
+      "target_humidity": 0.55,
+      "target_continentalness": 0.25,
+      "target_erosion": 0.25,
       "color": [220, 200, 160],
       "tile_id": "core:sand",
       "traversable": true
     },
+
+    "terrain:tundra": {
+      "height_min": 0.15,
+      "height_max": 0.55,
+      "temp_min": 0.0,
+      "temp_max": 0.50,
+      "target_temp": 0.18,
+      "target_humidity": 0.35,
+      "target_continentalness": 0.65,
+      "target_erosion": 0.75,
+      "color": [180, 200, 220],
+      "tile_id": "core:tundra",
+      "traversable": true
+    },
     "terrain:plains": {
       "height_min": 0.15,
-      "height_max": 0.5,
+      "height_max": 0.55,
+      "temp_min": 0.20,
+      "temp_max": 0.80,
+      "target_temp": 0.5,
+      "target_humidity": 0.55,
+      "target_continentalness": 0.6,
+      "target_erosion": 0.35,
       "color": [100, 180, 80],
       "tile_id": "core:grass",
       "traversable": true
     },
+    "terrain:desert": {
+      "height_min": 0.15,
+      "height_max": 0.55,
+      "temp_min": 0.40,
+      "temp_max": 1.0,
+      "target_temp": 0.88,
+      "target_humidity": 0.12,
+      "target_continentalness": 0.55,
+      "target_erosion": 0.35,
+      "color": [240, 200, 100],
+      "tile_id": "core:desert",
+      "traversable": true
+    },
+
     "terrain:forest": {
-      "height_min": 0.5,
-      "height_max": 0.7,
+      "height_min": 0.40,
+      "height_max": 0.75,
+      "temp_min": 0.15,
+      "temp_max": 0.85,
+      "target_temp": 0.52,
+      "target_humidity": 0.8,
+      "target_continentalness": 0.65,
+      "target_erosion": 0.45,
       "color": [40, 100, 40],
       "tile_id": "core:forest",
       "traversable": true,
-      "tree_density": 0.3
+      "treedensity": 0.3
     },
+
     "terrain:mountains": {
-      "height_min": 0.7,
-      "height_max": 0.9,
+      "height_min": 0.60,
+      "height_max": 0.90,
+      "temp_min": 0.0,
+      "temp_max": 1.0,
+      "target_temp": 0.3,
+      "target_humidity": 0.45,
+      "target_continentalness": 0.8,
+      "target_erosion": 0.8,
       "color": [120, 120, 100],
       "tile_id": "core:stone",
       "traversable": true,
-      "movement_speed_modifier": 0.6
+      "movementspeedmodifier": 0.6
     },
     "terrain:snow": {
-      "height_min": 0.9,
+      "height_min": 0.75,
       "height_max": 1.0,
+      "temp_min": 0.0,
+      "temp_max": 0.55,
+      "target_temp": 0.15,
+      "target_humidity": 0.35,
+      "target_continentalness": 0.9,
+      "target_erosion": 0.85,
       "color": [240, 240, 250],
       "tile_id": "core:snow",
+      "traversable": true
+    },
+    "terrain:taiga": {
+      "height_min": 0.35,
+      "height_max": 0.70,
+      "temp_min": 0.10,
+      "temp_max": 0.60,
+      "target_temp": 0.35,
+      "target_humidity": 0.7,
+      "target_continentalness": 0.7,
+      "target_erosion": 0.5,
+      "color": [30, 80, 50],
+      "tile_id": "core:taiga",
+      "traversable": true
+    },
+
+    "terrain:savanna": {
+      "height_min": 0.15,
+      "height_max": 0.55,
+      "temp_min": 0.50,
+      "temp_max": 1.0,
+      "target_temp": 0.75,
+      "target_humidity": 0.35,
+      "target_continentalness": 0.55,
+      "target_erosion": 0.35,
+      "color": [170, 190, 80],
+      "tile_id": "core:savanna",
+      "traversable": true
+    },
+
+    "terrain:steppe": {
+      "height_min": 0.20,
+      "height_max": 0.60,
+      "temp_min": 0.20,
+      "temp_max": 0.70,
+      "target_temp": 0.45,
+      "target_humidity": 0.25,
+      "target_continentalness": 0.65,
+      "target_erosion": 0.4,
+      "color": [160, 170, 100],
+      "tile_id": "core:steppe",
+      "traversable": true
+    },
+
+    "terrain:chaparral": {
+      "height_min": 0.25,
+      "height_max": 0.65,
+      "temp_min": 0.45,
+      "temp_max": 0.85,
+      "target_temp": 0.6,
+      "target_humidity": 0.45,
+      "target_continentalness": 0.5,
+      "target_erosion": 0.5,
+      "color": [150, 170, 110],
+      "tile_id": "core:chaparral",
+      "traversable": true
+    },
+
+    "terrain:rainforest": {
+      "height_min": 0.20,
+      "height_max": 0.70,
+      "temp_min": 0.60,
+      "temp_max": 1.0,
+      "target_temp": 0.9,
+      "target_humidity": 0.9,
+      "target_continentalness": 0.4,
+      "target_erosion": 0.4,
+      "color": [20, 90, 30],
+      "tile_id": "core:rainforest",
       "traversable": true
     }
   }

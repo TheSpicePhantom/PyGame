@@ -77,3 +77,50 @@ def find_world_by_name(world_name: str) -> Optional[Path]:
         return save_dir
     return None
 
+
+def ensure_unique_world_name(world_name: str) -> str:
+    """
+    Stellt sicher, dass ein Weltname eindeutig ist, indem "_" angehängt wird falls nötig.
+    
+    Prüft ob ein Welt-Ordner mit diesem Namen bereits existiert. Falls ja, wird "_"
+    angehängt und erneut geprüft, bis ein freier Name gefunden wird.
+    
+    Args:
+        world_name: Der gewünschte Weltname (Klarname, wird automatisch sanitized)
+        
+    Returns:
+        Eindeutiger Weltname (Klarname, nicht sanitized)
+        
+    Beispiel:
+        - "New World" existiert bereits → "New World_"
+        - "New World_" existiert auch → "New World__"
+        - usw.
+    """
+    if not world_name or not world_name.strip():
+        world_name = "New World"
+    
+    world_name = world_name.strip()
+    original_name = world_name
+    
+    # Prüfe ob der Name bereits existiert
+    counter = 0
+    while True:
+        # Prüfe ob ein Ordner mit diesem Namen existiert
+        save_dir = get_world_save_dir(world_name)
+        if not save_dir.exists() or not save_dir.is_dir():
+            # Name ist frei, verwende ihn
+            return world_name
+        
+        # Name existiert bereits, füge "_" hinzu
+        counter += 1
+        world_name = original_name + ("_" * counter)
+        
+        # Sicherheitscheck: Verhindere endlose Schleife (max 100 Versuche)
+        if counter > 100:
+            # Fallback: Füge Timestamp hinzu
+            import time
+            world_name = f"{original_name}_{int(time.time())}"
+            break
+    
+    return world_name
+

@@ -120,9 +120,13 @@ class CreateWorldStateHandler(StateHandler):
     
     def _create_world(self):
         """Create world with entered name and seed"""
+        from world.world_utils import ensure_unique_world_name
+        
         world_name = self.game_app.ui_controller.create_world_menu.get_world_name()
+        # Stelle sicher, dass der Weltname eindeutig ist (fügt "_" hinzu falls nötig)
+        unique_world_name = ensure_unique_world_name(world_name)
         seed = self.game_app.ui_controller.create_world_menu.get_seed()
-        self.game_app.start_new_world(world_name=world_name, seed=seed)
+        self.game_app.start_new_world(world_name=unique_world_name, seed=seed)
     
     def _setup_player_inventory(self):
         """Setup player inventory in UI controller after game initialization"""
