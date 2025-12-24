@@ -58,6 +58,9 @@ class PerformanceMonitor:
         # Chunk render times (per frame)
         self.chunk_render_times = deque(maxlen=300)
         
+        # Chunk upload times (per frame) - time spent uploading vertex data to GPU
+        self.chunk_upload_times = deque(maxlen=300)
+        
         # Optional logger reference for automatic event logging
         self.logger = None
         
@@ -235,6 +238,17 @@ class PerformanceMonitor:
             return
         self.chunk_render_times.append(render_time * 1000)  # Convert to ms
     
+    def record_chunk_upload_time(self, upload_time):
+        """
+        Record chunk upload time for a frame (time spent uploading vertex data to GPU)
+        
+        Args:
+            upload_time: Time taken to upload chunk vertex data to GPU (in seconds)
+        """
+        if not self.enabled:
+            return
+        self.chunk_upload_times.append(upload_time * 1000)  # Convert to ms
+    
     def record_movement(self, direction):
         """Record a player movement event"""
         if not self.enabled:
@@ -368,6 +382,15 @@ class PerformanceMonitor:
                 f"Max: {render_stats['max']:.2f}, "
                 f"Avg: {render_stats['avg']:.2f}, "
                 f"Median: {render_stats['median']:.2f}")
+        
+        # Chunk Upload Times
+        if self.chunk_upload_times:
+            upload_stats = stats['chunk_upload_times']
+            self.diagnostics.info("PerformanceMonitor",
+                f"Chunk Upload Times (ms) - Min: {upload_stats['min']:.2f}, "
+                f"Max: {upload_stats['max']:.2f}, "
+                f"Avg: {upload_stats['avg']:.2f}, "
+                f"Median: {upload_stats['median']:.2f}")
         
         # Movement Events
         self.diagnostics.info("PerformanceMonitor", f"Movement Events: {stats['movement_count']}")

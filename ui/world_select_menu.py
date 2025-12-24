@@ -591,6 +591,45 @@ class WorldSelectMenu:
             return  # Already cached
         
         try:
+            # First, try to load preview.png from save directory
+            preview_path = Path(f"saves/{world_id}/preview.png")
+            if preview_path.exists():
+                try:
+                    # Load PNG image using pyglet
+                    preview_image = pyglet.image.load(str(preview_path))
+                    
+                    # Create sprite for easy drawing
+                    sprite = pyglet.sprite.Sprite(preview_image)
+                    
+                    # Extract spawn marker position if spawn_position is available
+                    spawn_marker_pos = None
+                    if spawn_position:
+                        preview_width = self.preview_size * settings.CHUNK_SIZE
+                        preview_height = self.preview_size * settings.CHUNK_SIZE
+                        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+                        spawn_chunk_x = int(spawn_position[0] // chunk_size_pixels)
+                        spawn_chunk_y = int(spawn_position[1] // chunk_size_pixels)
+                        spawn_tile_x = int((spawn_position[0] % chunk_size_pixels) // settings.TILE_SIZE)
+                        spawn_tile_y = int((spawn_position[1] % chunk_size_pixels) // settings.TILE_SIZE)
+                        
+                        if 0 <= spawn_chunk_x < self.preview_size and 0 <= spawn_chunk_y < self.preview_size:
+                            array_x = spawn_chunk_x * settings.CHUNK_SIZE + spawn_tile_x
+                            array_y = spawn_chunk_y * settings.CHUNK_SIZE + spawn_tile_y
+                            spawn_marker_pos = (array_x, array_y)
+                    
+                    self.preview_cache[world_id] = {
+                        'chunks': [],  # Not needed when loading from file
+                        'spawn_position': spawn_position,
+                        'texture': preview_image,
+                        'sprite': sprite,
+                        'spawn_marker_pos': spawn_marker_pos
+                    }
+                    return  # Successfully loaded from file
+                except Exception as e:
+                    # If loading fails, fall through to generate preview
+                    pass
+            
+            # Fallback: Generate preview from terrain generator
             # Create terrain generator with seed
             terrain_gen = TerrainGenerator(seed=seed)
             

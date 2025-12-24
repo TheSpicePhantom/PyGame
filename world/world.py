@@ -85,15 +85,38 @@ class World:
                 print(f"[World] ERROR: {error_msg}")
             raise ValueError(error_msg)
     
-    def update(self, player_pos):
-        """Update world based on player position (load/unload chunks)"""
+    def update(self, player_pos, camera_pos=None, screen_width=None, screen_height=None, zoom=1.0):
+        """
+        Update world based on player and camera position (load/unload chunks)
+        
+        Args:
+            player_pos: Player position (x, y) in world coordinates (pixels)
+            camera_pos: Camera position (x, y) in world coordinates (pixels). If None, uses player_pos
+            screen_width: Screen width in pixels. If None, uses settings.SCREEN_WIDTH
+            screen_height: Screen height in pixels. If None, uses settings.SCREEN_HEIGHT
+            zoom: Camera zoom factor (default: 1.0)
+        """
         # Pre-load visible chunks on first update to prevent stuttering
         if not self._initial_preload_done:
             self.chunk_manager.preload_visible_chunks(player_pos)
             self._initial_preload_done = True
-            print(f"[World] Pre-loaded visible chunks around player position")
+            if self.diagnostics:
+                self.diagnostics.info("World", "Pre-loaded visible chunks around player position")
+            else:
+                print(f"[World] Pre-loaded visible chunks around player position")
         
-        self.chunk_manager.update(player_pos)
+        # Use preload radius for initial load (optional, can be None to skip)
+        preload_radius = settings.get_chunk_load_distance() if not self._initial_preload_done else None
+        
+        # Update chunk manager with camera-based loading
+        self.chunk_manager.update(
+            player_pos=player_pos,
+            camera_pos=camera_pos,
+            screen_width=screen_width,
+            screen_height=screen_height,
+            zoom=zoom,
+            preload_radius=preload_radius
+        )
         
         # Process chunks that finished loading in background threads
         self.chunk_manager.process_loaded_chunks(self.all_sprites, self.resource_sprites)

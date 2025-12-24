@@ -45,6 +45,10 @@ class WorldRenderer:
         chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
         
         # Calculate visible area bounds
+        # Shader multiplies by zoom: screen_pos = (pos - center) * zoom + center
+        # When zoom < 1.0 (rauszoomen): position offset becomes smaller → more world visible → more chunks
+        # When zoom > 1.0 (reinzoomen): position offset becomes larger → less world visible → fewer chunks
+        # To get visible world size, we divide screen size by zoom (inverse of shader multiplication)
         visible_world_width = screen_width / self.world_controller.camera_zoom
         visible_world_height = screen_height / self.world_controller.camera_zoom
         
@@ -53,54 +57,46 @@ class WorldRenderer:
         world_min_y = camera_y - visible_world_height / 2.0
         world_max_y = camera_y + visible_world_height / 2.0
         
-        # Process chunks: visible -> rendering -> active -> rendered
-        for chunk in self.world_controller.world.chunk_manager.loaded_chunks.values():
-            if chunk.render_state == "rendered":
-                chunk.render_state = None
+        # Collect all loaded chunks for rendering (stable list from loaded_chunks)
+        # Optional: Simple frustum culling to skip chunks far outside screen
+        enable_frustum_cull = True  # Set to False to render all loaded chunks without culling
         
-        # Process all loaded chunks - render all chunks that are in the visible area
         for chunk in self.world_controller.world.chunk_manager.loaded_chunks.values():
-            chunk_world_x = chunk.chunk_x * chunk_size_pixels
-            chunk_world_y = chunk.chunk_y * chunk_size_pixels
-            chunk_world_max_x = chunk_world_x + chunk_size_pixels
-            chunk_world_max_y = chunk_world_y + chunk_size_pixels
-            
-            # Frustum culling
-            x_overlaps = (chunk_world_x <= world_max_x) and (chunk_world_max_x >= world_min_x)
-            y_overlaps = (chunk_world_y <= world_max_y) and (chunk_world_max_y >= world_min_y)
-            chunk_overlaps = x_overlaps and y_overlaps
-            
-            if not chunk_overlaps:
-                if chunk.render_state == "rendering":
-                    chunk.render_state = "inactive"
-                elif chunk.render_state == "visible":
-                    chunk.render_state = "inactive"
+            if not chunk.tiles:
                 continue
             
-            # Chunk passed frustum culling
-            if chunk.render_state == "visible":
-                chunk.render_state = "rendering"
-            if chunk.render_state == "rendering":
-                chunk.render_state = "active"
+            # Optional frustum culling: Skip chunks that are clearly outside visible area
+            if enable_frustum_cull:
+                chunk_world_x = chunk.chunk_x * chunk_size_pixels
+                chunk_world_y = chunk.chunk_y * chunk_size_pixels
+                chunk_world_max_x = chunk_world_x + chunk_size_pixels
+                chunk_world_max_y = chunk_world_y + chunk_size_pixels
+                
+                # Simple frustum check: chunk overlaps with visible area
+                x_overlaps = (chunk_world_x <= world_max_x) and (chunk_world_max_x >= world_min_x)
+                y_overlaps = (chunk_world_y <= world_max_y) and (chunk_world_max_y >= world_min_y)
+                chunk_overlaps = x_overlaps and y_overlaps
+                
+                if not chunk_overlaps:
+                    continue  # Skip chunks outside visible area
             
-            if chunk.tiles:
-                chunks_data.append((chunk.chunk_x, chunk.chunk_y, chunk.tiles))
+            # Add chunk to render list
+            chunks_data.append((chunk.chunk_x, chunk.chunk_y, chunk.tiles))
         
-        # Step 3: Render all visible chunks
+        # Step 3: Render all chunks from stable loaded_chunks list
         if chunks_data:
             self.modern_gl_renderer.render_chunks(chunks_data, performance_monitor=self.world_controller.performance_monitor)
-            
-            # Mark rendered chunks as "rendered"
-            for chunk_x, chunk_y, _ in chunks_data:
-                chunk_key = (chunk_x, chunk_y)
-                if chunk_key in self.world_controller.world.chunk_manager.loaded_chunks:
-                    chunk = self.world_controller.world.chunk_manager.loaded_chunks[chunk_key]
-                    if chunk.render_state == "active":
-                        chunk.render_state = "rendered"
         
         # Step 4: Render player
         if self.world_controller.player:
             self._render_player()
+        
+        # Store chunks_data for debug visualization
+        self._last_chunks_data = chunks_data
+    
+    def get_chunks_data(self):
+        """Get the last rendered chunks data for debug visualization"""
+        return getattr(self, '_last_chunks_data', [])
     
     def _render_player(self):
         """Render player as yellow quad (1 tile wide, 2 tiles tall)"""
@@ -122,21 +118,29 @@ class WorldRenderer:
         world_x1 = world_x0 + player_width
         world_y1 = world_y0 + player_height
         
-        r, g, b = 1.0, 1.0, 0.0  # Yellow
+        # Get color index for yellow (255, 255, 0) from palette
+        yellow_color = (255, 255, 0)
+        color_index = float(self.modern_gl_renderer.tile_color_palette.get_color_index(yellow_color))
+        
+        # If yellow not in palette, add it
+        if color_index == 0 and yellow_color not in self.modern_gl_renderer.tile_color_palette.color_to_index:
+            color_index = float(self.modern_gl_renderer.tile_color_palette.add_color(yellow_color))
+            # Update palette uniform in shader
+            self.modern_gl_renderer._update_palette_uniform()
         
         vertices = np.array([
-            [world_x0, world_y0, r, g, b],
-            [world_x1, world_y0, r, g, b],
-            [world_x1, world_y1, r, g, b],
-            [world_x0, world_y0, r, g, b],
-            [world_x1, world_y1, r, g, b],
-            [world_x0, world_y1, r, g, b],
+            [world_x0, world_y0, color_index],
+            [world_x1, world_y0, color_index],
+            [world_x1, world_y1, color_index],
+            [world_x0, world_y0, color_index],
+            [world_x1, world_y1, color_index],
+            [world_x0, world_y1, color_index],
         ], dtype=np.float32)
         
         vbo = self.modern_gl_renderer.ctx.buffer(vertices.tobytes())
         vao = self.modern_gl_renderer.ctx.vertex_array(
             self.modern_gl_renderer.chunk_program,
-            [(vbo, "2f 3f", "in_position", "in_color")]
+            [(vbo, "2f 1f", "in_position", "in_color_index")]
         )
         
         vao.render(moderngl.TRIANGLES)

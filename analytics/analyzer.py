@@ -76,11 +76,20 @@ class PerformanceAnalyzer:
         update_stats = stats['update_times']
         render_stats = stats['render_times']
         
+        # Chunk Upload Times (falls verfügbar)
+        chunk_upload_stats = stats.get('chunk_upload_times', {})
+        chunk_render_stats = stats.get('chunk_render_times', {})
+        
+        # Disk Load Times (aus chunk_loaded_from_disk_events)
+        disk_load_times = []
+        if 'chunk_loaded_from_disk_events' in self.data:
+            disk_load_times = [e['load_time'] for e in self.data['chunk_loaded_from_disk_events']]
+        
         # Berechne geschätzte Frame-Anzahl basierend auf Durchschnitts-FPS
         session_duration = self._analyze_session()['duration_seconds']
         estimated_frames = fps_stats['avg'] * session_duration
         
-        return {
+        result = {
             'frame_times': {
                 'min_ms': frame_stats['min'],
                 'max_ms': frame_stats['max'],
@@ -109,6 +118,36 @@ class PerformanceAnalyzer:
             },
             'estimated_frames': estimated_frames,
         }
+        
+        # Chunk Upload Times hinzufügen (falls verfügbar)
+        if chunk_upload_stats:
+            result['chunk_upload_times'] = {
+                'min_ms': chunk_upload_stats.get('min', 0),
+                'max_ms': chunk_upload_stats.get('max', 0),
+                'avg_ms': chunk_upload_stats.get('avg', 0),
+                'median_ms': chunk_upload_stats.get('median', 0),
+            }
+        
+        # Chunk Render Times hinzufügen (falls verfügbar)
+        if chunk_render_stats:
+            result['chunk_render_times'] = {
+                'min_ms': chunk_render_stats.get('min', 0),
+                'max_ms': chunk_render_stats.get('max', 0),
+                'avg_ms': chunk_render_stats.get('avg', 0),
+                'median_ms': chunk_render_stats.get('median', 0),
+            }
+        
+        # Disk Load Times hinzufügen (falls verfügbar)
+        if disk_load_times:
+            result['disk_load_times'] = {
+                'min_ms': min(disk_load_times) if disk_load_times else 0,
+                'max_ms': max(disk_load_times) if disk_load_times else 0,
+                'avg_ms': mean(disk_load_times) if disk_load_times else 0,
+                'median_ms': median(disk_load_times) if disk_load_times else 0,
+                'total_events': len(disk_load_times),
+            }
+        
+        return result
     
     def _analyze_chunk_loading(self) -> Dict:
         """Analysiert Chunk-Loading-Performance"""
@@ -636,6 +675,24 @@ class PerformanceAnalyzer:
             else:
                 insights.append("[OK] Movement-Verarbeitung ist konsistent ({:.2f}ms Durchschnitt)".format(avg_delay*1000))
         
+        # Upload vs Disk Load Insights
+        if 'chunk_upload_times' in frame_perf and 'disk_load_times' in frame_perf:
+            avg_upload_time = frame_perf['chunk_upload_times']['avg_ms']
+            avg_disk_load_time = frame_perf['disk_load_times']['avg_ms']
+            upload_budget = 2.5  # CHUNK_UPLOAD_BUDGET_MS (tightened from 3.5ms)
+            
+            if avg_upload_time > upload_budget:
+                insights.append("[WARN] Durchschnittliche Upload-Zeit ({:.2f}ms) überschreitet Budget ({:.2f}ms)".format(avg_upload_time, upload_budget))
+            else:
+                insights.append("[OK] Upload-Zeit ({:.2f}ms) ist innerhalb des Budgets ({:.2f}ms)".format(avg_upload_time, upload_budget))
+            
+            # Vergleich: Wenn Frame-Zeiten hoch sind, aber Upload-Zeiten niedrig, liegt das Problem bei IO
+            avg_frame_time = frame_perf['frame_times']['avg_ms']
+            if avg_frame_time > 16.67 and avg_upload_time <= upload_budget:
+                insights.append("[INFO] Hohe Frame-Zeiten ({:.2f}ms) bei niedrigen Upload-Zeiten ({:.2f}ms) deuten auf IO-Bottleneck hin".format(avg_frame_time, avg_upload_time))
+            elif avg_frame_time > 16.67 and avg_upload_time > upload_budget:
+                insights.append("[WARN] Hohe Frame-Zeiten ({:.2f}ms) UND hohe Upload-Zeiten ({:.2f}ms) - möglicherweise GPU-Bottleneck".format(avg_frame_time, avg_upload_time))
+        
         return insights
     
     def print_report(self):
@@ -686,6 +743,48 @@ class PerformanceAnalyzer:
         print(f"  Maximum:  {frame_perf['render_times']['max_ms']:>8.2f}")
         print(f"  Durchschnitt: {frame_perf['render_times']['avg_ms']:>8.2f}")
         print(f"  Median:   {frame_perf['render_times']['median_ms']:>8.2f}")
+        
+        # Chunk Upload Times vs Disk Load Times Vergleich
+        print(f"\n{'=' * 80}")
+        print("CHUNK UPLOAD vs DISK LOAD ZEITEN")
+        print(f"{'=' * 80}")
+        
+        if 'chunk_upload_times' in frame_perf:
+            upload_stats = frame_perf['chunk_upload_times']
+            print(f"\nUpload-Zeiten (GPU-Upload pro Frame, ms):")
+            print(f"  Minimum:  {upload_stats['min_ms']:>8.2f}")
+            print(f"  Maximum:  {upload_stats['max_ms']:>8.2f}")
+            print(f"  Durchschnitt: {upload_stats['avg_ms']:>8.2f}")
+            print(f"  Median:   {upload_stats['median_ms']:>8.2f}")
+        else:
+            print("\nUpload-Zeiten: Nicht verfügbar")
+        
+        if 'disk_load_times' in frame_perf:
+            disk_stats = frame_perf['disk_load_times']
+            print(f"\nDisk-Load-Zeiten (IO pro Chunk, ms):")
+            print(f"  Minimum:  {disk_stats['min_ms']:>8.2f}")
+            print(f"  Maximum:  {disk_stats['max_ms']:>8.2f}")
+            print(f"  Durchschnitt: {disk_stats['avg_ms']:>8.2f}")
+            print(f"  Median:   {disk_stats['median_ms']:>8.2f}")
+            print(f"  Total Events: {disk_stats['total_events']}")
+        else:
+            print("\nDisk-Load-Zeiten: Nicht verfügbar")
+        
+        # Vergleich: Frame-Zeit vs Upload-Zeit vs Disk-Load-Zeit
+        if 'chunk_upload_times' in frame_perf and 'disk_load_times' in frame_perf:
+            avg_frame_time = frame_perf['frame_times']['avg_ms']
+            avg_upload_time = frame_perf['chunk_upload_times']['avg_ms']
+            avg_disk_load_time = frame_perf['disk_load_times']['avg_ms']
+            
+            print(f"\n{'=' * 80}")
+            print("ZEIT-VERGLEICH (Durchschnittswerte)")
+            print(f"{'=' * 80}")
+            print(f"Frame-Zeit:        {avg_frame_time:>8.2f} ms")
+            print(f"Upload-Zeit:       {avg_upload_time:>8.2f} ms ({avg_upload_time/avg_frame_time*100:.1f}% des Frames)")
+            print(f"Disk-Load-Zeit:    {avg_disk_load_time:>8.2f} ms (pro Chunk)")
+            upload_budget = 2.5  # CHUNK_UPLOAD_BUDGET_MS (tightened from 3.5ms)
+            print(f"\nUpload-Budget ({upload_budget}ms): {'OK' if avg_upload_time <= upload_budget else 'ÜBERSCHRITTEN'}")
+            print(f"  Upload-Zeit ist {'innerhalb' if avg_upload_time <= upload_budget else 'außerhalb'} des Budgets")
         
         # Chunk Loading
         chunk_loading = analysis['chunk_loading']

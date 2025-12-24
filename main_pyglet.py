@@ -699,15 +699,24 @@ class GameWindow(pyglet.window.Window):
                 else:
                     chunks_out_of_bounds += 1
         
-        # Load chunks that aren't already loaded
+        # Request async loading for chunks that aren't already loaded
+        # Chunks will be processed via process_loaded_chunks in update loop
         chunk_manager = self.world_controller.world.chunk_manager
-        newly_loaded = 0
+        camera_chunk_x = int(camera_x // chunk_size_pixels)
+        camera_chunk_y = int(camera_y // chunk_size_pixels)
+        
+        newly_requested = 0
         already_loaded = 0
         for chunk_x, chunk_y in chunks_to_load:
             chunk_key = (chunk_x, chunk_y)
             if chunk_key not in chunk_manager.loaded_chunks:
-                chunk_manager.get_or_create_chunk(chunk_x, chunk_y)
-                newly_loaded += 1
+                if chunk_key not in chunk_manager.pending_chunks:
+                    # Calculate priority based on distance from camera
+                    dx = abs(chunk_x - camera_chunk_x)
+                    dy = abs(chunk_y - camera_chunk_y)
+                    distance = dx + dy
+                    chunk_manager.request_chunk_load(chunk_x, chunk_y, priority=distance)
+                    newly_requested += 1
             else:
                 already_loaded += 1
         

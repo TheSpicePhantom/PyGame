@@ -77,6 +77,57 @@ def get_chunk_load_distance():
     # Cap at maximum for performance
     return min(max(_BASE_CHUNK_LOAD_DISTANCE, min_distance), 6)  # Max 6 chunks distance
 
+# Chunk processing time budget (in milliseconds per frame)
+CHUNK_UPLOAD_BUDGET_MS = 1.5  # Maximum time allowed for chunk uploads per frame (1-2 ms, HARD LIMIT - strictly enforced)
+
+# Chunk load rate limiting (HARD CAPS to prevent IO spikes)
+CHUNK_LOAD_RATE_LIMIT = 35  # Maximum disk loads per second globally (30-40 range) - HARD CAP
+CHUNK_LOAD_RATE_WINDOW_MS = 1000  # Time window for measuring load rate (1 second)
+CHUNK_LOAD_RATE_SLEEP_MS = 0.025  # Sleep time when rate limit exceeded (25ms - longer sleep for stricter limit)
+CHUNK_LOAD_WORKER_RATE_LIMIT = 12  # Maximum chunks per second per worker (with 3 workers: ~36 total, limited by global cap)
+CHUNK_LOAD_TOKEN_BUCKET_SIZE = 3  # Token bucket size per worker (smaller bursts)
+CHUNK_LOAD_TOKEN_REFILL_RATE = CHUNK_LOAD_WORKER_RATE_LIMIT / 1000.0  # Tokens per millisecond
+
+# Chunk save rate limiting (HARD CAPS to prevent IO spikes)
+CHUNK_SAVE_BASE_SLEEP = 0.05  # Base sleep time between saves (50ms = 20 chunks/second)
+CHUNK_SAVE_SLOW_THRESHOLD_MS = 20  # Threshold for slow saves (triggers additional throttling)
+CHUNK_SAVE_SLOW_SLEEP = 0.15  # Sleep time when slow saves detected (150ms = ~6.7 chunks/second) - INCREASED
+CHUNK_SAVE_SLOW_EXTRA_SLEEP = 0.1  # Additional sleep after slow saves >20ms (100ms) - INCREASED
+CHUNK_SAVE_VERY_SLOW_THRESHOLD_MS = 50  # Threshold for very slow saves (triggers even more throttling)
+CHUNK_SAVE_VERY_SLOW_SLEEP = 0.25  # Sleep time when very slow saves detected (250ms = 4 chunks/second) - INCREASED
+CHUNK_SAVE_VERY_SLOW_EXTRA_SLEEP = 0.15  # Additional sleep after very slow saves (150ms) - INCREASED
+
+# Token bucket for save rate limiting (HARD CAP - prevents IO bursts)
+CHUNK_SAVE_RATE_LIMIT = 20  # Maximum saves per second globally (15-20 range) - HARD CAP
+CHUNK_SAVE_TOKEN_BUCKET_SIZE = 3  # Token bucket size (smaller bursts)
+CHUNK_SAVE_TOKEN_REFILL_RATE = CHUNK_SAVE_RATE_LIMIT / 1000.0  # Tokens per millisecond
+
+# Background region compaction settings
+REGION_COMPACTION_ENABLED = True  # Enable background compaction of fragmented regions
+REGION_COMPACTION_INTERVAL_SEC = 300.0  # Check for regions to compact every 5 minutes
+REGION_COMPACTION_MIN_FRAGMENTATION = 1.5  # Only compact if file size is 1.5x larger than minimum (50% waste)
+REGION_COMPACTION_MIN_IDLE_SEC = 60.0  # Only compact regions not accessed in last 60 seconds (avoid active regions)
+REGION_COMPACTION_MAX_PER_CYCLE = 3  # Maximum regions to compact per cycle (prevent IO spikes)
+
+# Region prefetch settings (proactive loading when moving towards new regions)
+REGION_PREFETCH_ENABLED = True  # Enable region prefetching for sequential movement
+REGION_PREFETCH_DISTANCE_CHUNKS = 2  # Prefetch regions when camera is within N chunks of region boundary
+REGION_PREFETCH_CHUNKS_PER_REGION = 5  # Number of chunks to prefetch per adjacent region (center chunks)
+REGION_PREFETCH_PRIORITY_OFFSET = 50  # Priority offset for prefetch requests (lower priority than visible chunks)
+
+# Chunk compression (optional LZ4 support)
+# Options: "zlib" (default, always available) or "lz4" (faster decompression, requires lz4 package)
+CHUNK_COMPRESSION = "lz4"  # Default to zlib for compatibility
+try:
+    import lz4.frame
+    # LZ4 available - can be enabled by setting CHUNK_COMPRESSION = "lz4"
+    LZ4_AVAILABLE = True
+except ImportError:
+    LZ4_AVAILABLE = False
+    # If LZ4 is requested but not available, fall back to zlib
+    if CHUNK_COMPRESSION == "lz4":
+        CHUNK_COMPRESSION = "zlib"
+
 def get_chunk_unload_distance():
     """Calculate chunk unload distance based on load distance"""
     return get_chunk_load_distance() + 2

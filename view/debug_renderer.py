@@ -43,7 +43,7 @@ class DebugRenderer:
         }
     
     def draw_debug_visualization(self, chunks_data: list, debug_visualization_mode: int):
-        """Render debug visualization: chunk boundaries and tile grids"""
+        """Render debug visualization: chunk boundaries (red), region boundaries (blue), and tile grids"""
         if not chunks_data or not self.world_controller.world or not self.world_controller.player:
             if debug_visualization_mode == 0 and self._debug_cache['vbo']:
                 self._debug_cache['vbo'].release()
@@ -55,6 +55,10 @@ class DebugRenderer:
         chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
         tile_size_pixels = settings.TILE_SIZE
         
+        # Region size: 5x5 chunks per region
+        REGION_SIZE_CHUNKS = 5
+        region_size_pixels = REGION_SIZE_CHUNKS * chunk_size_pixels
+        
         player_world_x = self.world_controller.player.rect.center[0]
         player_world_y = self.world_controller.player.rect.center[1]
         player_chunk_x = int(player_world_x // chunk_size_pixels)
@@ -62,11 +66,13 @@ class DebugRenderer:
         player_chunk = (player_chunk_x, player_chunk_y)
         
         chunks_hash = hash(tuple(sorted((x, y) for x, y, _ in chunks_data)))
+        zoom = self.world_controller.camera_zoom
         
         cache_valid = (
             self._debug_cache['mode'] == debug_visualization_mode and
             self._debug_cache['player_chunk'] == player_chunk and
             self._debug_cache['chunks_hash'] == chunks_hash and
+            self._debug_cache.get('zoom') == zoom and
             self._debug_cache['vbo'] is not None
         )
         
@@ -75,42 +81,95 @@ class DebugRenderer:
                 self._debug_cache['vbo'].release()
                 self._debug_cache['vao'].release()
             
-            grid_radius = 2
-            grid_min_x = player_chunk_x - grid_radius
-            grid_max_x = player_chunk_x + grid_radius
-            grid_min_y = player_chunk_y - grid_radius
-            grid_max_y = player_chunk_y + grid_radius
-            
             lines = []
             
-            for chunk_x, chunk_y, _ in chunks_data:
-                chunk_world_x = chunk_x * chunk_size_pixels
-                chunk_world_y = chunk_y * chunk_size_pixels
-                chunk_world_max_x = chunk_world_x + chunk_size_pixels
-                chunk_world_max_y = chunk_world_y + chunk_size_pixels
+            # Collect unique chunks and regions
+            chunks_set = set((x, y) for x, y, _ in chunks_data)
+            regions_set = set()
+            
+            for chunk_x, chunk_y in chunks_set:
+                # Calculate region coordinates (5x5 chunks per region)
+                region_x = chunk_x // REGION_SIZE_CHUNKS
+                region_y = chunk_y // REGION_SIZE_CHUNKS
+                regions_set.add((region_x, region_y))
+            
+            # Draw chunk boundaries in red (mode >= 1)
+            if debug_visualization_mode >= 1:
+                for chunk_x, chunk_y in chunks_set:
+                    chunk_world_x = chunk_x * chunk_size_pixels
+                    chunk_world_y = chunk_y * chunk_size_pixels
+                    chunk_world_max_x = chunk_world_x + chunk_size_pixels
+                    chunk_world_max_y = chunk_world_y + chunk_size_pixels
+                    
+                    # Red lines for chunk boundaries
+                    lines.append([chunk_world_x, chunk_world_y, chunk_world_max_x, chunk_world_y, 1.0, 0.0, 0.0])  # Bottom
+                    lines.append([chunk_world_x, chunk_world_max_y, chunk_world_max_x, chunk_world_max_y, 1.0, 0.0, 0.0])  # Top
+                    lines.append([chunk_world_x, chunk_world_y, chunk_world_x, chunk_world_max_y, 1.0, 0.0, 0.0])  # Left
+                    lines.append([chunk_world_max_x, chunk_world_y, chunk_world_max_x, chunk_world_max_y, 1.0, 0.0, 0.0])  # Right
+            
+            # Draw region boundaries in blue (mode >= 1)
+            if debug_visualization_mode >= 1:
+                # Draw all region boundaries (including internal ones)
+                for region_x, region_y in regions_set:
+                    region_world_x = region_x * region_size_pixels
+                    region_world_y = region_y * region_size_pixels
+                    region_world_max_x = region_world_x + region_size_pixels
+                    region_world_max_y = region_world_y + region_size_pixels
+                    
+                    # Blue lines for region boundaries (all edges)
+                    # Top edge
+                    lines.append([region_world_x, region_world_max_y, region_world_max_x, region_world_max_y, 0.0, 0.0, 1.0])
+                    # Bottom edge
+                    lines.append([region_world_x, region_world_y, region_world_max_x, region_world_y, 0.0, 0.0, 1.0])
+                    # Left edge
+                    lines.append([region_world_x, region_world_y, region_world_x, region_world_max_y, 0.0, 0.0, 1.0])
+                    # Right edge
+                    lines.append([region_world_max_x, region_world_y, region_world_max_x, region_world_max_y, 0.0, 0.0, 1.0])
+            
+            # Draw tile grids (mode >= 2, only when zoom < 1.0)
+            if debug_visualization_mode >= 2 and zoom < 1.0:
+                # Calculate 5x5 chunks area centered on player's chunk
+                grid_radius = 2  # 5x5 = radius 2 (2 chunks in each direction from center)
+                grid_min_x = player_chunk_x - grid_radius
+                grid_max_x = player_chunk_x + grid_radius
+                grid_min_y = player_chunk_y - grid_radius
+                grid_max_y = player_chunk_y + grid_radius
                 
-                if debug_visualization_mode >= 1:
-                    lines.append([chunk_world_x, chunk_world_y, chunk_world_max_x, chunk_world_y, 1.0, 0.0, 0.0])
-                    lines.append([chunk_world_x, chunk_world_max_y, chunk_world_max_x, chunk_world_max_y, 1.0, 0.0, 0.0])
-                    lines.append([chunk_world_x, chunk_world_y, chunk_world_x, chunk_world_max_y, 1.0, 0.0, 0.0])
-                    lines.append([chunk_world_max_x, chunk_world_y, chunk_world_max_x, chunk_world_max_y, 1.0, 0.0, 0.0])
-                
-                if debug_visualization_mode >= 2 and self.world_controller.camera_zoom > 1.0:
+                # Draw tile grids only for chunks in the 5x5 area around player
+                for chunk_x, chunk_y in chunks_set:
                     if grid_min_x <= chunk_x <= grid_max_x and grid_min_y <= chunk_y <= grid_max_y:
+                        chunk_world_x = chunk_x * chunk_size_pixels
+                        chunk_world_y = chunk_y * chunk_size_pixels
+                        chunk_world_max_x = chunk_world_x + chunk_size_pixels
+                        chunk_world_max_y = chunk_world_y + chunk_size_pixels
+                        
+                        # Black lines for tile grid
+                        # Vertical tile lines
                         for tile_x in range(1, settings.CHUNK_SIZE):
                             tile_world_x = chunk_world_x + tile_x * tile_size_pixels
-                            lines.append([tile_world_x, chunk_world_y, tile_world_x, chunk_world_max_y, 0.0, 0.0, 1.0])
+                            lines.append([tile_world_x, chunk_world_y, tile_world_x, chunk_world_max_y, 0.0, 0.0, 0.0])
                         
+                        # Horizontal tile lines
                         for tile_y in range(1, settings.CHUNK_SIZE):
                             tile_world_y = chunk_world_y + tile_y * tile_size_pixels
-                            lines.append([chunk_world_x, tile_world_y, chunk_world_max_x, tile_world_y, 0.0, 0.0, 1.0])
+                            lines.append([chunk_world_x, tile_world_y, chunk_world_max_x, tile_world_y, 0.0, 0.0, 0.0])
             
             if lines:
                 vertices = []
                 for x1, y1, x2, y2, r, g, b in lines:
+                    # Convert RGB to color index
+                    rgb_color = (int(r * 255), int(g * 255), int(b * 255))
+                    color_index = float(self.modern_gl_renderer.tile_color_palette.get_color_index(rgb_color))
+                    
+                    # If color not in palette, add it
+                    if color_index == 0 and rgb_color not in self.modern_gl_renderer.tile_color_palette.color_to_index:
+                        color_index = float(self.modern_gl_renderer.tile_color_palette.add_color(rgb_color))
+                        # Update palette uniform in shader
+                        self.modern_gl_renderer._update_palette_uniform()
+                    
                     vertices.extend([
-                        [x1, y1, r, g, b],
-                        [x2, y2, r, g, b]
+                        [x1, y1, color_index],
+                        [x2, y2, color_index]
                     ])
                 
                 vertices_array = np.array(vertices, dtype=np.float32)
@@ -118,7 +177,7 @@ class DebugRenderer:
                 self._debug_cache['vbo'] = self.modern_gl_renderer.ctx.buffer(vertices_array.tobytes())
                 self._debug_cache['vao'] = self.modern_gl_renderer.ctx.vertex_array(
                     self.modern_gl_renderer.chunk_program,
-                    [(self._debug_cache['vbo'], "2f 3f", "in_position", "in_color")]
+                    [(self._debug_cache['vbo'], "2f 1f", "in_position", "in_color_index")]
                 )
                 self._debug_cache['line_count'] = len(lines)
             else:
@@ -129,6 +188,7 @@ class DebugRenderer:
             self._debug_cache['mode'] = debug_visualization_mode
             self._debug_cache['player_chunk'] = player_chunk
             self._debug_cache['chunks_hash'] = chunks_hash
+            self._debug_cache['zoom'] = zoom
         
         if self._debug_cache['vao']:
             self._debug_cache['vao'].render(moderngl.LINES)

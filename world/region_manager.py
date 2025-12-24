@@ -23,7 +23,7 @@ Header Structure (256 bytes):
 
 Chunk Data (v2 - Optimized Format):
 - Stored after header (offset >= 256)
-- Compression: zlib (level 1) by default
+- Compression: zlib (level 1) by default, or LZ4 if enabled in settings (faster decompression)
 - Format:
   * int32 chunk_x, chunk_y (big-endian)
   * int32 seed (big-endian)
@@ -67,9 +67,18 @@ import zlib
 import os
 import json
 import threading
+import time
+import asyncio
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List
 from collections import OrderedDict
+
+# Optional LZ4 compression support
+try:
+    import lz4.frame
+    LZ4_AVAILABLE = True
+except ImportError:
+    LZ4_AVAILABLE = False
 
 
 # Custom Exceptions for RegionManager
@@ -136,7 +145,7 @@ class RegionManager:
     # Each region file is ~5-50KB, so 128 files = ~6.4MB memory (acceptable)
     MAX_OPEN_REGIONS = 128
     
-    def __init__(self, world_name: str, auto_repair_corrupted: bool = False, backup_corrupted: bool = True):
+    def __init__(self, world_name: str, auto_repair_corrupted: bool = False, backup_corrupted: bool = True, diagnostics=None):
         """
         Initialize RegionManager for a specific world
         
@@ -146,14 +155,26 @@ class RegionManager:
                                    If False, rename corrupted files to .corrupt and skip them.
             backup_corrupted: If True, rename corrupted files to .corrupt instead of overwriting.
                               Only used if auto_repair_corrupted is True.
+            diagnostics: Optional DiagnosticsService instance for logging
         """
         from world.world_utils import get_world_save_dir
+        from core import settings
         self.world_name = world_name
         self.auto_repair_corrupted = auto_repair_corrupted
         self.backup_corrupted = backup_corrupted
+        self.diagnostics = diagnostics
         self.save_dir = get_world_save_dir(world_name)
         self.regions_dir = self.save_dir / "regions"
         self.regions_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Determine compression type based on settings
+        compression_setting = getattr(settings, 'CHUNK_COMPRESSION', 'zlib')
+        lz4_available = getattr(settings, 'LZ4_AVAILABLE', False)
+        
+        if compression_setting == "lz4" and lz4_available:
+            self.compression_type = self.COMPRESSION_LZ4
+        else:
+            self.compression_type = self.COMPRESSION_ZLIB
         
         # Thread-safety: RLock (reentrant lock) per region for concurrent access
         # This allows parallel chunk loading/saving from different regions
@@ -170,6 +191,33 @@ class RegionManager:
         # This avoids reading headers repeatedly for load_chunk, chunk_exists, save_chunk
         # Thread-safe: protected by region locks
         self.region_headers: Dict[Tuple[int, int], Dict] = {}
+        
+        # Background compaction: Track region access and fragmentation
+        self._region_access_times: Dict[Tuple[int, int], float] = {}  # Last access time per region
+        self._region_access_lock = threading.Lock()  # Lock for access tracking
+        self._compaction_running = False
+        self._compaction_task: Optional[asyncio.Task] = None
+        self._shutdown_event: Optional[asyncio.Event] = None
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        
+        # Check if compaction is enabled (before trying to start it)
+        from core import settings
+        self._compaction_enabled = getattr(settings, 'REGION_COMPACTION_ENABLED', True)
+        
+        # Start background compaction if enabled (will be started when event loop is available)
+        # Note: We don't start it here because we need an event loop, which might not exist yet
+        # It will be started later when needed, or we can start it here if event loop exists
+        if self._compaction_enabled:
+            try:
+                # Try to get event loop, if it exists, start compaction
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Event loop is running, start compaction
+                    self.start_background_compaction()
+            except RuntimeError:
+                # No event loop in current thread, skip for now
+                # Compaction will be started later when event loop is available
+                pass
     
     def _get_region_lock(self, region_x: int, region_y: int) -> threading.RLock:
         """
@@ -246,6 +294,9 @@ class RegionManager:
                 # Move to end (mark as recently used)
                 handle = self.region_files.pop(cache_key)
                 self.region_files[cache_key] = handle
+                # Track access time for compaction prioritization
+                with self._region_access_lock:
+                    self._region_access_times[cache_key] = time.time()
                 return handle
             
             # Check if file exists
@@ -268,6 +319,9 @@ class RegionManager:
             
             # Add to cache (at end = most recently used)
             self.region_files[cache_key] = handle
+            # Track access time for compaction prioritization
+            with self._region_access_lock:
+                self._region_access_times[cache_key] = time.time()
             
             # Evict oldest if cache is full (need to acquire locks_lock for this)
             if len(self.region_files) > self.MAX_OPEN_REGIONS:
@@ -304,6 +358,20 @@ class RegionManager:
     
     def close_all_files(self):
         """Close all open region file handles (for shutdown, thread-safe)"""
+        # Stop background compaction (async)
+        self.stop_background_compaction()
+        
+        # Wait for compaction task to finish if running
+        if self._compaction_task and not self._compaction_task.done():
+            try:
+                if self._event_loop and self._event_loop.is_running():
+                    # Schedule task cancellation
+                    self._event_loop.call_soon_threadsafe(self._compaction_task.cancel)
+                else:
+                    self._compaction_task.cancel()
+            except Exception:
+                pass
+        
         # Acquire all locks to ensure no operations are in progress
         with self._locks_lock:
             locks_to_acquire = list(self._region_locks.values())
@@ -323,6 +391,207 @@ class RegionManager:
             # Release all locks
             for lock in locks_to_acquire:
                 lock.release()
+    
+    def _calculate_fragmentation(self, region_x: int, region_y: int) -> Optional[float]:
+        """
+        Calculate fragmentation ratio for a region file.
+        
+        Returns:
+            Fragmentation ratio (actual_size / minimum_size), or None if region doesn't exist or is invalid.
+            Ratio > 1.0 indicates fragmentation (e.g., 1.5 = 50% waste).
+        """
+        region_file = self._get_region_filename(region_x, region_y)
+        
+        if not region_file.exists():
+            return None
+        
+        try:
+            # Get actual file size
+            actual_size = region_file.stat().st_size
+            
+            # Read header to calculate minimum size
+            header = self._read_region_header(region_file, region_x, region_y)
+            if not header:
+                return None
+            
+            chunk_table = header['chunk_table']
+            
+            # Calculate minimum size: header + sum of all chunk lengths
+            min_size = self.HEADER_SIZE
+            for entry in chunk_table:
+                if entry['offset'] > 0:
+                    min_size += entry['length']
+            
+            if min_size == 0:
+                return None  # Empty region
+            
+            return actual_size / min_size
+        except Exception:
+            return None
+    
+    def _find_fragmented_regions(self) -> List[Tuple[int, int, float]]:
+        """
+        Find regions that are fragmented and eligible for compaction.
+        
+        Returns:
+            List of (region_x, region_y, fragmentation_ratio) tuples, sorted by fragmentation (highest first).
+        """
+        from core import settings
+        
+        if not getattr(settings, 'REGION_COMPACTION_ENABLED', True):
+            return []
+        
+        min_fragmentation = getattr(settings, 'REGION_COMPACTION_MIN_FRAGMENTATION', 1.5)
+        min_idle_sec = getattr(settings, 'REGION_COMPACTION_MIN_IDLE_SEC', 60.0)
+        
+        fragmented_regions = []
+        current_time = time.time()
+        
+        # Scan all region files
+        if not self.regions_dir.exists():
+            return []
+        
+        for region_file in self.regions_dir.glob("r.*.mcr"):
+            try:
+                # Extract region coordinates from filename
+                parts = region_file.stem.split('.')
+                if len(parts) < 3 or parts[0] != 'r':
+                    continue
+                
+                region_x = int(parts[1])
+                region_y = int(parts[2])
+                cache_key = (region_x, region_y)
+                
+                # Check if region was accessed recently (skip active regions)
+                with self._region_access_lock:
+                    last_access = self._region_access_times.get(cache_key, 0)
+                
+                # Also check file mtime as fallback
+                file_mtime = region_file.stat().st_mtime
+                time_since_access = current_time - max(last_access, file_mtime)
+                
+                if time_since_access < min_idle_sec:
+                    continue  # Region was accessed recently, skip
+                
+                # Calculate fragmentation
+                fragmentation = self._calculate_fragmentation(region_x, region_y)
+                if fragmentation is None or fragmentation < min_fragmentation:
+                    continue  # Not fragmented enough
+                
+                fragmented_regions.append((region_x, region_y, fragmentation))
+            except (ValueError, IndexError, OSError):
+                continue  # Skip invalid files
+        
+        # Sort by fragmentation (highest first)
+        fragmented_regions.sort(key=lambda x: x[2], reverse=True)
+        return fragmented_regions
+    
+    async def _background_compaction_worker(self):
+        """Background async task that periodically compacts fragmented regions."""
+        from core import settings
+        
+        interval = getattr(settings, 'REGION_COMPACTION_INTERVAL_SEC', 300.0)
+        max_per_cycle = getattr(settings, 'REGION_COMPACTION_MAX_PER_CYCLE', 3)
+        
+        if self.diagnostics:
+            self.diagnostics.info("RegionManager", f"Background compaction task started (interval={interval}s)")
+        
+        while not self._shutdown_event.is_set():
+            try:
+                # Wait for interval or shutdown signal
+                try:
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=interval)
+                    break  # Shutdown requested
+                except asyncio.TimeoutError:
+                    pass  # Interval elapsed, continue with compaction
+                
+                # Find fragmented regions (sync operation, run in thread pool)
+                fragmented = await asyncio.to_thread(self._find_fragmented_regions)
+                
+                if not fragmented:
+                    continue  # No regions to compact
+                
+                # Compact up to max_per_cycle regions (sync operation, run in thread pool)
+                compacted = 0
+                for region_x, region_y, fragmentation_ratio in fragmented[:max_per_cycle]:
+                    if self._shutdown_event.is_set():
+                        break
+                    
+                    try:
+                        # Run sync compact_region in thread pool
+                        success = await asyncio.to_thread(self.compact_region, region_x, region_y)
+                        if success:
+                            compacted += 1
+                            if self.diagnostics:
+                                self.diagnostics.debug("RegionManager", 
+                                    f"Background compaction: Region ({region_x}, {region_y}) "
+                                    f"compacted (fragmentation was {fragmentation_ratio:.2f}x)")
+                    except Exception as e:
+                        if self.diagnostics:
+                            self.diagnostics.warning("RegionManager", 
+                                f"Background compaction failed for region ({region_x}, {region_y}): {e}")
+                
+                if compacted > 0 and self.diagnostics:
+                    self.diagnostics.info("RegionManager", 
+                        f"Background compaction cycle completed: {compacted} regions compacted")
+                    
+            except Exception as e:
+                if self.diagnostics:
+                    self.diagnostics.error("RegionManager", f"Background compaction task error: {e}")
+                # Continue running despite errors
+        
+        if self.diagnostics:
+            self.diagnostics.info("RegionManager", "Background compaction task stopped")
+    
+    def start_background_compaction(self):
+        """Start the background compaction async task."""
+        # Check if compaction is enabled (attribute might not exist in old code)
+        if not getattr(self, '_compaction_enabled', True):
+            return
+        
+        if self._compaction_running:
+            return  # Already running
+        
+        # Get or create event loop
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # No event loop in current thread, create one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        self._event_loop = loop
+        self._compaction_running = True
+        
+        # Create shutdown event if it doesn't exist
+        if self._shutdown_event is None:
+            self._shutdown_event = asyncio.Event()
+        else:
+            self._shutdown_event.clear()
+        
+        # Create async task
+        self._compaction_task = loop.create_task(self._background_compaction_worker())
+    
+    def stop_background_compaction(self):
+        """Stop the background compaction async task."""
+        if not self._compaction_running:
+            return
+        
+        self._compaction_running = False
+        
+        if self._shutdown_event:
+            # Set shutdown event (async)
+            if self._event_loop and self._event_loop.is_running():
+                self._event_loop.call_soon_threadsafe(self._shutdown_event.set)
+            else:
+                self._shutdown_event.set()
+        
+        if self._compaction_task and not self._compaction_task.done():
+            # Cancel task
+            if self._event_loop and self._event_loop.is_running():
+                self._event_loop.call_soon_threadsafe(self._compaction_task.cancel)
+            else:
+                self._compaction_task.cancel()
     
     def invalidate_header_cache(self, region_x: int = None, region_y: int = None):
         """
@@ -373,7 +642,7 @@ class RegionManager:
             # Rename file
             file_path.rename(backup_path)
             
-            print(f"[RegionManager] CORRUPTED FILE BACKUP: Slot {self.save_slot}, Region ({region_x}, {region_y})")
+            print(f"[RegionManager] CORRUPTED FILE BACKUP: World '{self.world_name}', Region ({region_x}, {region_y})")
             print(f"  Error Type: {error_type}")
             print(f"  Error Details: {error_details}")
             print(f"  Original: {file_path.name}")
@@ -433,7 +702,7 @@ class RegionManager:
                 f = open(file_path, 'rb')
                 use_cached_handle = False
             except Exception as e:
-                error_msg = f"Slot {self.save_slot}, Region ({region_x}, {region_y}): Failed to open file - {type(e).__name__}: {e}"
+                error_msg = f"World '{self.world_name}', Region ({region_x}, {region_y}): Failed to open file - {type(e).__name__}: {e}"
                 print(f"[RegionManager] {error_msg}")
                 return None
         
@@ -444,7 +713,7 @@ class RegionManager:
             if magic != self.REGION_MAGIC:
                 error_type = "InvalidMagic"
                 error_details = f"Expected '{self.REGION_MAGIC.decode('ascii', errors='replace')}', got '{magic.decode('ascii', errors='replace')}'"
-                error_msg = f"Slot {self.save_slot}, Region ({region_x}, {region_y}): {error_type} - {error_details}"
+                error_msg = f"World '{self.world_name}', Region ({region_x}, {region_y}): {error_type} - {error_details}"
                 print(f"[RegionManager] CORRUPTED HEADER: {error_msg}")
                 
                 if not use_cached_handle:
@@ -461,7 +730,7 @@ class RegionManager:
             if version != self.REGION_VERSION:
                 error_type = "UnsupportedVersion"
                 error_details = f"Expected version {self.REGION_VERSION}, got {version}"
-                error_msg = f"Slot {self.save_slot}, Region ({region_x}, {region_y}): {error_type} - {error_details}"
+                error_msg = f"World '{self.world_name}', Region ({region_x}, {region_y}): {error_type} - {error_details}"
                 print(f"[RegionManager] CORRUPTED HEADER: {error_msg}")
                 
                 if not use_cached_handle:
@@ -512,7 +781,7 @@ class RegionManager:
         except struct.error as e:
             error_type = "StructError"
             error_details = f"Binary format error: {type(e).__name__}: {e}"
-            error_msg = f"Slot {self.save_slot}, Region ({region_x}, {region_y}): {error_type} - {error_details}"
+            error_msg = f"World '{self.world_name}', Region ({region_x}, {region_y}): {error_type} - {error_details}"
             print(f"[RegionManager] CORRUPTED HEADER: {error_msg}")
             
             if not use_cached_handle:
@@ -526,7 +795,7 @@ class RegionManager:
         except Exception as e:
             error_type = type(e).__name__
             error_details = str(e)
-            error_msg = f"Slot {self.save_slot}, Region ({region_x}, {region_y}): {error_type} - {error_details}"
+            error_msg = f"World '{self.world_name}', Region ({region_x}, {region_y}): {error_type} - {error_details}"
             print(f"[RegionManager] CORRUPTED HEADER: {error_msg}")
             
             if not use_cached_handle:
@@ -601,9 +870,9 @@ class RegionManager:
             print(f"[RegionManager] Error writing header to {file_path}: {e}")
             raise
     
-    def load_chunk_data(self, chunk_x: int, chunk_y: int, seed: Optional[int] = None) -> Dict:
+    async def load_chunk_data(self, chunk_x: int, chunk_y: int, seed: Optional[int] = None) -> Dict:
         """
-        Load chunk data from region file and deserialize
+        Load chunk data from region file and deserialize (async)
         
         Args:
             chunk_x: Chunk X coordinate
@@ -620,12 +889,12 @@ class RegionManager:
             SeedMismatchError: If seed is provided and doesn't match chunk seed
             RegionFileError: If file operations fail
         """
-        data = self.load_chunk(chunk_x, chunk_y, seed or 0)  # Pass dummy seed if None
+        data = await self.load_chunk(chunk_x, chunk_y, seed or 0)  # Pass dummy seed if None
         return self.deserialize_chunk(data, expected_seed=seed)
     
-    def load_chunk(self, chunk_x: int, chunk_y: int, seed: Optional[int] = None) -> bytes:
+    async def load_chunk(self, chunk_x: int, chunk_y: int, seed: Optional[int] = None) -> bytes:
         """
-        Load raw chunk data from region file (internal use)
+        Load raw chunk data from region file (internal use, async)
         
         Args:
             chunk_x: Chunk X coordinate
@@ -648,12 +917,13 @@ class RegionManager:
         
         region_file = self._get_region_filename(region_x, region_y)
         
+        # Check if file exists (sync, fast)
         if not region_file.exists():
             raise ChunkNotFoundError(f"Chunk ({chunk_x}, {chunk_y}) not found: region file doesn't exist")
         
-        # Read header (with caching) - this is usually fast if cached
+        # Read header (with caching) - run in thread pool to avoid blocking
         header_start = time.perf_counter()
-        header = self._read_region_header(region_file, region_x, region_y)
+        header = await asyncio.to_thread(self._read_region_header, region_file, region_x, region_y)
         header_time = time.perf_counter() - header_start
         
         if not header:
@@ -666,56 +936,73 @@ class RegionManager:
         if chunk_entry['offset'] == 0:
             raise ChunkNotFoundError(f"Chunk ({chunk_x}, {chunk_y}) not found: no data in region file")
         
-        # Use cached file handle (optimized: check cache first, then open if needed)
+        # Use cached file handle (optimized: check cache first, then open if needed) - run in thread pool
         file_handle_start = time.perf_counter()
-        f = self._get_region_file_handle(region_x, region_y, create_if_missing=False)
+        f = await asyncio.to_thread(self._get_region_file_handle, region_x, region_y, False)
         file_handle_time = time.perf_counter() - file_handle_start
         
         if f is None:
             raise RegionFileError(f"Failed to open region file for chunk ({chunk_x}, {chunk_y})")
         
         try:
-            # Seek to chunk data (usually fast if file is in OS cache)
-            seek_start = time.perf_counter()
-            f.seek(chunk_entry['offset'])
-            seek_time = time.perf_counter() - seek_start
+            # Read chunk data - run in thread pool to avoid blocking
+            def _read_chunk_data():
+                # Seek to chunk data (usually fast if file is in OS cache)
+                seek_start = time.perf_counter()
+                f.seek(chunk_entry['offset'])
+                seek_time = time.perf_counter() - seek_start
+                
+                # Read compressed data (can be slow if file not in OS cache)
+                read_start = time.perf_counter()
+                compressed_data = f.read(chunk_entry['length'])
+                read_time = time.perf_counter() - read_start
+                
+                if len(compressed_data) != chunk_entry['length']:
+                    raise ChunkCorruptedError(
+                        f"Chunk ({chunk_x}, {chunk_y}) corrupted: expected {chunk_entry['length']} bytes, "
+                        f"read {len(compressed_data)} bytes"
+                    )
+                
+                return compressed_data, seek_time, read_time
             
-            # Read compressed data (can be slow if file not in OS cache)
-            read_start = time.perf_counter()
-            compressed_data = f.read(chunk_entry['length'])
-            read_time = time.perf_counter() - read_start
+            compressed_data, seek_time, read_time = await asyncio.to_thread(_read_chunk_data)
             
-            if len(compressed_data) != chunk_entry['length']:
-                raise ChunkCorruptedError(
-                    f"Chunk ({chunk_x}, {chunk_y}) corrupted: expected {chunk_entry['length']} bytes, "
-                    f"read {len(compressed_data)} bytes"
-                )
-            
-            # Decompress (usually fast, but can be slow for large chunks)
+            # Decompress (CPU-bound, run in thread pool)
             decompress_start = time.perf_counter()
             try:
-                if chunk_entry['compression'] == self.COMPRESSION_ZLIB:
-                    result = zlib.decompress(compressed_data)
-                elif chunk_entry['compression'] == self.COMPRESSION_NONE:
-                    result = compressed_data
-                else:
-                    raise ChunkCorruptedError(
-                        f"Chunk ({chunk_x}, {chunk_y}) corrupted: unsupported compression type {chunk_entry['compression']}"
-                    )
-            except zlib.error as e:
+                def _decompress():
+                    if chunk_entry['compression'] == self.COMPRESSION_ZLIB:
+                        return zlib.decompress(compressed_data)
+                    elif chunk_entry['compression'] == self.COMPRESSION_LZ4:
+                        if not LZ4_AVAILABLE:
+                            raise ChunkCorruptedError(
+                                f"Chunk ({chunk_x}, {chunk_y}) uses LZ4 compression but lz4 package is not available"
+                            )
+                        return lz4.frame.decompress(compressed_data)
+                    elif chunk_entry['compression'] == self.COMPRESSION_NONE:
+                        return compressed_data
+                    else:
+                        raise ChunkCorruptedError(
+                            f"Chunk ({chunk_x}, {chunk_y}) corrupted: unsupported compression type {chunk_entry['compression']}"
+                        )
+                
+                result = await asyncio.to_thread(_decompress)
+            except (zlib.error, lz4.frame.LZ4FrameError) as e:
                 raise ChunkCorruptedError(f"Chunk ({chunk_x}, {chunk_y}) corrupted: decompression failed - {e}")
             decompress_time = time.perf_counter() - decompress_start
             
             # Log slow operations for debugging (only if total time > 5ms)
             total_time = time.perf_counter() - perf_start
             if total_time > 0.005:  # 5ms threshold
-                print(f"[RegionManager] Slow chunk load ({chunk_x}, {chunk_y}): "
-                      f"total={total_time*1000:.2f}ms "
-                      f"(header={header_time*1000:.2f}ms, "
-                      f"file_handle={file_handle_time*1000:.2f}ms, "
-                      f"seek={seek_time*1000:.2f}ms, "
-                      f"read={read_time*1000:.2f}ms, "
-                      f"decompress={decompress_time*1000:.2f}ms)")
+                if self.diagnostics:
+                    self.diagnostics.debug("RegionManager",
+                        f"Slow chunk load ({chunk_x}, {chunk_y}): "
+                        f"total={total_time*1000:.2f}ms "
+                        f"(header={header_time*1000:.2f}ms, "
+                        f"file_handle={file_handle_time*1000:.2f}ms, "
+                        f"seek={seek_time*1000:.2f}ms, "
+                        f"read={read_time*1000:.2f}ms, "
+                        f"decompress={decompress_time*1000:.2f}ms)")
             
             return result
         except (ChunkNotFoundError, ChunkCorruptedError, RegionFileError):
@@ -723,9 +1010,9 @@ class RegionManager:
         except Exception as e:
             raise RegionFileError(f"Error loading chunk ({chunk_x}, {chunk_y}): {type(e).__name__}: {e}") from e
     
-    def save_chunk_data(self, chunk_x: int, chunk_y: int, tiles: List[List[Dict]], seed: int):
+    async def save_chunk_data(self, chunk_x: int, chunk_y: int, tiles: List[List[Dict]], seed: int):
         """
-        Save chunk data to region file (high-level API)
+        Save chunk data to region file (high-level API, async)
         
         Args:
             chunk_x: Chunk X coordinate
@@ -737,11 +1024,11 @@ class RegionManager:
             RegionFileError: If save operation fails
         """
         chunk_data = self.serialize_chunk(chunk_x, chunk_y, tiles, seed)
-        self.save_chunk(chunk_x, chunk_y, chunk_data, seed)
+        await self.save_chunk(chunk_x, chunk_y, chunk_data, seed)
     
-    def save_chunk(self, chunk_x: int, chunk_y: int, chunk_data: bytes, seed: int):
+    async def save_chunk(self, chunk_x: int, chunk_y: int, chunk_data: bytes, seed: int):
         """
-        Save raw chunk data to region file (internal use)
+        Save raw chunk data to region file (internal use, async)
         
         Args:
             chunk_x: Chunk X coordinate
@@ -758,239 +1045,161 @@ class RegionManager:
         
         region_file = self._get_region_filename(region_x, region_y)
         
-        # Compress chunk data (use level=1 for faster compression, trade-off: slightly larger files)
-        compressed_data = zlib.compress(chunk_data, level=1)  # Fast compression for better performance
-        compression_type = self.COMPRESSION_ZLIB
+        # Compress chunk data based on configured compression type (CPU-bound, run in thread pool)
+        def _compress():
+            if self.compression_type == self.COMPRESSION_LZ4:
+                # LZ4 compression: faster decompression, good for high chunk load rates
+                return lz4.frame.compress(chunk_data, compression_level=lz4.frame.COMPRESSIONLEVEL_MINHC), self.COMPRESSION_LZ4
+            else:
+                # Zlib compression: default, good compression ratio
+                return zlib.compress(chunk_data, level=1), self.COMPRESSION_ZLIB  # Fast compression for better performance
+        
+        compressed_data, compression_type = await asyncio.to_thread(_compress)
         
         # Thread-safe: Get region lock for all operations
-        region_lock = self._get_region_lock(region_x, region_y)
-        
-        with region_lock:
-            # Read existing header or create new one (with caching)
-            # _read_region_header is already thread-safe, but we hold lock for cache consistency
-            if region_file.exists():
-                header = self._read_region_header(region_file, region_x, region_y)
-                if not header:
-                    # Corrupted header
-                    if self.auto_repair_corrupted:
-                        # Create new header (repair mode)
-                        print(f"[RegionManager] REPAIR MODE: Creating new header for Slot {self.save_slot}, Region ({region_x}, {region_y})")
-                        header = {
-                            'region_x': region_x,
-                            'region_y': region_y,
-                            'chunk_table': [{'offset': 0, 'length': 0, 'compression': 0} for _ in range(self.CHUNKS_PER_REGION)]
-                        }
-                        # Cache the new header
-                        cache_key = (region_x, region_y)
-                        self.region_headers[cache_key] = header.copy()
-                    else:
-                        # Don't repair, raise exception
-                        raise RegionFileError(
-                            f"Corrupted header for Slot {self.save_slot}, Region ({region_x}, {region_y}). "
-                            f"Set auto_repair_corrupted=True to repair automatically."
-                        )
-            else:
-                # New region file
-                header = {
-                    'region_x': region_x,
-                    'region_y': region_y,
-                    'chunk_table': [{'offset': 0, 'length': 0, 'compression': 0} for _ in range(self.CHUNKS_PER_REGION)]
-                }
-                # Cache the new header
+        # Note: We still use threading locks, but run the sync operations in thread pool
+        def _save_operation():
+            region_lock = self._get_region_lock(region_x, region_y)
+            
+            with region_lock:
                 cache_key = (region_x, region_y)
-                self.region_headers[cache_key] = header.copy()
-            
-            # Get existing entry info (for crash-safe update)
-            chunk_table = header['chunk_table']
-            existing_entry = chunk_table[chunk_index]
-            old_offset = existing_entry.get('offset', 0)
-            old_length = existing_entry.get('length', 0)
-            
-            # Find next available offset (after header and all existing chunks)
-            # CRASH-SAFE STRATEGY: Always append new chunks to end (write-once)
-            # This ensures header always points to valid data, even if write is interrupted
-            max_offset = self.HEADER_SIZE
-            
-            # Find the end of existing data (including the chunk we're updating)
-            for i, entry in enumerate(chunk_table):
-                if entry['offset'] > 0:
-                    end_pos = entry['offset'] + entry['length']
-                    max_offset = max(max_offset, end_pos)
-            
-            # Always write to end (crash-safe: header update is atomic)
-            # Old space will be marked as free (can be reclaimed by compact_region later)
-            new_offset = max_offset
-            new_length = len(compressed_data)
-            
-            file_exists = region_file.exists()
-            
-            # Get or create file handle (thread-safe method, lock already held)
-            f = self._get_region_file_handle(region_x, region_y, create_if_missing=True, _lock_held=True)
-            if f is None:
-                raise IOError(f"Could not open region file ({region_x}, {region_y})")
-            
-            try:
-                if file_exists:
-                    # CRASH-SAFE WRITE SEQUENCE:
-                    # 1. Write new chunk data to end of file (write-once)
-                    # 2. Flush to ensure data is on disk
-                    # 3. Atomically update header entry (single 9-byte write)
-                    # 4. Flush again
-                    # 5. Update cache
-                    
-                    # Step 1: Write new chunk data to end
-                    f.seek(new_offset)
-                    f.write(compressed_data)
-                    f.flush()  # Ensure data is written before header update
-                    
-                    # Step 2: Atomically update header entry (single 9-byte write)
-                    # This is atomic on most filesystems (single sector write)
-                    f.seek(self.CHUNK_TABLE_OFFSET + chunk_index * self.CHUNK_TABLE_ENTRY_SIZE)
-                    f.write(struct.pack('>IIB', new_offset, new_length, compression_type))
-                    f.flush()  # Ensure header update is written
-                    
-                    # Step 3: Update cache (already holding lock)
-                    cache_key = (region_x, region_y)
-                    if cache_key in self.region_headers:
-                        self.region_headers[cache_key]['chunk_table'][chunk_index] = {
-                            'offset': new_offset,
-                            'length': new_length,
-                            'compression': compression_type
-                        }
+                
+                # AGGRESSIVE CACHE USE: Check cache first before reading from disk
+                # This avoids unnecessary disk reads when header is already in memory
+                if cache_key in self.region_headers:
+                    # Header already in cache - use it directly (no disk read needed)
+                    header = self.region_headers[cache_key]
+                elif region_file.exists():
+                    # Header not in cache - read from disk (will also cache it)
+                    header = self._read_region_header(region_file, region_x, region_y)
+                    if not header:
+                        # Corrupted header
+                        if self.auto_repair_corrupted:
+                            # Create new header (repair mode)
+                            if self.diagnostics:
+                                self.diagnostics.warning("RegionManager",
+                                    f"REPAIR MODE: Creating new header for world '{self.world_name}', Region ({region_x}, {region_y})")
+                            header = {
+                                'region_x': region_x,
+                                'region_y': region_y,
+                                'chunk_table': [{'offset': 0, 'length': 0, 'compression': 0} for _ in range(self.CHUNKS_PER_REGION)]
+                            }
+                            # Cache the new header
+                            self.region_headers[cache_key] = header.copy()
+                        else:
+                            # Don't repair, raise exception
+                            raise RegionFileError(
+                                f"Corrupted header for world '{self.world_name}', Region ({region_x}, {region_y}). "
+                                f"Set auto_repair_corrupted=True to repair automatically."
+                            )
                 else:
-                    # New file: update chunk table entry, then write header and data
-                    chunk_table[chunk_index] = {
-                        'offset': new_offset,
-                        'length': new_length,
-                        'compression': compression_type
-                    }
-                    # Write header (will update cache internally)
-                    # Note: _write_region_header will try to get lock, but we already have it
-                    # We need to write header directly here to avoid deadlock
-                    f.seek(0)
-                    f.write(self.REGION_MAGIC)
-                    f.write(struct.pack('B', self.REGION_VERSION))
-                    f.write(b'\x00' * 3)
-                    f.write(struct.pack('>ii', region_x, region_y))
-                    for entry in chunk_table:
-                        f.write(struct.pack('>IIB', 
-                            entry.get('offset', 0),
-                            entry.get('length', 0),
-                            entry.get('compression', 0)
-                        ))
-                    current_pos = f.tell()
-                    if current_pos < self.HEADER_SIZE:
-                        f.write(b'\x00' * (self.HEADER_SIZE - current_pos))
-                    f.flush()
-                    
-                    # Update cache
-                    cache_key = (region_x, region_y)
-                    self.region_headers[cache_key] = {
+                    # New region file - create header and cache it
+                    header = {
                         'region_x': region_x,
                         'region_y': region_y,
-                        'chunk_table': chunk_table.copy()
+                        'chunk_table': [{'offset': 0, 'length': 0, 'compression': 0} for _ in range(self.CHUNKS_PER_REGION)]
                     }
-                    
-                    # Write chunk data
-                    f.seek(new_offset)
-                    f.write(compressed_data)
-                    f.flush()
-            
-            except Exception as e:
-                # If error occurs, we might need to invalidate the handle
-                self._close_region_file(region_x, region_y)
-                raise RegionFileError(f"Error writing chunk ({chunk_x}, {chunk_y}): {type(e).__name__}: {e}") from e
-        
-        # Get existing entry info (for crash-safe update)
-        chunk_table = header['chunk_table']
-        existing_entry = chunk_table[chunk_index]
-        old_offset = existing_entry.get('offset', 0)
-        old_length = existing_entry.get('length', 0)
-        
-        # Find next available offset (after header and all existing chunks)
-        # CRASH-SAFE STRATEGY: Always append new chunks to end (write-once)
-        # This ensures header always points to valid data, even if write is interrupted
-        max_offset = self.HEADER_SIZE
-        
-        # Find the end of existing data (including the chunk we're updating)
-        for i, entry in enumerate(chunk_table):
-            if entry['offset'] > 0:
-                end_pos = entry['offset'] + entry['length']
-                max_offset = max(max_offset, end_pos)
-        
-        # Always write to end (crash-safe: header update is atomic)
-        # Old space will be marked as free (can be reclaimed by compact_region later)
-        new_offset = max_offset
-        new_length = len(compressed_data)
-        
-        try:
-            file_exists = region_file.exists()
-            
-            # Get or create file handle
-            f = self._get_region_file_handle(region_x, region_y, create_if_missing=True)
-            if f is None:
-                raise IOError(f"Could not open region file ({region_x}, {region_y})")
-            
-            try:
-                if file_exists:
-                    # CRASH-SAFE WRITE SEQUENCE:
-                    # 1. Write new chunk data to end of file (write-once)
-                    # 2. Flush to ensure data is on disk
-                    # 3. Atomically update header entry (single 9-byte write)
-                    # 4. Flush again
-                    # 5. Optionally zero out old space (can be done later)
-                    
-                    # Step 1: Write new chunk data to end
-                    f.seek(new_offset)
-                    f.write(compressed_data)
-                    f.flush()  # Ensure data is written before header update
-                    
-                    # Step 2: Atomically update header entry (single 9-byte write)
-                    # This is atomic on most filesystems (single sector write)
-                    f.seek(self.CHUNK_TABLE_OFFSET + chunk_index * self.CHUNK_TABLE_ENTRY_SIZE)
-                    f.write(struct.pack('>IIB', new_offset, new_length, compression_type))
-                    f.flush()  # Ensure header update is written
-                    
-                    # Step 3: Update cache
-                    cache_key = (region_x, region_y)
-                    if cache_key in self.region_headers:
+                    # Cache the new header immediately
+                    self.region_headers[cache_key] = header.copy()
+                
+                # Get existing entry info (for crash-safe update)
+                chunk_table = header['chunk_table']
+                existing_entry = chunk_table[chunk_index]
+                old_offset = existing_entry.get('offset', 0)
+                old_length = existing_entry.get('length', 0)
+                
+                # Find next available offset (after header and all existing chunks)
+                # CRASH-SAFE STRATEGY: Always append new chunks to end (write-once)
+                # This ensures header always points to valid data, even if write is interrupted
+                max_offset = self.HEADER_SIZE
+                
+                # Find the end of existing data (including the chunk we're updating)
+                for i, entry in enumerate(chunk_table):
+                    if entry['offset'] > 0:
+                        end_pos = entry['offset'] + entry['length']
+                        max_offset = max(max_offset, end_pos)
+                
+                # Always write to end (crash-safe: header update is atomic)
+                # Old space will be marked as free (can be reclaimed by compact_region later)
+                new_offset = max_offset
+                new_length = len(compressed_data)
+                
+                file_exists = region_file.exists()
+                
+                # Get or create file handle (thread-safe method, lock already held)
+                f = self._get_region_file_handle(region_x, region_y, create_if_missing=True, _lock_held=True)
+                if f is None:
+                    raise IOError(f"Could not open region file ({region_x}, {region_y})")
+                
+                try:
+                    if file_exists:
+                        # CRASH-SAFE WRITE SEQUENCE:
+                        # 1. Write new chunk data to end of file (write-once)
+                        # 2. Flush to ensure data is on disk
+                        # 3. Atomically update header entry (single 9-byte write)
+                        # 4. Flush again
+                        # 5. Update cache
+                        
+                        # Step 1: Write new chunk data to end
+                        f.seek(new_offset)
+                        f.write(compressed_data)
+                        f.flush()  # Ensure data is written before header update
+                        
+                        # Step 2: Atomically update header entry (single 9-byte write)
+                        # This is atomic on most filesystems (single sector write)
+                        f.seek(self.CHUNK_TABLE_OFFSET + chunk_index * self.CHUNK_TABLE_ENTRY_SIZE)
+                        f.write(struct.pack('>IIB', new_offset, new_length, compression_type))
+                        f.flush()  # Ensure header update is written
+                        
+                        # Step 3: Update cache (already holding lock, cache_key already defined)
+                        # Directly update the cached header (no need to check - we know it exists from cache-first approach)
                         self.region_headers[cache_key]['chunk_table'][chunk_index] = {
                             'offset': new_offset,
                             'length': new_length,
                             'compression': compression_type
                         }
-                    
-                    # Step 4: Optionally zero out old space (non-critical, can be done later)
-                    # This helps with fragmentation but is not required for correctness
-                    if old_offset > 0 and old_offset != new_offset:
-                        # Mark old space as free (zero it out)
-                        # This is optional and can be deferred to compact_region()
-                        # For now, we'll skip it to keep writes fast
-                        # TODO: Background task to zero out old chunks
-                        pass
-                else:
-                    # New file: write header first, then chunk data
-                    # Update chunk table entry before writing header
-                    chunk_table[chunk_index] = {
-                        'offset': new_offset,
-                        'length': new_length,
-                        'compression': compression_type
-                    }
-                    self._write_region_header(region_file, region_x, region_y, chunk_table)
-                    
-                    # Write chunk data
-                    f.seek(new_offset)
-                    f.write(compressed_data)
-                    f.flush()
-            except Exception as e:
-                # If error occurs, we might need to invalidate the handle
-                self._close_region_file(region_x, region_y)
-                raise RegionFileError(f"Error writing chunk ({chunk_x}, {chunk_y}): {type(e).__name__}: {e}") from e
-            
-        except (RegionFileError, ChunkCorruptedError):
-            raise
-        except Exception as e:
-            raise RegionFileError(f"Error saving chunk ({chunk_x}, {chunk_y}): {type(e).__name__}: {e}") from e
+                    else:
+                        # New file: update chunk table entry, then write header and data
+                        chunk_table[chunk_index] = {
+                            'offset': new_offset,
+                            'length': new_length,
+                            'compression': compression_type
+                        }
+                        # Write header (will update cache internally)
+                        # Note: _write_region_header will try to get lock, but we already have it
+                        # We need to write header directly here to avoid deadlock
+                        f.seek(0)
+                        f.write(self.REGION_MAGIC)
+                        f.write(struct.pack('B', self.REGION_VERSION))
+                        f.write(b'\x00' * 3)
+                        f.write(struct.pack('>ii', region_x, region_y))
+                        for entry in chunk_table:
+                            f.write(struct.pack('>IIB', 
+                                entry.get('offset', 0),
+                                entry.get('length', 0),
+                                entry.get('compression', 0)
+                            ))
+                        current_pos = f.tell()
+                        if current_pos < self.HEADER_SIZE:
+                            f.write(b'\x00' * (self.HEADER_SIZE - current_pos))
+                        f.flush()
+                        
+                        # Update cache (cache_key already defined, header already cached)
+                        # Just update the chunk table entry in the cached header
+                        self.region_headers[cache_key]['chunk_table'] = chunk_table.copy()
+                        
+                        # Write chunk data
+                        f.seek(new_offset)
+                        f.write(compressed_data)
+                        f.flush()
+                
+                except Exception as e:
+                    # If error occurs, we might need to invalidate the handle
+                    self._close_region_file(region_x, region_y)
+                    raise RegionFileError(f"Error writing chunk ({chunk_x}, {chunk_y}): {type(e).__name__}: {e}") from e
+        
+        # Run the entire save operation in thread pool
+        await asyncio.to_thread(_save_operation)
     
     def compact_region(self, region_x: int, region_y: int) -> bool:
         """
@@ -1067,18 +1276,21 @@ class RegionManager:
                 new_chunk_table = [{'offset': 0, 'length': 0, 'compression': 0} for _ in range(self.CHUNKS_PER_REGION)]
                 
                 for chunk_info in chunks_to_compact:
-                    # Compress chunk data
-                    compressed_data = zlib.compress(chunk_info['data'], level=1)
+                    # Compress chunk data using configured compression type
+                    if self.compression_type == self.COMPRESSION_LZ4:
+                        compressed_data = lz4.frame.compress(chunk_info['data'], compression_level=lz4.frame.COMPRESSIONLEVEL_MINHC)
+                    else:
+                        compressed_data = zlib.compress(chunk_info['data'], level=1)
                     
                     # Write chunk data
                     f.seek(new_offset)
                     f.write(compressed_data)
                     
-                    # Update chunk table entry
+                    # Update chunk table entry (use configured compression type)
                     new_chunk_table[chunk_info['index']] = {
                         'offset': new_offset,
                         'length': len(compressed_data),
-                        'compression': self.COMPRESSION_ZLIB
+                        'compression': self.compression_type
                     }
                     
                     new_offset += len(compressed_data)
@@ -1134,8 +1346,8 @@ class RegionManager:
             
             return False
     
-    def chunk_exists(self, chunk_x: int, chunk_y: int) -> bool:
-        """Check if chunk exists in region file"""
+    async def chunk_exists(self, chunk_x: int, chunk_y: int) -> bool:
+        """Check if chunk exists in region file (async)"""
         region_x, region_y = self._get_region_coords(chunk_x, chunk_y)
         local_x, local_y = self._get_local_chunk_coords(chunk_x, chunk_y)
         chunk_index = self._get_chunk_index(local_x, local_y)
@@ -1145,8 +1357,8 @@ class RegionManager:
         if not region_file.exists():
             return False
         
-        # Read header (with caching)
-        header = self._read_region_header(region_file, region_x, region_y)
+        # Read header (with caching) - run in thread pool
+        header = await asyncio.to_thread(self._read_region_header, region_file, region_x, region_y)
         if not header:
             return False
         

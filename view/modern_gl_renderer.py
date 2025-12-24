@@ -5,6 +5,8 @@ import moderngl
 import numpy as np
 from typing import List, Tuple, Optional
 from core import settings
+from view.chunk_vbo_pool import ChunkVboPool
+from view.tile_color_palette import TileColorPalette
 
 
 class ModernGLRenderer:
@@ -40,9 +42,70 @@ class ModernGLRenderer:
         # IMPORTANT: Buffer are created with view matrix and zoom baked in, so they must be
         # invalidated when camera or zoom changes. We don't cache by camera/zoom because
         # that would create too many buffers. Instead, we invalidate all buffers on change.
-        self.chunk_buffers = {}  # (chunk_x, chunk_y) -> (vbo, vao, vertex_count)
+        self.chunk_buffers = {}  # (chunk_x, chunk_y) -> (vbo, vao, vertex_count, pool_index)
         self.last_camera_pos = (0.0, 0.0)  # Track camera changes for cache invalidation
         self.last_zoom = 1.0  # Track zoom changes for cache invalidation
+        
+        # Merged chunk buffer for batched rendering (single draw call)
+        self._merged_chunk_vbo = None
+        self._merged_chunk_vao = None
+        self._merged_chunk_vertex_count = 0
+        self._merged_chunks_hash = None  # Hash of chunk keys to detect changes
+        
+        # Incremental update tracking for merged buffer
+        self._merged_chunk_map = {}  # (chunk_x, chunk_y) -> buffer_offset (in bytes)
+        self._merged_chunk_order = []  # Ordered list of chunk keys (for consistent ordering)
+        self._merged_max_chunks = self._calculate_max_chunks()  # Maximum chunks that can fit in buffer
+        self._merged_vertex_size_bytes = self._calculate_vertex_size_bytes()  # Size of one chunk's vertices in bytes
+        
+        # Initialize tile color palette (before pool, as pool needs correct buffer size)
+        self.tile_color_palette = TileColorPalette()
+        
+        # Initialize VBO/VAO pool for chunk buffers
+        self.chunk_vbo_pool = ChunkVboPool(ctx, self.chunk_program, pool_size=100)
+        
+        # Update palette uniform in shader
+        self._update_palette_uniform(self.chunk_program)
+    
+    def _calculate_max_chunks(self) -> int:
+        """Calculate maximum number of chunks that can be visible at once"""
+        # Estimate based on maximum screen size and minimum zoom
+        # At zoom 0.5 (zoomed out), we see more chunks
+        min_zoom = 0.5
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        
+        # Calculate visible chunks at minimum zoom with padding
+        visible_width_chunks = int((self.screen_width / min_zoom) / chunk_size_pixels) + 4  # +2 padding on each side
+        visible_height_chunks = int((self.screen_height / min_zoom) / chunk_size_pixels) + 4
+        
+        max_chunks = visible_width_chunks * visible_height_chunks
+        # Add safety margin (50% more)
+        return int(max_chunks * 1.5)
+    
+    def _calculate_vertex_size_bytes(self) -> int:
+        """Calculate size of one chunk's vertex data in bytes"""
+        chunk_size = settings.CHUNK_SIZE
+        vertices_per_chunk = chunk_size * chunk_size * 6  # 6 vertices per tile
+        floats_per_vertex = 3  # 2 position + 1 color_index
+        bytes_per_float = 4
+        return vertices_per_chunk * floats_per_vertex * bytes_per_float
+    
+    def _initialize_merged_buffer(self):
+        """Initialize merged chunk buffer at maximum size"""
+        max_buffer_size = self._merged_max_chunks * self._merged_vertex_size_bytes
+        
+        # Create buffer with maximum size (reserve space, but don't write data yet)
+        self._merged_chunk_vbo = self.ctx.buffer(reserve=max_buffer_size)
+        
+        # Create VAO for merged buffer
+        self._merged_chunk_vao = self.ctx.vertex_array(
+            self.chunk_program,
+            [(self._merged_chunk_vbo, "2f 1f", "in_position", "in_color_index")]
+        )
+        
+        # Initialize tracking structures
+        self._merged_chunk_map = {}
+        self._merged_chunk_order = []
         
         # Sprite texture cache
         self.sprite_textures = {}  # sprite_id -> texture
@@ -116,28 +179,29 @@ class ModernGLRenderer:
         return self._load_sprite_shader()
     
     def _load_chunk_shader(self) -> moderngl.Program:
-        """Load chunk rendering shader with view matrix and zoom support"""
+        """Load chunk rendering shader with view matrix, zoom support, and color palette"""
         # Shader applies view matrix and zoom transformation on GPU
-        # This allows buffers to be cached even when camera moves
+        # Uses color palette instead of direct RGB values to reduce vertex data
         vertex_shader = """
         #version 330 core
         
         in vec2 in_position;  // World coordinates (pixels)
-        in vec3 in_color;     // Normalized [0,1]
+        in float in_color_index;  // Color index (0-255) into palette
         
         uniform vec2 screen_size;      // (width, height) in pixels
         uniform vec2 view_translation; // Camera offset (view_matrix[0,3], view_matrix[1,3])
         uniform float zoom;            // Zoom factor (1.0 = 100%)
         
-        out vec3 frag_color;
+        out float frag_color_index;
         
         void main() {
             // Apply view matrix translation (camera offset)
             vec2 screen_pos = in_position + view_translation;
             
             // Apply zoom: translate to center, scale, translate back
-            // Zoom < 1.0 = rauszoomen (mehr Welt sichtbar), Zoom > 1.0 = reinzoomen (weniger Welt sichtbar)
-            // Multiply by zoom: smaller zoom = smaller screen position = more world visible
+            // Zoom > 1.0 = reinzoomen (weniger Welt sichtbar), Zoom < 1.0 = rauszoomen (mehr Welt sichtbar)
+            // Multiply by zoom: larger zoom = larger screen position offset = less world visible (zoomed in)
+            // Smaller zoom = smaller screen position offset = more world visible (zoomed out)
             vec2 screen_center = screen_size * 0.5;
             screen_pos = (screen_pos - screen_center) * zoom + screen_center;
             
@@ -148,25 +212,61 @@ class ModernGLRenderer:
             );
             
             gl_Position = vec4(ndc, 0.0, 1.0);
-            frag_color = in_color;
+            frag_color_index = in_color_index;
         }
         """
         
         fragment_shader = """
         #version 330 core
         
-        in vec3 frag_color;
+        in float frag_color_index;
+        
+        uniform vec3 color_palette[256];  // Color palette (max 256 colors)
+        uniform int palette_size;        // Actual palette size
+        
         out vec4 out_color;
         
         void main() {
-            out_color = vec4(frag_color, 1.0);
+            int index = int(frag_color_index);
+            // Clamp index to valid range
+            if (index < 0) index = 0;
+            if (index >= palette_size) index = palette_size - 1;
+            
+            vec3 color = color_palette[index];
+            out_color = vec4(color, 1.0);
         }
         """
         
-        return self.ctx.program(
+        program = self.ctx.program(
             vertex_shader=vertex_shader,
             fragment_shader=fragment_shader
         )
+        
+        # Initialize palette uniform (will be updated when palette changes)
+        self._update_palette_uniform(program)
+        
+        return program
+    
+    def _update_palette_uniform(self, program: moderngl.Program = None):
+        """Update color palette uniform in shader"""
+        if not hasattr(self, 'tile_color_palette'):
+            return
+        
+        if program is None:
+            program = self.chunk_program
+        
+        palette_normalized = self.tile_color_palette.get_palette_normalized()
+        palette_size = self.tile_color_palette.get_palette_size()
+        
+        # Create array with 256 entries (pad with zeros if needed)
+        palette_array = np.zeros((256, 3), dtype=np.float32)
+        palette_array[:palette_size] = palette_normalized
+        
+        # Set uniform
+        if 'color_palette' in program:
+            program['color_palette'].write(palette_array.tobytes())
+        if 'palette_size' in program:
+            program['palette_size'].value = palette_size
     
     def _setup_projection(self, use_pyglet=False):
         """Setup orthographic projection matrix
@@ -310,7 +410,8 @@ class ModernGLRenderer:
         
         # Check if buffer already exists
         if chunk_key in self.chunk_buffers:
-            return self.chunk_buffers[chunk_key]
+            vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
+            return (vbo, vao, vertex_count)
         
         chunk_size = settings.CHUNK_SIZE
         tile_size = float(settings.TILE_SIZE)
@@ -347,44 +448,48 @@ class ModernGLRenderer:
                 x1_world = world_x1
                 y1_world = world_y1
                 
-                # Normalize color to [0, 1] like test_render.py
-                r = float(color[0]) / 255.0
-                g = float(color[1]) / 255.0
-                b = float(color[2]) / 255.0
+                # Get color index from palette (instead of storing RGB directly)
+                color_index = float(self.tile_color_palette.get_color_index(color))
                 
                 # Create quad vertices (2 triangles = 6 vertices)
-                # Format: [in_position (world coordinates in pixels), in_color (normalized)]
-                # Transformation to NDC happens in shader
+                # Format: [in_position (world coordinates in pixels), in_color_index (0-255)]
+                # Transformation to NDC and color lookup happen in shader
                 base_vertices = [
-                    [x0_world, y0_world, r, g, b],  # Bottom-left
-                    [x1_world, y0_world, r, g, b],  # Bottom-right
-                    [x1_world, y1_world, r, g, b],  # Top-right
-                    [x0_world, y0_world, r, g, b],  # Bottom-left
-                    [x1_world, y1_world, r, g, b],  # Top-right
-                    [x0_world, y1_world, r, g, b],  # Top-left
+                    [x0_world, y0_world, color_index],  # Bottom-left
+                    [x1_world, y0_world, color_index],  # Bottom-right
+                    [x1_world, y1_world, color_index],  # Top-right
+                    [x0_world, y0_world, color_index],  # Bottom-left
+                    [x1_world, y1_world, color_index],  # Top-right
+                    [x0_world, y1_world, color_index],  # Top-left
                 ]
                 vertices.extend(base_vertices)
         
-        # Convert to numpy array and create buffer
+        # Convert to numpy array
         vertex_array = np.array(vertices, dtype=np.float32)
-        vbo = self.ctx.buffer(vertex_array.tobytes())
-        
-        # Vertex data ready (world coordinates in pixels, normalized colors)
-        
-        # Create VAO with explicit attribute binding (like test_render.py)
-        # Format: [in_position (2), in_color (3)] = 5 floats per vertex
-        # Stride = 5 * 4 bytes = 20 bytes
-        vao = self.ctx.vertex_array(
-            self.chunk_program,
-            [(vbo, "2f 3f", "in_position", "in_color")]
-        )
-        
-        # VAO created successfully
-        
         vertex_count = len(vertices)
         
-        # Cache buffer (with zoom in key)
-        self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count)
+        # Acquire buffer from pool
+        pool_result = self.chunk_vbo_pool.acquire()
+        if pool_result is None:
+            # Pool exhausted - fallback to creating new buffer (should not happen in normal operation)
+            if self.diagnostics:
+                self.diagnostics.warning("ModernGLRenderer", "VBO pool exhausted, creating new buffer", chunk_x=chunk_x, chunk_y=chunk_y)
+            vbo = self.ctx.buffer(vertex_array.tobytes())
+            vao = self.ctx.vertex_array(
+                self.chunk_program,
+                [(vbo, "2f 1f", "in_position", "in_color_index")]
+            )
+            # Cache without pool index (will be released normally)
+            self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, None)
+            return (vbo, vao, vertex_count)
+        
+        vbo, vao, pool_index = pool_result
+        
+        # Write vertex data to buffer (reuse existing buffer)
+        self.chunk_vbo_pool.write_data(vbo, vertex_array)
+        
+        # Cache buffer with pool index
+        self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, pool_index)
         
         return (vbo, vao, vertex_count)
     
@@ -416,38 +521,147 @@ class ModernGLRenderer:
                 # Ensure zoom is current (should already be set in update_view, but double-check)
                 self.chunk_program['zoom'].value = self.current_zoom
         
-        # Enable blending for transparency (like test_render.py)
+        # Enable OpenGL state
         self.ctx.enable(moderngl.BLEND)
         self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        self.ctx.disable(moderngl.DEPTH_TEST)
+        self.ctx.disable(moderngl.CULL_FACE)
         
-        # No matrices needed - vertices are converted to NDC in _create_chunk_buffer
-        # All matrix setup code removed - simplified shader doesn't use matrices
+        # Measure upload time separately (time spent uploading vertex data to GPU)
+        upload_start_time = time.perf_counter()
         
-        # Render each chunk using cached buffers
-        rendered_count = 0
-        for chunk_x, chunk_y, tiles in chunks_data:
-            # Get or create chunk buffer (cached after first creation)
-            vbo, vao, vertex_count = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
-            
-            # Chunk ready for rendering
-            
-            # IMPORTANT: Ensure OpenGL state is correct before rendering (like test_render.py)
-            self.ctx.enable(moderngl.BLEND)
-            self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
-            self.ctx.disable(moderngl.DEPTH_TEST)
-            self.ctx.disable(moderngl.CULL_FACE)
-            
-            # No matrices needed - vertices are already in NDC coordinates!
-            # Render chunk (fast - buffer already exists)
-            vao.render(moderngl.TRIANGLES, vertices=vertex_count)
-            rendered_count += 1
+        # Build or reuse merged chunk buffer (single VBO for all visible chunks)
+        self._build_merged_chunk_buffer(chunks_data)
         
-        # Record chunk rendering time
+        upload_time = time.perf_counter() - upload_start_time
+        
+        # Record upload time separately
+        if performance_monitor:
+            performance_monitor.record_chunk_upload_time(upload_time)
+        
+        # Single draw call for all chunks
+        if self._merged_chunk_vao and self._merged_chunk_vertex_count > 0:
+            self._merged_chunk_vao.render(moderngl.TRIANGLES, vertices=self._merged_chunk_vertex_count)
+        
+        # Record chunk rendering time (total time including upload and draw)
         chunk_render_time = time.perf_counter() - chunk_render_start
         if performance_monitor:
             performance_monitor.record_chunk_render_time(chunk_render_time)
+    
+    def _build_merged_chunk_buffer(self, chunks_data: List[Tuple[int, int, List[List[dict]]]]):
+        """
+        Build or incrementally update merged VBO containing all visible chunks for batched rendering.
         
-        # Rendered {rendered_count} chunks
+        Uses incremental updates: VBO is allocated once at maximum size, then only changed
+        chunks are updated using write(offset, data) instead of recreating the entire buffer.
+        
+        Args:
+            chunks_data: List of (chunk_x, chunk_y, tiles) tuples
+        """
+        # Calculate hash of chunk keys to detect changes
+        chunk_keys_set = set((chunk_x, chunk_y) for chunk_x, chunk_y, _ in chunks_data)
+        chunk_keys = tuple(sorted(chunk_keys_set))
+        chunks_hash = hash(chunk_keys)
+        
+        # Reuse existing merged buffer if chunks haven't changed
+        if self._merged_chunks_hash == chunks_hash and self._merged_chunk_vbo is not None:
+            return
+        
+        # Initialize buffer if it doesn't exist
+        if self._merged_chunk_vbo is None:
+            self._initialize_merged_buffer()
+        
+        # Determine which chunks need to be added/removed/updated
+        current_chunks_set = set(self._merged_chunk_order)
+        chunks_to_add = chunk_keys_set - current_chunks_set
+        chunks_to_remove = current_chunks_set - chunk_keys_set
+        chunks_to_update = chunk_keys_set & current_chunks_set  # Chunks that are in both sets
+        
+        # Remove chunks that are no longer visible
+        for chunk_key in chunks_to_remove:
+            if chunk_key in self._merged_chunk_map:
+                # Mark slot as empty (we'll reuse it for new chunks)
+                del self._merged_chunk_map[chunk_key]
+                self._merged_chunk_order.remove(chunk_key)
+        
+        # Rebuild chunk order list (sorted for consistency)
+        new_chunk_order = sorted(chunk_keys_set)
+        
+        # Update or add chunks
+        chunk_size = settings.CHUNK_SIZE
+        tile_size = float(settings.TILE_SIZE)
+        total_vertex_count = 0
+        
+        for chunk_key in new_chunk_order:
+            # Find chunk data
+            chunk_data = next((c for c in chunks_data if (c[0], c[1]) == chunk_key), None)
+            if not chunk_data:
+                continue
+            
+            chunk_x, chunk_y, tiles = chunk_data
+            
+            # Build vertex data for this chunk
+            chunk_vertices = []
+            chunk_world_x = chunk_x * chunk_size * tile_size
+            chunk_world_y = chunk_y * chunk_size * tile_size
+            
+            for tile_y in range(chunk_size):
+                for tile_x in range(chunk_size):
+                    tile = tiles[tile_y][tile_x]
+                    color = tile.get('color', (100, 100, 100))
+                    if isinstance(color, list):
+                        color = tuple(color)
+                    
+                    # Tile position within chunk
+                    tile_x_pos = tile_x * tile_size
+                    tile_y_pos = tile_y * tile_size
+                    
+                    # World position (top-left corner of tile) in pixels
+                    world_x0 = chunk_world_x + tile_x_pos
+                    world_y0 = chunk_world_y + tile_y_pos
+                    world_x1 = world_x0 + tile_size
+                    world_y1 = world_y0 + tile_size
+                    
+                    # Store world coordinates directly (no transformation here)
+                    # View matrix and zoom are applied in shader via uniforms
+                    x0_world = world_x0
+                    y0_world = world_y0
+                    x1_world = world_x1
+                    y1_world = world_y1
+                    
+                    # Get color index from palette (instead of storing RGB directly)
+                    color_index = float(self.tile_color_palette.get_color_index(color))
+                    
+                    # Create quad vertices (2 triangles = 6 vertices)
+                    # Format: [in_position (world coordinates in pixels), in_color_index (0-255)]
+                    base_vertices = [
+                        [x0_world, y0_world, color_index],  # Bottom-left
+                        [x1_world, y0_world, color_index],  # Bottom-right
+                        [x1_world, y1_world, color_index],  # Top-right
+                        [x0_world, y0_world, color_index],  # Bottom-left
+                        [x1_world, y1_world, color_index],  # Top-right
+                        [x0_world, y1_world, color_index],  # Top-left
+                    ]
+                    chunk_vertices.extend(base_vertices)
+            
+            # Convert chunk vertices to numpy array
+            chunk_vertex_array = np.array(chunk_vertices, dtype=np.float32)
+            
+            # Calculate buffer offset for this chunk
+            chunk_index = new_chunk_order.index(chunk_key)
+            buffer_offset = chunk_index * self._merged_vertex_size_bytes
+            
+            # Update buffer at specific offset (incremental update)
+            self._merged_chunk_vbo.write(chunk_vertex_array.tobytes(), offset=buffer_offset)
+            
+            # Update mapping
+            self._merged_chunk_map[chunk_key] = buffer_offset
+            total_vertex_count += len(chunk_vertices)
+        
+        # Update tracking
+        self._merged_chunk_order = new_chunk_order
+        self._merged_chunk_vertex_count = total_vertex_count
+        self._merged_chunks_hash = chunks_hash
     
     def _render_test_quad_ndc(self):
         """Render a test quad directly in NDC coordinates (bypasses all transformations)"""
@@ -510,26 +724,66 @@ class ModernGLRenderer:
     
     def _invalidate_all_chunk_buffers(self):
         """Invalidate all chunk buffers (called when camera or zoom changes)"""
-        for vbo, vao, _ in self.chunk_buffers.values():
-            vao.release()
-            vbo.release()
+        for chunk_key, buffer_data in list(self.chunk_buffers.items()):
+            vbo, vao, vertex_count, pool_index = buffer_data
+            # Release buffer back to pool if it came from pool
+            if pool_index is not None:
+                self.chunk_vbo_pool.release(pool_index)
+            else:
+                # Manually created buffer (pool exhausted) - release normally
+                vao.release()
+                vbo.release()
         self.chunk_buffers.clear()
+        
+        # Invalidate merged buffer (will be rebuilt on next render)
+        if self._merged_chunk_vao is not None:
+            self._merged_chunk_vao.release()
+            self._merged_chunk_vao = None
+        if self._merged_chunk_vbo is not None:
+            self._merged_chunk_vbo.release()
+            self._merged_chunk_vbo = None
+        self._merged_chunks_hash = None
+        self._merged_chunk_map = {}
+        self._merged_chunk_order = []
     
     def invalidate_chunk(self, chunk_x: int, chunk_y: int):
         """Invalidate cached buffer for a chunk (call when chunk changes)"""
         chunk_key = (chunk_x, chunk_y)
         if chunk_key in self.chunk_buffers:
-            vbo, vao, _ = self.chunk_buffers[chunk_key]
-            vao.release()
-            vbo.release()
+            vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
+            # Release buffer back to pool if it came from pool
+            if pool_index is not None:
+                self.chunk_vbo_pool.release(pool_index)
+            else:
+                # Manually created buffer (pool exhausted) - release normally
+                vao.release()
+                vbo.release()
             del self.chunk_buffers[chunk_key]
     
     def cleanup(self):
         """Cleanup all cached buffers"""
-        for vbo, vao, _ in self.chunk_buffers.values():
-            vao.release()
-            vbo.release()
+        # Release all buffers back to pool
+        for chunk_key, buffer_data in list(self.chunk_buffers.items()):
+            vbo, vao, vertex_count, pool_index = buffer_data
+            if pool_index is not None:
+                self.chunk_vbo_pool.release(pool_index)
+            else:
+                # Manually created buffer (pool exhausted) - release normally
+                vao.release()
+                vbo.release()
         self.chunk_buffers.clear()
+        
+        # Release merged chunk buffer
+        if self._merged_chunk_vao is not None:
+            self._merged_chunk_vao.release()
+            self._merged_chunk_vao = None
+        if self._merged_chunk_vbo is not None:
+            self._merged_chunk_vbo.release()
+            self._merged_chunk_vbo = None
+        
+        # Cleanup pool
+        if hasattr(self, 'chunk_vbo_pool'):
+            self.chunk_vbo_pool.cleanup()
     
     # Removed: _sprite_surface_to_texture - no longer needed (sprites use color, not textures)
     # def _sprite_surface_to_texture(self, surface) -> moderngl.Texture:

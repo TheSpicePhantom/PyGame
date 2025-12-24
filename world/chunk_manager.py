@@ -20,6 +20,12 @@ from world.region_manager import (
 )
 from world.world_utils import sanitize_world_name, get_world_save_dir
 
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
 
 class Chunk:
     """Represents a single 15x15 tile chunk"""
@@ -81,6 +87,12 @@ class ChunkManager:
         self.diagnostics = diagnostics  # Store diagnostics service for logging
         self.loaded_chunks: Dict[Tuple[int, int], Chunk] = {}
         self.player_chunk_pos = None  # Changed from (0, 0) to None to force initial load
+        self.chunk_load_times: Dict[Tuple[int, int], float] = {}  # Track when chunks were loaded (for cooldown)
+        self.chunk_unload_cooldown: float = 9.0  # Seconds before chunk can be unloaded after leaving visible area (9s for smooth preload/cooldown ring, reduces disk loads)
+        
+        # Region prefetch tracking
+        self._last_camera_region: Optional[Tuple[int, int]] = None  # Last region camera was in (region_x, region_y)
+        self._prefetched_regions: set = set()  # Set of regions that have been prefetched
         
         # Setup save directories using world name
         self.save_dir = get_world_save_dir(world_name)
@@ -88,7 +100,7 @@ class ChunkManager:
         self.chunks_dir.mkdir(parents=True, exist_ok=True)
         
         # Initialize RegionManager for binary region-based storage
-        self.region_manager = RegionManager(world_name)
+        self.region_manager = RegionManager(world_name, diagnostics=diagnostics)
         
         # Load or create world metadata
         self.metadata_file = self.save_dir / "world_metadata.json"
@@ -104,10 +116,18 @@ class ChunkManager:
         self.pending_chunks = set()  # Track chunks being loaded
         self.chunk_priority = {}  # Distance-based priority (for tracking/cleanup)
         
+        # Global load rate limiting (thread-safe)
+        self._load_rate_lock = threading.Lock()
+        self._load_timestamps = []  # Timestamps of recent chunk loads (for rate calculation)
+        self._worker_token_buckets = {}  # Token bucket per worker thread (thread_id -> (tokens, last_refill_time))
+        self._worker_token_lock = threading.Lock()  # Lock for token buckets
+        
         # Performance limits (documented for tuning):
         # - Max chunks loaded per second: ~30 chunks/sec (3 workers, ~100ms per chunk average)
         # - Max chunks saved per second: 20 chunks/sec (1 worker, 50ms delay between saves)
-        # - Max chunks processed per frame: 1 chunk per frame (via process_loaded_chunks)
+        # - Max chunks processed per frame: 3 chunks per frame (via process_loaded_chunks)
+        #   - Conservative limit to prevent render/upload spikes during fast camera movements
+        #   - Keeps FPS stable while continuously loading chunks in visible area + buffer
         # These limits prevent frame drops and I/O overload
         
         # Async save system - Queue-based for better performance
@@ -115,6 +135,14 @@ class ChunkManager:
         self.save_queue = queue.Queue()  # Queue for chunks to save
         self.dirty_chunks = set()  # Chunks that need saving (marked as dirty, thread-safe)
         self._save_lock = threading.Lock()  # Lock for pending_saves and dirty_chunks
+        
+        # Adaptive save throttling (dynamic sleep based on save times)
+        self._current_save_sleep = settings.CHUNK_SAVE_BASE_SLEEP  # Current sleep time (adapts to save performance)
+        
+        # Token bucket for save rate limiting (prevents IO bursts)
+        self._save_token_bucket = settings.CHUNK_SAVE_TOKEN_BUCKET_SIZE  # Current tokens available
+        self._save_token_last_refill = time.perf_counter()  # Last time tokens were refilled
+        self._save_token_lock = threading.Lock()  # Lock for token bucket access
         
         # Start dedicated save worker thread (runs continuously, saves when queue has items)
         self.save_worker_thread = threading.Thread(target=self._chunk_save_worker, daemon=True, name="ChunkSaveWorker")
@@ -303,6 +331,9 @@ class ChunkManager:
             
             with open(self.metadata_file, 'w', encoding='utf-8') as f:
                 json.dump(self.metadata, f, indent=2, ensure_ascii=False)
+            
+            # Generate preview image after saving metadata
+            self.generate_preview_image()
         except Exception as e:
             if self.diagnostics:
                 self.diagnostics.error("ChunkManager", f"Error saving metadata: {e}")
@@ -356,47 +387,433 @@ class ChunkManager:
         chunk_x = math.floor(world_x / (settings.CHUNK_SIZE * settings.TILE_SIZE))
         chunk_y = math.floor(world_y / (settings.CHUNK_SIZE * settings.TILE_SIZE))
         return (chunk_x, chunk_y)
+    
+    def get_visible_chunk_range(self, camera_x: float, camera_y: float, 
+                                 screen_width: int, screen_height: int,
+                                 zoom: float = 1.0, padding_chunks: int = 3) -> Tuple[int, int, int, int]:
+        """
+        Calculate visible chunk range based on camera position and screen size.
+        
+        Args:
+            camera_x: Camera X position in world coordinates (pixels)
+            camera_y: Camera Y position in world coordinates (pixels)
+            screen_width: Screen width in pixels
+            screen_height: Screen height in pixels
+            zoom: Camera zoom factor (default: 1.0)
+            padding_chunks: Number of chunks to add as padding in all directions (default: 3, increased for smoother preload ring)
+        
+        Returns:
+            Tuple of (min_chunk_x, max_chunk_x, min_chunk_y, max_chunk_y)
+        """
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        
+        # Calculate visible area bounds using zoom
+        # Shader multiplies by zoom: screen_pos = (pos - center) * zoom + center
+        # When zoom < 1.0 (rauszoomen): position offset becomes smaller → more world visible → more chunks
+        # When zoom > 1.0 (reinzoomen): position offset becomes larger → less world visible → fewer chunks
+        # To get visible world size, we divide screen size by zoom (inverse of shader multiplication)
+        visible_world_width = screen_width / zoom
+        visible_world_height = screen_height / zoom
+        
+        # Calculate world bounds (visible area centered on camera)
+        world_min_x = camera_x - visible_world_width / 2.0
+        world_max_x = camera_x + visible_world_width / 2.0
+        world_min_y = camera_y - visible_world_height / 2.0
+        world_max_y = camera_y + visible_world_height / 2.0
+        
+        # Convert to chunk coordinates
+        min_chunk_x = int(world_min_x // chunk_size_pixels)
+        max_chunk_x = int(world_max_x // chunk_size_pixels) + 1
+        min_chunk_y = int(world_min_y // chunk_size_pixels)
+        max_chunk_y = int(world_max_y // chunk_size_pixels) + 1
+        
+        # Add padding chunks in all directions
+        min_chunk_x -= padding_chunks
+        max_chunk_x += padding_chunks
+        min_chunk_y -= padding_chunks
+        max_chunk_y += padding_chunks
+        
+        # Clamp to world bounds
+        min_chunk_x = max(0, min_chunk_x)
+        max_chunk_x = min(settings.WORLD_SIZE_CHUNKS, max_chunk_x)
+        min_chunk_y = max(0, min_chunk_y)
+        max_chunk_y = min(settings.WORLD_SIZE_CHUNKS, max_chunk_y)
+        
+        return (min_chunk_x, max_chunk_x, min_chunk_y, max_chunk_y)
+    
+    def update_visible_chunks(self, camera_x: float, camera_y: float,
+                              screen_width: int, screen_height: int,
+                              zoom: float = 1.0, padding_chunks: int = 3):
+        """
+        Update visible chunks by requesting load for all chunks in visible range.
+        
+        Iterates over the visible chunk range and triggers request_chunk_load for chunks
+        that are neither in loaded_chunks nor in pending_chunks.
+        
+        Args:
+            camera_x: Camera X position in world coordinates (pixels)
+            camera_y: Camera Y position in world coordinates (pixels)
+            screen_width: Screen width in pixels
+            screen_height: Screen height in pixels
+            zoom: Camera zoom factor (default: 1.0)
+            padding_chunks: Number of chunks to add as padding in all directions (default: 3, increased for smoother preload ring)
+        """
+        # Get visible chunk range
+        min_chunk_x, max_chunk_x, min_chunk_y, max_chunk_y = self.get_visible_chunk_range(
+            camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks
+        )
+        
+        # Calculate camera chunk position for priority calculation
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        camera_chunk_x = int(camera_x // chunk_size_pixels)
+        camera_chunk_y = int(camera_y // chunk_size_pixels)
+        
+        # Iterate over all chunks in visible range
+        for chunk_x in range(min_chunk_x, max_chunk_x + 1):
+            for chunk_y in range(min_chunk_y, max_chunk_y + 1):
+                # Check world bounds
+                if not (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
+                        0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
+                    continue
+                
+                chunk_key = (chunk_x, chunk_y)
+                
+                # Skip if already loaded or pending
+                if chunk_key in self.loaded_chunks:
+                    continue
+                if chunk_key in self.pending_chunks:
+                    continue
+                
+                # Calculate priority based on distance from camera (closer = higher priority)
+                dx = abs(chunk_x - camera_chunk_x)
+                dy = abs(chunk_y - camera_chunk_y)
+                distance = dx + dy  # Manhattan distance
+                priority = distance
+                
+                # Request chunk load
+                self.request_chunk_load(chunk_x, chunk_y, priority=priority)
+    
+    def unload_chunks_outside_view(self, camera_x: float, camera_y: float,
+                                    screen_width: int, screen_height: int,
+                                    zoom: float = 1.0, padding_chunks: int = 3,
+                                    max_unloads_per_call: int = 3):
+        """
+        Unload chunks that are outside the visible view area (with padding).
+        
+        Iterates over all currently loaded chunks and unloads those whose
+        (chunk_x, chunk_y) coordinates are outside the visible range (min/max + padding).
+        
+        Args:
+            camera_x: Camera X position in world coordinates (pixels)
+            camera_y: Camera Y position in world coordinates (pixels)
+            screen_width: Screen width in pixels
+            screen_height: Screen height in pixels
+            zoom: Camera zoom factor (default: 1.0)
+            padding_chunks: Number of chunks padding around visible area (default: 3, increased for smoother preload ring)
+            max_unloads_per_call: Maximum number of chunks to unload per call (default: 3)
+        """
+        # Get visible chunk range (with padding)
+        min_chunk_x, max_chunk_x, min_chunk_y, max_chunk_y = self.get_visible_chunk_range(
+            camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks
+        )
+        
+        # Collect chunks to unload (with cooldown check)
+        import time
+        current_time = time.time()
+        chunks_to_unload = []
+        
+        for chunk_key, chunk in list(self.loaded_chunks.items()):
+            chunk_x, chunk_y = chunk_key
+            
+            # Check if chunk is outside visible range
+            if (chunk_x < min_chunk_x or chunk_x > max_chunk_x or
+                chunk_y < min_chunk_y or chunk_y > max_chunk_y):
+                
+                # Check cooldown: chunk must be loaded for at least cooldown seconds
+                # This prevents rapid load/unload cycles
+                load_time = self.chunk_load_times.get(chunk_key, current_time)
+                time_since_load = current_time - load_time
+                
+                # Only unload if chunk has been loaded for at least cooldown seconds
+                if time_since_load >= self.chunk_unload_cooldown:
+                    chunks_to_unload.append(chunk_key)
+        
+        # Unload chunks (limit to avoid frame drops)
+        for chunk_key in chunks_to_unload[:max_unloads_per_call]:
+            self.unload_chunk(chunk_key[0], chunk_key[1])
+    
+    def _get_region_coords(self, chunk_x: int, chunk_y: int) -> Tuple[int, int]:
+        """Convert chunk coordinates to region coordinates"""
+        from world.region_manager import RegionManager
+        region_x = chunk_x // RegionManager.REGION_SIZE_CHUNKS
+        region_y = chunk_y // RegionManager.REGION_SIZE_CHUNKS
+        return (region_x, region_y)
+    
+    def _update_region_prefetch(self, camera_x: float, camera_y: float,
+                                screen_width: int, screen_height: int,
+                                zoom: float):
+        """
+        Prefetch regions when camera is moving towards a new region boundary.
+        
+        This method detects when the camera is approaching a region boundary and
+        proactively loads region headers and some chunks from adjacent regions.
+        
+        Args:
+            camera_x: Camera X position in world coordinates (pixels)
+            camera_y: Camera Y position in world coordinates (pixels)
+            screen_width: Screen width in pixels
+            screen_height: Screen height in pixels
+            zoom: Camera zoom factor
+        """
+        from core import settings
+        
+        if not getattr(settings, 'REGION_PREFETCH_ENABLED', True):
+            return
+        
+        # Get current camera chunk position
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        camera_chunk_x = int(camera_x // chunk_size_pixels)
+        camera_chunk_y = int(camera_y // chunk_size_pixels)
+        
+        # Get current region
+        current_region = self._get_region_coords(camera_chunk_x, camera_chunk_y)
+        
+        # Check if we've moved to a new region
+        if self._last_camera_region is None:
+            self._last_camera_region = current_region
+            return
+        
+        if current_region == self._last_camera_region:
+            # Still in same region - check if we're close to boundary
+            self._prefetch_nearby_regions(camera_chunk_x, camera_chunk_y, screen_width, screen_height, zoom)
+        else:
+            # Moved to new region - prefetch adjacent regions
+            self._prefetch_adjacent_regions(current_region)
+            self._last_camera_region = current_region
+    
+    def _prefetch_nearby_regions(self, camera_chunk_x: int, camera_chunk_y: int,
+                                 screen_width: int, screen_height: int,
+                                 zoom: float):
+        """
+        Prefetch regions when camera is near a region boundary.
+        
+        Args:
+            camera_chunk_x: Camera chunk X coordinate
+            camera_chunk_y: Camera chunk Y coordinate
+            screen_width: Screen width in pixels
+            screen_height: Screen height in pixels
+            zoom: Camera zoom factor
+        """
+        from core import settings
+        from world.region_manager import RegionManager
+        
+        prefetch_distance = getattr(settings, 'REGION_PREFETCH_DISTANCE_CHUNKS', 2)
+        
+        # Get current region
+        current_region = self._get_region_coords(camera_chunk_x, camera_chunk_y)
+        region_x, region_y = current_region
+        
+        # Calculate local chunk position within region
+        local_chunk_x = camera_chunk_x % RegionManager.REGION_SIZE_CHUNKS
+        local_chunk_y = camera_chunk_y % RegionManager.REGION_SIZE_CHUNKS
+        
+        # Check if we're close to region boundaries
+        regions_to_prefetch = []
+        
+        # Check each direction
+        if local_chunk_x < prefetch_distance:
+            # Close to left boundary - prefetch left region
+            regions_to_prefetch.append((region_x - 1, region_y))
+        elif local_chunk_x >= RegionManager.REGION_SIZE_CHUNKS - prefetch_distance:
+            # Close to right boundary - prefetch right region
+            regions_to_prefetch.append((region_x + 1, region_y))
+        
+        if local_chunk_y < prefetch_distance:
+            # Close to bottom boundary - prefetch bottom region
+            regions_to_prefetch.append((region_x, region_y - 1))
+        elif local_chunk_y >= RegionManager.REGION_SIZE_CHUNKS - prefetch_distance:
+            # Close to top boundary - prefetch top region
+            regions_to_prefetch.append((region_x, region_y + 1))
+        
+        # Prefetch corner regions if close to corners
+        if (local_chunk_x < prefetch_distance and local_chunk_y < prefetch_distance):
+            regions_to_prefetch.append((region_x - 1, region_y - 1))
+        elif (local_chunk_x >= RegionManager.REGION_SIZE_CHUNKS - prefetch_distance and 
+              local_chunk_y < prefetch_distance):
+            regions_to_prefetch.append((region_x + 1, region_y - 1))
+        elif (local_chunk_x < prefetch_distance and 
+              local_chunk_y >= RegionManager.REGION_SIZE_CHUNKS - prefetch_distance):
+            regions_to_prefetch.append((region_x - 1, region_y + 1))
+        elif (local_chunk_x >= RegionManager.REGION_SIZE_CHUNKS - prefetch_distance and 
+              local_chunk_y >= RegionManager.REGION_SIZE_CHUNKS - prefetch_distance):
+            regions_to_prefetch.append((region_x + 1, region_y + 1))
+        
+        # Prefetch identified regions
+        for region in regions_to_prefetch:
+            if region not in self._prefetched_regions:
+                self._prefetch_region(region)
+    
+    def _prefetch_adjacent_regions(self, current_region: Tuple[int, int]):
+        """
+        Prefetch all adjacent regions when entering a new region.
+        
+        Args:
+            current_region: Current region coordinates (region_x, region_y)
+        """
+        region_x, region_y = current_region
+        
+        # Prefetch all 8 adjacent regions (including diagonals)
+        adjacent_regions = [
+            (region_x - 1, region_y - 1),  # Bottom-left
+            (region_x, region_y - 1),      # Bottom
+            (region_x + 1, region_y - 1),  # Bottom-right
+            (region_x - 1, region_y),      # Left
+            (region_x + 1, region_y),      # Right
+            (region_x - 1, region_y + 1),  # Top-left
+            (region_x, region_y + 1),      # Top
+            (region_x + 1, region_y + 1),  # Top-right
+        ]
+        
+        for region in adjacent_regions:
+            if region not in self._prefetched_regions:
+                self._prefetch_region(region)
+    
+    def _prefetch_region(self, region: Tuple[int, int]):
+        """
+        Prefetch a region by loading its header and some center chunks.
+        
+        Args:
+            region: Region coordinates (region_x, region_y)
+        """
+        from core import settings
+        from world.region_manager import RegionManager
+        
+        region_x, region_y = region
+        
+        # Mark as prefetched
+        self._prefetched_regions.add(region)
+        
+        # Check if region file exists (this loads header into cache)
+        # We don't need to do anything else - just checking existence loads the header
+        try:
+            region_file = self.region_manager._get_region_filename(region_x, region_y)
+            if not region_file.exists():
+                return  # Region doesn't exist yet, skip
+        except Exception:
+            return  # Error accessing region, skip
+        
+        # Prefetch some center chunks from the region
+        # These are the chunks most likely to be visible when entering the region
+        chunks_per_region = getattr(settings, 'REGION_PREFETCH_CHUNKS_PER_REGION', 5)
+        priority_offset = getattr(settings, 'REGION_PREFETCH_PRIORITY_OFFSET', 50)
+        
+        # Calculate center chunk of region
+        center_local_x = RegionManager.REGION_SIZE_CHUNKS // 2
+        center_local_y = RegionManager.REGION_SIZE_CHUNKS // 2
+        
+        # Convert to global chunk coordinates
+        center_chunk_x = region_x * RegionManager.REGION_SIZE_CHUNKS + center_local_x
+        center_chunk_y = region_y * RegionManager.REGION_SIZE_CHUNKS + center_local_y
+        
+        # Prefetch center chunks (small cross pattern around center)
+        prefetch_chunks = [
+            (center_chunk_x, center_chunk_y),  # Center
+            (center_chunk_x - 1, center_chunk_y),  # Left
+            (center_chunk_x + 1, center_chunk_y),  # Right
+            (center_chunk_x, center_chunk_y - 1),  # Bottom
+            (center_chunk_x, center_chunk_y + 1),  # Top
+        ]
+        
+        # Limit to requested number
+        prefetch_chunks = prefetch_chunks[:chunks_per_region]
+        
+        # Request prefetch with lower priority (higher priority number)
+        for chunk_x, chunk_y in prefetch_chunks:
+            # Check world bounds
+            if not (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
+                    0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
+                continue
+            
+            chunk_key = (chunk_x, chunk_y)
+            
+            # Skip if already loaded or pending
+            if chunk_key in self.loaded_chunks:
+                continue
+            if chunk_key in self.pending_chunks:
+                continue
+            
+            # Request with lower priority (prefetch should not interfere with visible chunks)
+            self.request_chunk_load(chunk_x, chunk_y, priority=priority_offset)
 
-    def get_or_create_chunk(self, chunk_x, chunk_y):
-        """Get existing chunk or generate new one"""
+    def get_or_create_chunk(self, chunk_x, chunk_y, async_load: bool = True):
+        """
+        Get existing chunk or request async load/generation
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+            async_load: If True, use async loading (default). If False, load synchronously (for initial preload)
+        
+        Returns:
+            Chunk instance if loaded, None if async loading was requested
+        """
         key = (chunk_x, chunk_y)
         
         # First check if chunk is already loaded in memory
         if key in self.loaded_chunks:
             return self.loaded_chunks[key]
         
-        # Check if chunk file exists - if it does, try to load it
-        # (even if it's being saved, we should wait and load it)
-        chunk_file = self._get_chunk_filename(chunk_x, chunk_y)
-        if chunk_file.exists():
-            # File exists - try to load it (with retry logic for locked files)
-            loaded_chunk = self._load_chunk_from_file(chunk_x, chunk_y)
-            if loaded_chunk:
-                self.loaded_chunks[key] = loaded_chunk
-                return loaded_chunk
-            # If loading failed (file locked or corrupted), don't generate new chunk
-            # Instead, wait a bit more and try again, or return None to indicate
-            # that the chunk should be loaded from memory if it exists elsewhere
-            # For now, we'll generate a new chunk only if file doesn't exist
-            # This prevents data loss from locked files
+        # If async_load is False, load synchronously (for initial preload)
+        if not async_load:
+            import time
+            current_time = time.time()
+            
+            # Check if chunk file exists - if it does, try to load it synchronously
+            if self._chunk_exists_on_disk(chunk_x, chunk_y):
+                loaded_chunk = self._load_chunk_from_file(chunk_x, chunk_y)
+                if loaded_chunk:
+                    self.loaded_chunks[key] = loaded_chunk
+                    # Track when chunk was loaded (for cooldown before unloading)
+                    self.chunk_load_times[key] = current_time
+                    return loaded_chunk
+            
+            # File doesn't exist - generate new chunk synchronously
+            tiles = self.terrain_gen.generate_chunk(chunk_x, chunk_y)
+            chunk = Chunk(chunk_x, chunk_y, tiles)
+            self.loaded_chunks[key] = chunk
+            
+            # Track when chunk was loaded (for cooldown before unloading)
+            self.chunk_load_times[key] = current_time
+            
+            # Save newly generated chunk asynchronously
+            self._save_chunk_to_file(chunk)
+            
+            # Update chunks_generated in new metadata structure
+            if "size" not in self.metadata:
+                self.metadata["size"] = {}
+            if "chunks_generated" not in self.metadata["size"]:
+                self.metadata["size"]["chunks_generated"] = 0
+            self.metadata["size"]["chunks_generated"] += 1
+            self.save_metadata()
+            
+            return chunk
         
-        # File doesn't exist - generate new chunk
-        tiles = self.terrain_gen.generate_chunk(chunk_x, chunk_y)
-        chunk = Chunk(chunk_x, chunk_y, tiles)
-        self.loaded_chunks[key] = chunk
+        # Async loading mode (default)
+        # Check if chunk is already being loaded
+        if key in self.pending_chunks:
+            # Chunk is being loaded asynchronously, return None for now
+            # Caller should check again next frame or use process_loaded_chunks
+            return None
         
-        # Save newly generated chunk
-        self._save_chunk_to_file(chunk)
+        # Check if chunk exists on disk (fast check without loading)
+        if self._chunk_exists_on_disk(chunk_x, chunk_y):
+            # Request async load with high priority (distance 0 = immediate area)
+            self.request_chunk_load(chunk_x, chunk_y, priority=0)
+            return None  # Will be available after async load completes
         
-        # Update chunks_generated in new metadata structure
-        if "size" not in self.metadata:
-            self.metadata["size"] = {}
-        if "chunks_generated" not in self.metadata["size"]:
-            self.metadata["size"]["chunks_generated"] = 0
-        self.metadata["size"]["chunks_generated"] += 1
-        self.save_metadata()
-        
-        return chunk
+        # Chunk doesn't exist - request async generation with high priority
+        self.request_chunk_load(chunk_x, chunk_y, priority=0)
+        return None  # Will be available after async generation completes
 
     def _get_chunk_filename(self, chunk_x: int, chunk_y: int) -> Path:
         """Get the filename for a chunk at given coordinates"""
@@ -404,9 +821,21 @@ class ChunkManager:
 
     def _chunk_exists_on_disk(self, chunk_x: int, chunk_y: int) -> bool:
         """Check if a chunk exists on disk (region file or legacy JSON)"""
-        # Check region file first (new format)
-        if self.region_manager.chunk_exists(chunk_x, chunk_y):
-            return True
+        # Check region file first (new format) - async call
+        try:
+            import asyncio
+            # Run async method in new event loop (for thread safety)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(self.region_manager.chunk_exists(chunk_x, chunk_y))
+                if result:
+                    return True
+            finally:
+                loop.close()
+        except Exception:
+            pass  # Fall back to legacy check
+        
         # Check legacy JSON file (for migration)
         return self._get_chunk_filename(chunk_x, chunk_y).exists()
     
@@ -450,14 +879,21 @@ class ChunkManager:
         save_start_time = time.perf_counter()
         
         try:
-            # Save using RegionManager (binary format)
+            # Save using RegionManager (binary format) - async call
             seed = self.get_seed()
-            self.region_manager.save_chunk_data(
-                chunk.chunk_x,
-                chunk.chunk_y,
-                chunk.tiles,
-                seed
-            )
+            import asyncio
+            # Run async method in new event loop (for thread safety)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self.region_manager.save_chunk_data(
+                    chunk.chunk_x,
+                    chunk.chunk_y,
+                    chunk.tiles,
+                    seed
+                ))
+            finally:
+                loop.close()
             
             # Record chunk save time
             save_time = time.perf_counter() - save_start_time
@@ -480,12 +916,15 @@ class ChunkManager:
     def _chunk_save_worker(self):
         """
         Dedicated worker thread that saves chunks from queue synchronously.
-        Simplified approach: directly call sync save method, no asyncio/executor overhead.
         
-        Performance limits:
-        - Rate limit: 50ms delay between saves = max 20 chunks/second (during normal operation)
+        HARD RATE LIMITS (prevents IO spikes):
+        - Global rate limit: CHUNK_SAVE_RATE_LIMIT saves/second (HARD CAP: 15-20/sec)
+        - Base sleep: 50ms between saves = max 20 chunks/second
+        - After slow save (>20ms): Sleep increased to 150ms + 100ms extra = ~6.7 chunks/second
+        - After very slow save (>50ms): Sleep increased to 250ms + 150ms extra = ~2.5 chunks/second
+        - Token bucket prevents bursts
         - During shutdown: No delay, saves as fast as possible
-        - Prevents I/O overload and frame drops during gameplay
+        - Better delayed saves than storage controller under constant fire causing 100ms spikes
         """
         while self.running or not self.save_queue.empty():
             try:
@@ -512,6 +951,8 @@ class ChunkManager:
                     self.pending_saves.add(chunk_key)
                 
                 # Save chunk synchronously (direct call, no asyncio/executor overhead)
+                # Measure save time for adaptive throttling
+                save_start_time = time.perf_counter()
                 try:
                     self._save_chunk_to_file_sync(chunk)
                 finally:
@@ -520,13 +961,74 @@ class ChunkManager:
                         self.pending_saves.discard(chunk_key)
                         self.dirty_chunks.discard(chunk_key)
                 
+                save_time_ms = (time.perf_counter() - save_start_time) * 1000.0
+                
+                # Adaptive throttling: Increase sleep time if saves are slow
+                # This prevents I/O spikes and frame drops during heavy save operations
+                extra_sleep = 0.0  # Additional sleep after slow saves to smooth out spikes
+                if save_time_ms > settings.CHUNK_SAVE_VERY_SLOW_THRESHOLD_MS:
+                    # Very slow save (>50ms): Use maximum throttling + extra sleep
+                    self._current_save_sleep = settings.CHUNK_SAVE_VERY_SLOW_SLEEP
+                    extra_sleep = settings.CHUNK_SAVE_VERY_SLOW_EXTRA_SLEEP
+                elif save_time_ms > settings.CHUNK_SAVE_SLOW_THRESHOLD_MS:
+                    # Slow save (>20ms): Use increased throttling + extra sleep to smooth out spikes
+                    self._current_save_sleep = settings.CHUNK_SAVE_SLOW_SLEEP
+                    extra_sleep = settings.CHUNK_SAVE_SLOW_EXTRA_SLEEP
+                else:
+                    # Normal save (<=20ms): Gradually return to base sleep time
+                    # Smoothly reduce sleep time back to base (prevents oscillation)
+                    if self._current_save_sleep > settings.CHUNK_SAVE_BASE_SLEEP:
+                        self._current_save_sleep = max(
+                            settings.CHUNK_SAVE_BASE_SLEEP,
+                            self._current_save_sleep * 0.9  # Reduce by 10% each fast save
+                        )
+                    else:
+                        self._current_save_sleep = settings.CHUNK_SAVE_BASE_SLEEP
+                
                 self.save_queue.task_done()
                 
-                # Rate limit: Only save 1 chunk per 50ms = max 20 chunks/second
+                # Rate limit: Adaptive sleep based on save performance + token bucket
                 # During shutdown (self.running = False), skip delay to save faster
                 # This prevents I/O overload and ensures smooth gameplay during normal operation
                 if self.running:
-                    time.sleep(0.05)  # 50ms delay between saves (only during normal operation)
+                    # Token bucket rate limiting: Check if we have tokens available
+                    with self._save_token_lock:
+                        now = time.perf_counter()
+                        elapsed_ms = (now - self._save_token_last_refill) * 1000.0
+                        
+                        # Refill tokens based on elapsed time
+                        tokens_to_add = elapsed_ms * settings.CHUNK_SAVE_TOKEN_REFILL_RATE
+                        self._save_token_bucket = min(
+                            settings.CHUNK_SAVE_TOKEN_BUCKET_SIZE,
+                            self._save_token_bucket + tokens_to_add
+                        )
+                        self._save_token_last_refill = now
+                        
+                        # Check if we have a token available
+                        if self._save_token_bucket < 1.0:
+                            # No token available - wait for refill
+                            # Calculate how long to wait
+                            tokens_needed = 1.0 - self._save_token_bucket
+                            wait_time_ms = tokens_needed / settings.CHUNK_SAVE_TOKEN_REFILL_RATE
+                            wait_time = max(0.0, wait_time_ms / 1000.0)
+                            if wait_time > 0:
+                                time.sleep(wait_time)
+                                # Refill after wait
+                                self._save_token_bucket = min(
+                                    settings.CHUNK_SAVE_TOKEN_BUCKET_SIZE,
+                                    self._save_token_bucket + tokens_needed
+                                )
+                        
+                        # Consume token
+                        self._save_token_bucket -= 1.0
+                    
+                    # Adaptive sleep based on save performance
+                    time.sleep(self._current_save_sleep)
+                    
+                    # Additional sleep after slow saves to smooth out spikes
+                    # This prevents multiple slow saves from clustering together
+                    if extra_sleep > 0:
+                        time.sleep(extra_sleep)
                 # During shutdown, no delay - save as fast as possible
                 
             except Exception as e:
@@ -595,7 +1097,15 @@ class ChunkManager:
         seed = self.get_seed()
         load_start_time = time.perf_counter()
         try:
-            chunk_data = self.region_manager.load_chunk_data(chunk_x, chunk_y, seed)
+            # Load using RegionManager (async) - run in new event loop
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                chunk_data = loop.run_until_complete(self.region_manager.load_chunk_data(chunk_x, chunk_y, seed))
+            finally:
+                loop.close()
+            
             # Successfully loaded from region file
             load_time = time.perf_counter() - load_start_time
             tiles = chunk_data['tiles']
@@ -613,7 +1123,7 @@ class ChunkManager:
             # Seed mismatch = chunk belongs to a different world
             # Reject it and return None to force regeneration (prevents mixing worlds)
             if self.diagnostics:
-                self.diagnostics.warning("ChunkManager", f"SEED MISMATCH: Chunk ({chunk_x}, {chunk_y}) belongs to different world - rejecting and regenerating", details=str(e))
+                self.diagnostics.warning("ChunkManager", f"SEED MISMATCH: Chunk ({chunk_x}, {chunk_y}) belongs to different world - rejecting and regenerating", error=str(e))
             else:
                 print(f"[ChunkManager] SEED MISMATCH: Chunk ({chunk_x}, {chunk_y}) belongs to different world - rejecting and regenerating")
                 print(f"  Details: {e}")
@@ -621,7 +1131,10 @@ class ChunkManager:
             return None
         except (ChunkCorruptedError, RegionFileError) as e:
             # Corrupted or file error - log and fall back to JSON or generate new
-            print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
+            if self.diagnostics:
+                self.diagnostics.error("ChunkManager", f"Error loading chunk ({chunk_x}, {chunk_y})", error=str(e))
+            else:
+                print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
             # Fall through to JSON fallback or generation
         
         # Fallback: Try to load from legacy JSON file (for migration)
@@ -653,17 +1166,26 @@ class ChunkManager:
                     tiles = json_data["tiles"]
                     chunk = Chunk(chunk_x, chunk_y, tiles)
                     
-                    # Migrate to region format (save in new format)
+                    # Migrate to region format (save in new format) - async call
                     migration_start_time = time.perf_counter()
                     try:
-                        self.region_manager.save_chunk_data(chunk_x, chunk_y, tiles, seed)
+                        import asyncio
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(self.region_manager.save_chunk_data(chunk_x, chunk_y, tiles, seed))
+                        finally:
+                            loop.close()
                         migration_time = time.perf_counter() - migration_start_time
                         
                         # Track legacy migration event
                         if self.performance_monitor:
                             self.performance_monitor.record_chunk_migrated_legacy(chunk_x, chunk_y, migration_time)
                     except RegionFileError as e:
-                        print(f"[ChunkManager] Failed to migrate chunk ({chunk_x}, {chunk_y}): {e}")
+                        if self.diagnostics:
+                            self.diagnostics.warning("ChunkManager", f"Failed to migrate chunk ({chunk_x}, {chunk_y})", error=str(e))
+                        else:
+                            print(f"[ChunkManager] Failed to migrate chunk ({chunk_x}, {chunk_y}): {e}")
                         # Continue anyway - chunk is loaded from JSON
                     
                     # Optionally delete old JSON file after migration
@@ -680,7 +1202,10 @@ class ChunkManager:
                     if attempt == retry_count - 1:
                         try:
                             chunk_file.unlink()
-                            print(f"[ChunkManager] Deleted corrupted chunk file ({chunk_x}, {chunk_y}): {e}")
+                            if self.diagnostics:
+                                self.diagnostics.warning("ChunkManager", f"Deleted corrupted chunk file ({chunk_x}, {chunk_y})", error=str(e))
+                            else:
+                                print(f"[ChunkManager] Deleted corrupted chunk file ({chunk_x}, {chunk_y}): {e}")
                         except:
                             pass
                     else:
@@ -695,7 +1220,10 @@ class ChunkManager:
                             time.sleep(wait_time)
                             continue
                         else:
-                            print(f"[ChunkManager] Could not load chunk ({chunk_x}, {chunk_y}) after {retry_count} retries: {e}")
+                            if self.diagnostics:
+                                self.diagnostics.error("ChunkManager", f"Could not load chunk ({chunk_x}, {chunk_y}) after {retry_count} retries", error=str(e))
+                            else:
+                                print(f"[ChunkManager] Could not load chunk ({chunk_x}, {chunk_y}) after {retry_count} retries: {e}")
                             return None
                     else:
                         return None
@@ -704,7 +1232,10 @@ class ChunkManager:
                     error_str = str(e)
                     if ("Expecting value" not in error_str and 
                         "Expecting ':'" not in error_str):
-                        print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
+                        if self.diagnostics:
+                            self.diagnostics.error("ChunkManager", f"Error loading chunk ({chunk_x}, {chunk_y})", error=str(e))
+                        else:
+                            print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
                     if attempt == retry_count - 1:
                         return None
                     time.sleep(0.01 * (attempt + 1))
@@ -730,6 +1261,9 @@ class ChunkManager:
             # Mark chunk for saving
             self._save_chunk_to_file(chunk)
             del self.loaded_chunks[key]
+            
+            # Clean up load time tracking
+            self.chunk_load_times.pop(key, None)
 
     def get_loaded_chunks(self) -> List[Chunk]:
         """Get list of currently loaded chunks"""
@@ -758,7 +1292,10 @@ class ChunkManager:
         half_h = (chunks_horizontal // 2) + buffer
         half_v = (chunks_vertical // 2) + buffer
         
-        print(f"[ChunkManager] Pre-loading visible area ({half_h*2}x{half_v*2} chunks)...")
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", f"Pre-loading visible area ({half_h*2}x{half_v*2} chunks)...")
+        else:
+            print(f"[ChunkManager] Pre-loading visible area ({half_h*2}x{half_v*2} chunks)...")
         
         # Create priority list (center chunks first)
         chunks_to_load = []
@@ -778,38 +1315,64 @@ class ChunkManager:
         chunks_to_load.sort()
         
         # Load chunks synchronously (for initial load only)
+        # Use async_load=False for synchronous loading during initial preload
         loaded_count = 0
         for _, chunk_x, chunk_y in chunks_to_load:
-            chunk = self.get_or_create_chunk(chunk_x, chunk_y)
-            # Surface pre-rendering no longer needed (ModernGL renders directly)
-            # chunk.render_to_surface()  # Deprecated - ModernGL renders directly
-            loaded_count += 1
+            chunk = self.get_or_create_chunk(chunk_x, chunk_y, async_load=False)
+            if chunk:  # Only count if chunk was actually loaded
+                # Surface pre-rendering no longer needed (ModernGL renders directly)
+                # chunk.render_to_surface()  # Deprecated - ModernGL renders directly
+                loaded_count += 1
         
-        print(f"[ChunkManager] Pre-loaded {loaded_count} chunks successfully")
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", f"Pre-loaded {loaded_count} chunks successfully")
+        else:
+            print(f"[ChunkManager] Pre-loaded {loaded_count} chunks successfully")
     
-    def update(self, player_pos: Tuple[float, float]):
-        """Update chunk loading/unloading based on player position
+    def update(self, player_pos: Tuple[float, float], camera_pos: Optional[Tuple[float, float]] = None,
+               screen_width: Optional[int] = None, screen_height: Optional[int] = None,
+               zoom: float = 1.0, preload_radius: Optional[int] = None):
+        """
+        Update chunk loading/unloading based on camera position (screen-based).
         
         Args:
             player_pos: Player position (x, y) in world coordinates (pixels)
+            camera_pos: Camera position (x, y) in world coordinates (pixels). If None, uses player_pos
+            screen_width: Screen width in pixels. If None, uses settings.SCREEN_WIDTH
+            screen_height: Screen height in pixels. If None, uses settings.SCREEN_HEIGHT
+            zoom: Camera zoom factor (default: 1.0)
+            preload_radius: Optional radius for preloading chunks around player (for initial load).
+                          If None, preloading is skipped.
         """
-        # Convert player position to chunk coordinates
-        player_chunk_x, player_chunk_y = self.world_to_chunk(player_pos[0], player_pos[1])
+        # Use camera position if provided, otherwise use player position
+        if camera_pos is None:
+            camera_pos = player_pos
+        camera_x, camera_y = camera_pos
         
-        # Get dynamic chunk distances based on screen size
-        load_distance = settings.get_chunk_load_distance()
-        unload_distance = settings.get_chunk_unload_distance()
+        # Use screen dimensions from settings if not provided
+        if screen_width is None:
+            screen_width = settings.SCREEN_WIDTH
+        if screen_height is None:
+            screen_height = settings.SCREEN_HEIGHT
         
-        # Only update if player moved to a different chunk or it's the first update
-        if self.player_chunk_pos is None or (player_chunk_x, player_chunk_y) != self.player_chunk_pos:
-            self.player_chunk_pos = (player_chunk_x, player_chunk_y)
-            
-            # Load chunks around player with dynamic distance
-            self.load_chunks_around_player(player_chunk_x, player_chunk_y, load_distance)
-            
-            # Unload distant chunks (only if we have chunks loaded already)
-            if len(self.loaded_chunks) > 0:
-                self.unload_distant_chunks(player_chunk_x, player_chunk_y, unload_distance)
+        # Region prefetch: Check if camera is moving towards a new region
+        self._update_region_prefetch(camera_x, camera_y, screen_width, screen_height, zoom)
+        
+        # Optional: Preload chunks around player with radius (for initial load)
+        if preload_radius is not None:
+            player_chunk_x, player_chunk_y = self.world_to_chunk(player_pos[0], player_pos[1])
+            # Only update if player moved to a different chunk or it's the first update
+            if self.player_chunk_pos is None or (player_chunk_x, player_chunk_y) != self.player_chunk_pos:
+                self.player_chunk_pos = (player_chunk_x, player_chunk_y)
+                self.load_chunks_around_player(player_chunk_x, player_chunk_y, preload_radius)
+        
+        # Update visible chunks based on camera position and screen size
+        # Increased padding to 3 chunks for smoother preload/cooldown ring, reducing disk loads
+        self.update_visible_chunks(camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=3)
+        
+        # Unload chunks outside visible view
+        # Increased padding to 3 chunks for smoother preload/cooldown ring, reducing disk loads
+        self.unload_chunks_outside_view(camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=3)
     
     def load_chunks_around_player(self, player_chunk_x: int, player_chunk_y: int, radius: int):
         """
@@ -875,9 +1438,15 @@ class ChunkManager:
         if self.save_dir.exists():
             try:
                 shutil.rmtree(self.save_dir)
-                print(f"Deleted save slot {self.save_slot}")
+                if self.diagnostics:
+                    self.diagnostics.info("ChunkManager", f"Deleted save directory: {self.save_dir}")
+                else:
+                    print(f"Deleted save directory: {self.save_dir}")
             except Exception as e:
-                print(f"Error deleting save: {e}")
+                if self.diagnostics:
+                    self.diagnostics.error("ChunkManager", f"Error deleting save", error=str(e))
+                else:
+                    print(f"Error deleting save: {e}")
 
     @staticmethod
     def save_exists(save_slot: int) -> bool:
@@ -899,6 +1468,7 @@ class ChunkManager:
             with open(metadata_file, 'r') as f:
                 return json.load(f)
         except Exception as e:
+            # Note: Static method, no access to diagnostics service
             print(f"Error reading save info: {e}")
             return None
 
@@ -906,18 +1476,66 @@ class ChunkManager:
         """
         Worker thread that loads chunks from the priority queue.
         
-        Performance limits:
+        HARD RATE LIMITS (prevents IO spikes):
         - 3 worker threads running in parallel
-        - Average load time: ~100ms per chunk (load from disk) or ~50ms (generate new)
-        - Effective throughput: ~30 chunks/second (3 workers * ~10 chunks/sec per worker)
+        - Global rate limit: CHUNK_LOAD_RATE_LIMIT chunks/second (HARD CAP: 30-40/sec)
+        - Per-worker rate limit: CHUNK_LOAD_WORKER_RATE_LIMIT chunks/second (HARD CAP: ~12/sec per worker)
+        - Token bucket per worker prevents bursts
         - Chunks are loaded in priority order (closer to player = higher priority)
+        - Better delayed chunks than storage controller under constant fire causing 100ms spikes
         """
         import time
+        import threading as thread_module
+        
+        # Initialize token bucket for this worker
+        worker_id = thread_module.get_ident()
+        with self._worker_token_lock:
+            self._worker_token_buckets[worker_id] = {
+                'tokens': float(settings.CHUNK_LOAD_TOKEN_BUCKET_SIZE),
+                'last_refill': time.perf_counter()
+            }
+        
         while self.running:
             try:
-                # Get chunk coordinates from priority queue (timeout prevents hanging)
+                # Check per-worker token bucket rate limit
+                with self._worker_token_lock:
+                    bucket = self._worker_token_buckets[worker_id]
+                    now = time.perf_counter()
+                    elapsed_ms = (now - bucket['last_refill']) * 1000.0
+                    
+                    # Refill tokens based on elapsed time
+                    tokens_to_add = elapsed_ms * settings.CHUNK_LOAD_TOKEN_REFILL_RATE
+                    bucket['tokens'] = min(
+                        settings.CHUNK_LOAD_TOKEN_BUCKET_SIZE,
+                        bucket['tokens'] + tokens_to_add
+                    )
+                    bucket['last_refill'] = now
+                    
+                    # Check if we have tokens available
+                    if bucket['tokens'] < 1.0:
+                        # No tokens available, sleep briefly
+                        time.sleep(settings.CHUNK_LOAD_RATE_SLEEP_MS)
+                        continue
+                    
+                    # Consume one token
+                    bucket['tokens'] -= 1.0
+                
+                # Check global load rate limit
+                current_time = time.perf_counter()
+                with self._load_rate_lock:
+                    # Remove timestamps older than 1 second
+                    cutoff_time = current_time - (settings.CHUNK_LOAD_RATE_WINDOW_MS / 1000.0)
+                    self._load_timestamps = [ts for ts in self._load_timestamps if ts > cutoff_time]
+                    
+                    # Check if we're exceeding the global rate limit
+                    if len(self._load_timestamps) >= settings.CHUNK_LOAD_RATE_LIMIT:
+                        # Rate limit exceeded, sleep briefly before continuing
+                        time.sleep(settings.CHUNK_LOAD_RATE_SLEEP_MS)
+                        continue
+                
+                # Get chunk coordinates from priority queue (reduced timeout for faster response)
                 # PriorityQueue returns items in order: (priority, chunk_x, chunk_y)
-                priority, chunk_x, chunk_y = self.chunk_load_queue.get(timeout=0.1)
+                priority, chunk_x, chunk_y = self.chunk_load_queue.get(timeout=0.01)
                 
                 # Check if chunk already loaded (double-check with lock)
                 if (chunk_x, chunk_y) in self.loaded_chunks:
@@ -938,7 +1556,17 @@ class ChunkManager:
                     tiles = self.terrain_gen.generate_chunk(chunk_x, chunk_y)
                     generation_time = time.perf_counter() - gen_start_time
                     chunk = Chunk(chunk_x, chunk_y, tiles)
-                    # Don't save immediately - batch save later for better performance
+                    
+                    # Update chunks_generated in metadata
+                    if "size" not in self.metadata:
+                        self.metadata["size"] = {}
+                    if "chunks_generated" not in self.metadata["size"]:
+                        self.metadata["size"]["chunks_generated"] = 0
+                    self.metadata["size"]["chunks_generated"] += 1
+                    # Note: save_metadata() is called periodically, not on every chunk generation
+                    
+                    # Save chunk asynchronously (batch operation for better performance)
+                    self._save_chunk_to_file(chunk)
                     
                     # Record generation time (chunk was generated, not loaded from disk)
                     if self.performance_monitor:
@@ -954,6 +1582,10 @@ class ChunkManager:
                 if self.performance_monitor:
                     self.performance_monitor.record_chunk_load(chunk_x, chunk_y, load_time)
                 
+                # Record load timestamp for global rate limiting
+                with self._load_rate_lock:
+                    self._load_timestamps.append(time.perf_counter())
+                
                 # Put result in results queue
                 self.chunk_load_results.put((chunk_x, chunk_y, chunk))
                 self.pending_chunks.discard((chunk_x, chunk_y))
@@ -962,7 +1594,10 @@ class ChunkManager:
                 # No chunks to load, continue waiting
                 continue
             except Exception as e:
-                print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
+                if self.diagnostics:
+                    self.diagnostics.error("ChunkManager", f"Error loading chunk ({chunk_x}, {chunk_y})", error=str(e))
+                else:
+                    print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
                 self.pending_chunks.discard((chunk_x, chunk_y))
 
     def request_chunk_load(self, chunk_x: int, chunk_y: int, priority: int = 0):
@@ -992,18 +1627,45 @@ class ChunkManager:
         """
         Process chunks that have finished loading in background threads.
         
-        Performance limits:
-        - Max chunks processed per frame: 1 chunk
+        HARD TIME BUDGET ENFORCEMENT:
+        - Time budget: CHUNK_UPLOAD_BUDGET_MS (1-2 ms) per frame - STRICTLY enforced
+        - Budget check happens BEFORE processing each chunk - IMMEDIATE BREAK if exceeded
+        - Even if 20+ chunks are ready in queue, only process within budget
+        - Effect: 80ms disk spike spreads as 40×2ms work over many frames → no visible stutter
         - Prevents frame drops by spreading chunk processing across multiple frames
         - Chunks are added to sprite groups and marked for saving asynchronously
         """
+        frame_start = time.perf_counter()
         loaded_count = 0
-        max_per_frame = 1  # Process 1 chunk per frame to prevent frame drops
+        current_time = time.time()
         
-        while not self.chunk_load_results.empty() and loaded_count < max_per_frame:
+        # HARD BUDGET ENFORCEMENT: Only check budget, no max_per_frame limit
+        # This ensures that even if many chunks are ready, we never exceed the time budget
+        while not self.chunk_load_results.empty():
+            # STRICT budget check: Check BEFORE processing next chunk
+            # This ensures we never exceed the budget, even if a single chunk takes a long time
+            elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
+            if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS:
+                # Budget exceeded - stop processing IMMEDIATELY, even if queue has more chunks
+                # This is the HARD LIMIT - no exceptions, no "just one more chunk"
+                if self.diagnostics:
+                    self.diagnostics.debug("ChunkManager", 
+                        f"Upload budget ({settings.CHUNK_UPLOAD_BUDGET_MS:.2f}ms) exceeded. "
+                        f"Processed {loaded_count} chunks, {self.chunk_load_results.qsize()} remaining in queue.")
+                break
+            
             try:
                 chunk_x, chunk_y, chunk = self.chunk_load_results.get_nowait()
-                self.loaded_chunks[(chunk_x, chunk_y)] = chunk
+                chunk_key = (chunk_x, chunk_y)
+                
+                # Skip if chunk was already loaded by another thread (race condition protection)
+                if chunk_key in self.loaded_chunks:
+                    continue
+                
+                self.loaded_chunks[chunk_key] = chunk
+                
+                # Track when chunk was loaded (for cooldown before unloading)
+                self.chunk_load_times[chunk_key] = current_time
                 
                 # Add chunk sprites to sprite groups (if any)
                 for entity in chunk.entities:
@@ -1015,6 +1677,13 @@ class ChunkManager:
                 self._save_chunk_to_file(chunk)
                 
                 loaded_count += 1
+                
+                # Additional budget check AFTER processing (safety net)
+                # This catches cases where processing took longer than expected
+                elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
+                if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS:
+                    # Budget exceeded after processing - stop immediately
+                    break
             except queue.Empty:
                 break
         
@@ -1033,7 +1702,10 @@ class ChunkManager:
         player_chunk_x, player_chunk_y = self.world_to_chunk(player_pos[0], player_pos[1])
         load_distance = settings.get_chunk_load_distance()
         
-        print(f"[ChunkManager] Refreshing visible chunks with distance {load_distance}...")
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", f"Refreshing visible chunks with distance {load_distance}...")
+        else:
+            print(f"[ChunkManager] Refreshing visible chunks with distance {load_distance}...")
         
         # Load additional chunks that are now visible
         self.load_chunks_around_player(player_chunk_x, player_chunk_y, load_distance)
@@ -1060,13 +1732,19 @@ class ChunkManager:
         - All queues are processed
         - Region file handles are closed
         """
-        print("[ChunkManager] Starting shutdown...")
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", "Starting shutdown...")
+        else:
+            print("[ChunkManager] Starting shutdown...")
         
         # Set running flag to False to signal workers to stop
         self.running = False
         
         # Save all loaded chunks before shutdown (ensures no data loss)
-        print("[ChunkManager] Saving all loaded chunks...")
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", "Saving all loaded chunks...")
+        else:
+            print("[ChunkManager] Saving all loaded chunks...")
         self.save_all_chunks()
         
         # Calculate timeout based on queue size (50ms per chunk + buffer)
@@ -1074,7 +1752,10 @@ class ChunkManager:
         # Estimate: 50ms per chunk + 2 seconds buffer
         estimated_time = (queue_size * 0.05) + 2.0
         timeout = max(10.0, estimated_time)  # Minimum 10 seconds, more if needed
-        print(f"[ChunkManager] Waiting for save queue to empty ({queue_size} chunks, timeout: {timeout:.1f}s)...")
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", f"Waiting for save queue to empty ({queue_size} chunks, timeout: {timeout:.1f}s)...")
+        else:
+            print(f"[ChunkManager] Waiting for save queue to empty ({queue_size} chunks, timeout: {timeout:.1f}s)...")
         
         # Wait for save queue to empty (with dynamic timeout based on queue size)
         try:
@@ -1086,15 +1767,24 @@ class ChunkManager:
                 elapsed = time.time() - start_time
                 if elapsed > 1.0 and (current_size != last_size or int(elapsed) % 2 == 0):
                     remaining = current_size
-                    print(f"[ChunkManager] Save queue: {remaining} chunks remaining ({elapsed:.1f}s elapsed)")
+                    if self.diagnostics:
+                        self.diagnostics.info("ChunkManager", f"Save queue: {remaining} chunks remaining ({elapsed:.1f}s elapsed)")
+                    else:
+                        print(f"[ChunkManager] Save queue: {remaining} chunks remaining ({elapsed:.1f}s elapsed)")
                     last_size = current_size
                 time.sleep(0.1)
             
             if not self.save_queue.empty():
                 remaining = self.save_queue.qsize()
-                print(f"[ChunkManager] WARNING: {remaining} chunks still in save queue after timeout")
+                if self.diagnostics:
+                    self.diagnostics.warning("ChunkManager", f"{remaining} chunks still in save queue after timeout")
+                else:
+                    print(f"[ChunkManager] WARNING: {remaining} chunks still in save queue after timeout")
                 # Force save remaining chunks synchronously (last resort)
-                print(f"[ChunkManager] Force-saving {remaining} remaining chunks synchronously...")
+                if self.diagnostics:
+                    self.diagnostics.info("ChunkManager", f"Force-saving {remaining} remaining chunks synchronously...")
+                else:
+                    print(f"[ChunkManager] Force-saving {remaining} remaining chunks synchronously...")
                 force_saved = 0
                 while not self.save_queue.empty():
                     try:
@@ -1103,33 +1793,60 @@ class ChunkManager:
                             self._save_chunk_to_file_sync(chunk)
                             force_saved += 1
                         except Exception as e:
-                            print(f"[ChunkManager] Error force-saving chunk ({chunk.chunk_x}, {chunk.chunk_y}): {e}")
+                            if self.diagnostics:
+                                self.diagnostics.error("ChunkManager", f"Error force-saving chunk ({chunk.chunk_x}, {chunk.chunk_y})", error=str(e))
+                            else:
+                                print(f"[ChunkManager] Error force-saving chunk ({chunk.chunk_x}, {chunk.chunk_y}): {e}")
                     except queue.Empty:
                         break
-                print(f"[ChunkManager] Force-saved {force_saved} chunks")
+                if self.diagnostics:
+                    self.diagnostics.info("ChunkManager", f"Force-saved {force_saved} chunks")
+                else:
+                    print(f"[ChunkManager] Force-saved {force_saved} chunks")
         except Exception as e:
-            print(f"[ChunkManager] Error waiting for save queue: {e}")
+            if self.diagnostics:
+                self.diagnostics.error("ChunkManager", "Error waiting for save queue", error=str(e))
+            else:
+                print(f"[ChunkManager] Error waiting for save queue: {e}")
             import traceback
             traceback.print_exc()
         
         # Wait for save worker thread to finish
         if hasattr(self, 'save_worker_thread') and self.save_worker_thread.is_alive():
-            print("[ChunkManager] Waiting for save worker thread...")
+            if self.diagnostics:
+                self.diagnostics.info("ChunkManager", "Waiting for save worker thread...")
+            else:
+                print("[ChunkManager] Waiting for save worker thread...")
             self.save_worker_thread.join(timeout=2.0)
             if self.save_worker_thread.is_alive():
-                print("[ChunkManager] WARNING: Save worker thread did not terminate in time")
+                if self.diagnostics:
+                    self.diagnostics.warning("ChunkManager", "Save worker thread did not terminate in time")
+                else:
+                    print("[ChunkManager] WARNING: Save worker thread did not terminate in time")
         
         # Wait for loader worker threads to finish
-        print("[ChunkManager] Waiting for loader worker threads...")
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", "Waiting for loader worker threads...")
+        else:
+            print("[ChunkManager] Waiting for loader worker threads...")
         for i, thread in enumerate(self.worker_threads):
             if thread.is_alive():
                 thread.join(timeout=1.0)
                 if thread.is_alive():
-                    print(f"[ChunkManager] WARNING: Loader worker thread {i} did not terminate in time")
+                    if self.diagnostics:
+                        self.diagnostics.warning("ChunkManager", f"Loader worker thread {i} did not terminate in time")
+                    else:
+                        print(f"[ChunkManager] WARNING: Loader worker thread {i} did not terminate in time")
         
         # Close all region file handles (releases file handles and locks)
         if hasattr(self, 'region_manager'):
-            print("[ChunkManager] Closing region file handles...")
+            if self.diagnostics:
+                self.diagnostics.info("ChunkManager", "Closing region file handles...")
+            else:
+                print("[ChunkManager] Closing region file handles...")
             self.region_manager.close_all_files()
         
-        print("[ChunkManager] Shutdown complete")
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", "Shutdown complete")
+        else:
+            print("[ChunkManager] Shutdown complete")
