@@ -7,6 +7,7 @@ from typing import List, Tuple, Optional
 from core import settings
 from view.chunk_vbo_pool import ChunkVboPool
 from view.tile_color_palette import TileColorPalette
+from view.tile_texture_manager import TileTextureManager
 
 
 class ModernGLRenderer:
@@ -34,6 +35,19 @@ class ModernGLRenderer:
         self.chunk_program = self._load_chunk_shader()
         self.sprite_program = self._load_sprite_shader()
         self.ui_program = self._load_ui_shader()
+        
+        # Initialize texture manager (may fail if assets don't exist, that's OK)
+        try:
+            self.tile_texture_manager = TileTextureManager(ctx)
+            if self.diagnostics and self.tile_texture_manager.texture_atlas:
+                self.diagnostics.info("ModernGLRenderer", f"Texture atlas initialized: {self.tile_texture_manager.atlas_size}x{self.tile_texture_manager.atlas_size}")
+        except Exception as e:
+            if self.diagnostics:
+                self.diagnostics.warning("ModernGLRenderer", f"Failed to initialize texture manager: {e}")
+            else:
+                import traceback
+                traceback.print_exc()
+            self.tile_texture_manager = None
         
         # No projection matrix needed - vertices are converted to NDC directly
         # self._setup_projection(use_pyglet=use_pyglet)  # DISABLED: Simplified shader doesn't use matrices
@@ -86,10 +100,12 @@ class ModernGLRenderer:
     def _calculate_vertex_size_bytes(self) -> int:
         """Calculate size of one chunk's vertex data in bytes"""
         chunk_size = settings.CHUNK_SIZE
-        vertices_per_chunk = chunk_size * chunk_size * 6  # 6 vertices per tile
-        floats_per_vertex = 3  # 2 position + 1 color_index
+        base_vertices_per_chunk = chunk_size * chunk_size * 6  # 6 vertices per tile
+        # Account for overlays: worst case is 2x vertices (every tile has overlay)
+        max_vertices_per_chunk = base_vertices_per_chunk * 2  # Double for overlays
+        floats_per_vertex = 6  # 2 position + 1 color_index + 2 texcoord + 1 use_texture
         bytes_per_float = 4
-        return vertices_per_chunk * floats_per_vertex * bytes_per_float
+        return max_vertices_per_chunk * floats_per_vertex * bytes_per_float
     
     def _initialize_merged_buffer(self):
         """Initialize merged chunk buffer at maximum size"""
@@ -101,7 +117,7 @@ class ModernGLRenderer:
         # Create VAO for merged buffer
         self._merged_chunk_vao = self.ctx.vertex_array(
             self.chunk_program,
-            [(self._merged_chunk_vbo, "2f 1f", "in_position", "in_color_index")]
+            [(self._merged_chunk_vbo, "2f 1f 2f 1f", "in_position", "in_color_index", "in_texcoord", "in_use_texture")]
         )
         
         # Initialize tracking structures
@@ -180,20 +196,24 @@ class ModernGLRenderer:
         return self._load_sprite_shader()
     
     def _load_chunk_shader(self) -> moderngl.Program:
-        """Load chunk rendering shader with view matrix, zoom support, and color palette"""
+        """Load chunk rendering shader with view matrix, zoom support, textures and color palette"""
         # Shader applies view matrix and zoom transformation on GPU
-        # Uses color palette instead of direct RGB values to reduce vertex data
+        # Supports both textures and color palette fallback
         vertex_shader = """
         #version 330 core
         
         in vec2 in_position;  // World coordinates (pixels)
         in float in_color_index;  // Color index (0-255) into palette
+        in vec2 in_texcoord;  // Texture coordinates (0.0-1.0)
+        in float in_use_texture;  // 1.0 if texture should be used, 0.0 for color
         
         uniform vec2 screen_size;      // (width, height) in pixels
         uniform vec2 view_translation; // Camera offset (view_matrix[0,3], view_matrix[1,3])
         uniform float zoom;            // Zoom factor (1.0 = 100%)
         
         out float frag_color_index;
+        out vec2 frag_texcoord;
+        out float frag_use_texture;
         
         void main() {
             // Apply view matrix translation (camera offset)
@@ -214,6 +234,8 @@ class ModernGLRenderer:
             
             gl_Position = vec4(ndc, 0.0, 1.0);
             frag_color_index = in_color_index;
+            frag_texcoord = in_texcoord;
+            frag_use_texture = in_use_texture;
         }
         """
         
@@ -221,20 +243,29 @@ class ModernGLRenderer:
         #version 330 core
         
         in float frag_color_index;
+        in vec2 frag_texcoord;
+        in float frag_use_texture;
         
         uniform vec3 color_palette[256];  // Color palette (max 256 colors)
         uniform int palette_size;        // Actual palette size
+        uniform sampler2D tile_texture;  // Tile texture (if available)
         
         out vec4 out_color;
         
         void main() {
-            int index = int(frag_color_index);
-            // Clamp index to valid range
-            if (index < 0) index = 0;
-            if (index >= palette_size) index = palette_size - 1;
-            
-            vec3 color = color_palette[index];
-            out_color = vec4(color, 1.0);
+            if (frag_use_texture > 0.5) {
+                // Use texture
+                out_color = texture(tile_texture, frag_texcoord);
+            } else {
+                // Use color palette
+                int index = int(frag_color_index);
+                // Clamp index to valid range
+                if (index < 0) index = 0;
+                if (index >= palette_size) index = palette_size - 1;
+                
+                vec3 color = color_palette[index];
+                out_color = vec4(color, 1.0);
+            }
         }
         """
         
@@ -448,6 +479,44 @@ class ModernGLRenderer:
                 tile_x_pos = tile_x * tile_size
                 tile_y_pos = tile_y * tile_size
                 
+                # Get tile_id to check for texture
+                tile_id = tile.get('tile_id') or tile.get('tileid', '')
+                has_texture = (hasattr(self, 'tile_texture_manager') and 
+                              self.tile_texture_manager is not None and 
+                              self.tile_texture_manager.has_texture(tile_id))
+                
+                # Calculate world position for deterministic variant selection
+                world_tile_x = int((chunk_world_x + tile_x_pos) / tile_size)
+                world_tile_y = int((chunk_world_y + tile_y_pos) / tile_size)
+                
+                # Get UV coordinates from atlas if texture exists (with variant support)
+                if has_texture:
+                    uv_coords = self.tile_texture_manager.get_texture_coords(tile_id, world_tile_x, world_tile_y)
+                    if uv_coords:
+                        u0, v0, u1, v1 = uv_coords
+                        # OpenGL: (0,0) bottom-left, but PIL/our coords are top-left
+                        # So we flip V coordinates
+                        tex_coords = [
+                            (u0, v1),  # Bottom-left (tex)
+                            (u1, v1),  # Bottom-right (tex)
+                            (u1, v0),  # Top-right (tex)
+                            (u0, v1),  # Bottom-left (tex)
+                            (u1, v0),  # Top-right (tex)
+                            (u0, v0),  # Top-left (tex)
+                        ]
+                    else:
+                        # Fallback to full texture if coords not found
+                        tex_coords = [
+                            (0.0, 1.0), (1.0, 1.0), (1.0, 0.0),
+                            (0.0, 1.0), (1.0, 0.0), (0.0, 0.0)
+                        ]
+                else:
+                    # No texture, use default coords (won't be used anyway)
+                    tex_coords = [
+                        (0.0, 1.0), (1.0, 1.0), (1.0, 0.0),
+                        (0.0, 1.0), (1.0, 0.0), (0.0, 0.0)
+                    ]
+                
                 # World position (top-left corner of tile) in pixels
                 # Store as world coordinates - transformation happens in shader
                 world_x0 = chunk_world_x + tile_x_pos
@@ -465,18 +534,25 @@ class ModernGLRenderer:
                 # Get color index from palette (instead of storing RGB directly)
                 color_index = float(self.tile_color_palette.get_color_index(color))
                 
+                # Use texture flag (1.0 if texture available, 0.0 for color)
+                use_texture = 1.0 if has_texture else 0.0
+                
                 # Create quad vertices (2 triangles = 6 vertices)
-                # Format: [in_position (world coordinates in pixels), in_color_index (0-255)]
-                # Transformation to NDC and color lookup happen in shader
+                # Format: [in_position (2f), in_color_index (1f), in_texcoord (2f), in_use_texture (1f)]
                 base_vertices = [
-                    [x0_world, y0_world, color_index],  # Bottom-left
-                    [x1_world, y0_world, color_index],  # Bottom-right
-                    [x1_world, y1_world, color_index],  # Top-right
-                    [x0_world, y0_world, color_index],  # Bottom-left
-                    [x1_world, y1_world, color_index],  # Top-right
-                    [x0_world, y1_world, color_index],  # Top-left
+                    [x0_world, y0_world, color_index, tex_coords[0][0], tex_coords[0][1], use_texture],  # Bottom-left
+                    [x1_world, y0_world, color_index, tex_coords[1][0], tex_coords[1][1], use_texture],  # Bottom-right
+                    [x1_world, y1_world, color_index, tex_coords[2][0], tex_coords[2][1], use_texture],  # Top-right
+                    [x0_world, y0_world, color_index, tex_coords[3][0], tex_coords[3][1], use_texture],  # Bottom-left
+                    [x1_world, y1_world, color_index, tex_coords[4][0], tex_coords[4][1], use_texture],  # Top-right
+                    [x0_world, y1_world, color_index, tex_coords[5][0], tex_coords[5][1], use_texture],  # Top-left
                 ]
                 vertices.extend(base_vertices)
+                
+                # NOTE: Overlays are now handled in get_texture_coords() - they replace the base texture
+                # instead of being rendered on top. This means variants 2-6 replace plains_grass_1,
+                # not overlay it. If you want true overlays (like flowers/bushes), use get_overlay_texture()
+                # separately for non-variant textures.
         
         # Convert to numpy array
         vertex_array = np.array(vertices, dtype=np.float32)
@@ -491,7 +567,7 @@ class ModernGLRenderer:
             vbo = self.ctx.buffer(vertex_array.tobytes())
             vao = self.ctx.vertex_array(
                 self.chunk_program,
-                [(vbo, "2f 1f", "in_position", "in_color_index")]
+                [(vbo, "2f 1f 2f 1f", "in_position", "in_color_index", "in_texcoord", "in_use_texture")]
             )
             self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, None)
         else:
@@ -503,6 +579,33 @@ class ModernGLRenderer:
         self.mark_chunk_clean(chunk_x, chunk_y)
         
         return (vbo, vao, vertex_count)
+    
+    def _bind_chunk_texture(self, tiles: List[List[dict]]):
+        """
+        Bind the texture atlas (all textures are in one atlas).
+        
+        Args:
+            tiles: 15x15 grid of tile dictionaries (unused, kept for compatibility)
+        """
+        if not hasattr(self, 'tile_texture_manager') or self.tile_texture_manager is None:
+            return
+        
+        # Bind texture atlas (contains all textures)
+        # Always bind atlas if it exists, even if some tiles don't have textures
+        if self.tile_texture_manager.texture_atlas is None:
+            # No atlas available - textures won't be used
+            if self.diagnostics:
+                self.diagnostics.debug("ModernGLRenderer", "No texture atlas available")
+            return
+        
+        atlas = self.tile_texture_manager.texture_atlas
+        if 'tile_texture' in self.chunk_program:
+            try:
+                atlas.use(0)
+                self.chunk_program['tile_texture'].value = 0
+            except Exception as e:
+                if self.diagnostics:
+                    self.diagnostics.error("ModernGLRenderer", f"Failed to bind texture atlas: {e}")
     
     def render_chunks(self, chunks_data: List[Tuple[int, int, List[List[dict]]]], performance_monitor=None, max_new_chunks_per_frame: int = 8):
         """
@@ -534,6 +637,13 @@ class ModernGLRenderer:
         self.ctx.disable(moderngl.DEPTH_TEST)
         self.ctx.disable(moderngl.CULL_FACE)
         
+        # Bind texture atlas once for all chunks (if available)
+        if hasattr(self, 'tile_texture_manager') and self.tile_texture_manager is not None:
+            if self.tile_texture_manager.texture_atlas is not None:
+                self.tile_texture_manager.texture_atlas.use(0)
+                if 'tile_texture' in self.chunk_program:
+                    self.chunk_program['tile_texture'].value = 0
+        
         upload_start_time = time.perf_counter()
         new_chunks_uploaded = 0
         
@@ -551,6 +661,7 @@ class ModernGLRenderer:
                 if chunk_key in self.chunk_buffers:
                     vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
                     if vao and vertex_count > 0:
+                        # Atlas is already bound above, just render
                         vao.render(moderngl.TRIANGLES, vertices=vertex_count)
                     continue
             
@@ -560,6 +671,7 @@ class ModernGLRenderer:
                 new_chunks_uploaded += 1
             
             if vao and vertex_count > 0:
+                # Atlas is already bound above, just render
                 vao.render(moderngl.TRIANGLES, vertices=vertex_count)
         
         upload_time = time.perf_counter() - upload_start_time
@@ -651,20 +763,64 @@ class ModernGLRenderer:
                     x1_world = world_x1
                     y1_world = world_y1
                     
+                    # Get tile_id to check for texture
+                    tile_id = tile.get('tile_id') or tile.get('tileid', '')
+                    has_texture = (hasattr(self, 'tile_texture_manager') and 
+                                  self.tile_texture_manager is not None and 
+                                  self.tile_texture_manager.has_texture(tile_id))
+                    
+                    # Calculate world position for deterministic variant selection
+                    world_tile_x = int(world_x0 / tile_size)
+                    world_tile_y = int(world_y0 / tile_size)
+                    
+                    # Get UV coordinates from atlas if texture exists (with variant support)
+                    if has_texture:
+                        uv_coords = self.tile_texture_manager.get_texture_coords(tile_id, world_tile_x, world_tile_y)
+                        if uv_coords:
+                            u0, v0, u1, v1 = uv_coords
+                            # OpenGL: (0,0) bottom-left, but PIL/our coords are top-left
+                            # So we flip V coordinates
+                            tex_coords = [
+                                (u0, v1),  # Bottom-left (tex)
+                                (u1, v1),  # Bottom-right (tex)
+                                (u1, v0),  # Top-right (tex)
+                                (u0, v1),  # Bottom-left (tex)
+                                (u1, v0),  # Top-right (tex)
+                                (u0, v0),  # Top-left (tex)
+                            ]
+                        else:
+                            # Fallback to full texture if coords not found
+                            tex_coords = [
+                                (0.0, 1.0), (1.0, 1.0), (1.0, 0.0),
+                                (0.0, 1.0), (1.0, 0.0), (0.0, 0.0)
+                            ]
+                    else:
+                        # No texture, use default coords (won't be used anyway)
+                        tex_coords = [
+                            (0.0, 1.0), (1.0, 1.0), (1.0, 0.0),
+                            (0.0, 1.0), (1.0, 0.0), (0.0, 0.0)
+                        ]
+                    
                     # Get color index from palette (instead of storing RGB directly)
                     color_index = float(self.tile_color_palette.get_color_index(color))
                     
+                    # Use texture flag (1.0 if texture available, 0.0 for color)
+                    use_texture = 1.0 if has_texture else 0.0
+                    
                     # Create quad vertices (2 triangles = 6 vertices)
-                    # Format: [in_position (world coordinates in pixels), in_color_index (0-255)]
+                    # Format: [in_position (2f), in_color_index (1f), in_texcoord (2f), in_use_texture (1f)]
                     base_vertices = [
-                        [x0_world, y0_world, color_index],  # Bottom-left
-                        [x1_world, y0_world, color_index],  # Bottom-right
-                        [x1_world, y1_world, color_index],  # Top-right
-                        [x0_world, y0_world, color_index],  # Bottom-left
-                        [x1_world, y1_world, color_index],  # Top-right
-                        [x0_world, y1_world, color_index],  # Top-left
+                        [x0_world, y0_world, color_index, tex_coords[0][0], tex_coords[0][1], use_texture],  # Bottom-left
+                        [x1_world, y0_world, color_index, tex_coords[1][0], tex_coords[1][1], use_texture],  # Bottom-right
+                        [x1_world, y1_world, color_index, tex_coords[2][0], tex_coords[2][1], use_texture],  # Top-right
+                        [x0_world, y0_world, color_index, tex_coords[3][0], tex_coords[3][1], use_texture],  # Bottom-left
+                        [x1_world, y1_world, color_index, tex_coords[4][0], tex_coords[4][1], use_texture],  # Top-right
+                        [x0_world, y1_world, color_index, tex_coords[5][0], tex_coords[5][1], use_texture],  # Top-left
                     ]
                     chunk_vertices.extend(base_vertices)
+                    
+                    # NOTE: Variants are now selected directly in get_texture_coords() based on overlay config
+                    # They replace the base texture instead of being rendered on top
             
             # Convert chunk vertices to numpy array
             chunk_vertex_array = np.array(chunk_vertices, dtype=np.float32)

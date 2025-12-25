@@ -30,15 +30,20 @@ class ChunkVboPool:
         
         # Calculate buffer size for one chunk
         # Chunk size: 15x15 tiles
-        # Each tile: 6 vertices (2 triangles)
-        # Each vertex: 3 floats (2 position + 1 color_index)
-        # Total: 15 * 15 * 6 * 3 = 4050 floats
-        # Size in bytes: 4050 * 4 = 16200 bytes (40% reduction from 27000 bytes)
+        # Each tile: 6 vertices (2 triangles) for base tile
+        # Each tile can have additional 6 vertices for overlay sprites (flowers, bushes, etc.)
+        # Worst case: every tile has an overlay = 2x vertices
+        # Each vertex: 6 floats (2 position + 1 color_index + 2 texcoord + 1 use_texture)
+        # Base: 15 * 15 * 6 = 1350 vertices
+        # With overlays (worst case): 15 * 15 * 6 * 2 = 2700 vertices
+        # Size in bytes: 2700 * 6 * 4 = 64800 bytes
         chunk_size = settings.CHUNK_SIZE
-        vertices_per_chunk = chunk_size * chunk_size * 6  # 6 vertices per tile
-        floats_per_vertex = 3  # 2 position + 1 color_index
-        self.vertex_count_per_chunk = vertices_per_chunk
-        self.buffer_size_bytes = vertices_per_chunk * floats_per_vertex * 4  # 4 bytes per float
+        base_vertices_per_chunk = chunk_size * chunk_size * 6  # 6 vertices per tile
+        # Account for overlays: worst case is 2x vertices (every tile has overlay)
+        max_vertices_per_chunk = base_vertices_per_chunk * 2  # Double for overlays
+        floats_per_vertex = 6  # 2 position + 1 color_index + 2 texcoord + 1 use_texture
+        self.vertex_count_per_chunk = base_vertices_per_chunk  # Base count (without overlays)
+        self.buffer_size_bytes = max_vertices_per_chunk * floats_per_vertex * 4  # 4 bytes per float
         
         # Create pool of VBOs/VAOs
         self.pool: List[Tuple[moderngl.Buffer, moderngl.VertexArray]] = []
@@ -55,10 +60,10 @@ class ChunkVboPool:
             vbo = self.ctx.buffer(reserve=self.buffer_size_bytes)
             
             # Create VAO with the buffer
-            # Format: 2 floats for position, 1 float for color_index
+            # Format: 2 floats for position, 1 float for color_index, 2 floats for texcoord, 1 float for use_texture
             vao = self.ctx.vertex_array(
                 self.program,
-                [(vbo, "2f 1f", "in_position", "in_color_index")]
+                [(vbo, "2f 1f 2f 1f", "in_position", "in_color_index", "in_texcoord", "in_use_texture")]
             )
             
             self.pool.append((vbo, vao))

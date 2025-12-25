@@ -203,8 +203,11 @@ class WorldController:
             self.diagnostics.info("WorldController", f"Game initialized - Player spawned at ({start_world_x:.0f}, {start_world_y:.0f})")
         
         # Pre-load visible chunks around spawn position
+        # Mark as done to prevent duplicate pre-load in World.update()
         if self.world and self.world.chunk_manager:
             self.world.chunk_manager.preload_visible_chunks((start_world_x, start_world_y))
+            # Mark initial preload as done to prevent duplicate in World.update()
+            self.world._initial_preload_done = True
     
     def _find_traversable_spawn_position(self, start_x: float, start_y: float) -> Tuple[float, float]:
         """Find nearest traversable position if spawn position is not traversable"""

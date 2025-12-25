@@ -96,8 +96,15 @@ from collections import OrderedDict
 try:
     import lz4.frame
     LZ4_AVAILABLE = True
+    # Check if LZ4FrameError exists (it may not exist in all lz4 versions)
+    try:
+        LZ4FrameError = lz4.frame.LZ4FrameError
+    except AttributeError:
+        # Fallback: use a generic exception if LZ4FrameError doesn't exist
+        LZ4FrameError = Exception
 except ImportError:
     LZ4_AVAILABLE = False
+    LZ4FrameError = Exception  # Dummy exception if lz4 is not available
 
 
 # Custom Exceptions for RegionManager
@@ -1398,7 +1405,7 @@ class RegionManager:
                         )
                 
                 result = await asyncio.to_thread(_decompress)
-            except (zlib.error, lz4.frame.LZ4FrameError) as e:
+            except (zlib.error, LZ4FrameError) as e:
                 raise ChunkCorruptedError(f"Chunk ({chunk_x}, {chunk_y}) corrupted: decompression failed - {e}")
             decompress_time = time.perf_counter() - decompress_start
             

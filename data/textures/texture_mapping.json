@@ -1,0 +1,141 @@
+{
+  "texture_mappings": {
+    "terrain:plains": {
+      "base_texture": "grass",
+      "variants": [
+        "plains_grass_1",
+        "plains_grass_2",
+        "plains_grass_3",
+        "plains_grass_4",
+        "plains_grass_5",
+        "plains_grass_6"
+      ],
+      "base_path": "assets/tiles",
+      "default_variant": "plains_grass_1",
+      "overlays": [
+        {
+          "texture": "plains_grass_2",
+          "chance": 0.015,
+          "noise_scale": 0.12,
+          "noise_threshold": 0.75
+        },
+        {
+          "texture": "plains_grass_3",
+          "chance": 0.015,
+          "noise_scale": 0.12,
+          "noise_threshold": 0.75
+        },
+        {
+          "texture": "plains_grass_4",
+          "chance": 0.01,
+          "noise_scale": 0.15,
+          "noise_threshold": 0.8
+        },
+        {
+          "texture": "plains_grass_5",
+          "chance": 0.01,
+          "noise_scale": 0.15,
+          "noise_threshold": 0.8
+        },
+        {
+          "texture": "plains_grass_6",
+          "chance": 0.005,
+          "noise_scale": 0.1,
+          "noise_threshold": 0.85
+        }
+      ]
+    },
+    "terrain:forest": {
+      "base_texture": "forest",
+      "variants": [
+        "forest"
+      ],
+      "base_path": "assets/core/tiles"
+    },
+    "terrain:rainforest": {
+      "base_texture": "rainforest",
+      "variants": [
+        "rainforest"
+      ],
+      "base_path": "assets/core/tiles"
+    },
+    "terrain:desert": {
+      "base_texture": "sand",
+      "variants": [
+        "sand"
+      ],
+      "base_path": "assets/core/tiles"
+    },
+    "terrain:beach": {
+      "base_texture": "sand",
+      "variants": [
+        "sand"
+      ],
+      "base_path": "assets/core/tiles"
+    },
+    "terrain:tundra": {
+      "base_texture": "tundra",
+      "variants": [
+        "tundra"
+      ],
+      "base_path": "assets/core/tiles"
+    },
+    "terrain:taiga": {
+      "base_texture": "taiga",
+      "variants": [
+        "taiga"
+      ],
+      "base_path": "assets/core/tiles"
+    },
+    "terrain:savanna": {
+      "base_texture": "savanna",
+      "variants": [
+        "savanna"
+      ],
+      "base_path": "assets/core/tiles"
+    },
+    "terrain:steppe": {
+      "base_texture": "steppe",
+      "variants": [
+        "steppe"
+      ],
+      "base_path": "assets/core/tiles"
+    },
+    "terrain:chaparral": {
+      "base_texture": "chaparral",
+      "variants": [
+        "chaparral"
+      ],
+      "base_path": "assets/core/tiles"
+    },
+    "terrain:mountains": {
+      "base_texture": "stone",
+      "variants": [
+        "stone"
+      ],
+      "base_path": "assets/core/tiles"
+    },
+    "terrain:snow": {
+      "base_texture": "snow",
+      "variants": [
+        "snow"
+      ],
+      "base_path": "assets/core/tiles"
+    },
+    "water:shallow": {
+      "base_texture": "shallow",
+      "variants": [
+        "shallow"
+      ],
+      "base_path": "assets/core/tiles"
+    },
+    "water:deep": {
+      "base_texture": "deep",
+      "variants": [
+        "deep"
+      ],
+      "base_path": "assets/core/tiles"
+    }
+  }
+}
+

@@ -102,6 +102,8 @@ class World:
             movement_dir: Optional movement direction tuple (dx, dy) for asymmetric chunk loading.
         """
         # Pre-load visible chunks on first update to prevent stuttering
+        # Note: Pre-load is also done in WorldController.initialize_game(), so this is a fallback
+        # if WorldController wasn't used (e.g., direct World usage)
         if not self._initial_preload_done:
             self.chunk_manager.preload_visible_chunks(player_pos)
             self._initial_preload_done = True
@@ -111,7 +113,7 @@ class World:
                 print(f"[World] Pre-loaded visible chunks around player position")
         
         # Use preload radius for initial load (optional, can be None to skip)
-        preload_radius = settings.get_chunk_load_distance() if not self._initial_preload_done else None
+        preload_radius = None  # Pre-load already done in WorldController, skip here
         
         # Update chunk manager with camera-based loading
         self.chunk_manager.update(
