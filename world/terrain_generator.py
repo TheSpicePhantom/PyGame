@@ -1,116 +1,132 @@
 """
 Procedural Terrain Generator with OpenSimplex Noise
 Generates continuous world heightmap, then splits into chunks
+Based on: https://loady.one/blog/terrain_mesh.html
 Optimized for performance - NO per-tile resource generation
 """
 import json
-import os
-import random
 import math
-import numpy as np
+import random
 from opensimplex import OpenSimplex
-from collections import OrderedDict
-from typing import Tuple
 from pathlib import Path
 from core import settings
 
-# Water overlay threshold: tiles with water_mask > this value become water
-# Higher threshold = less water, only in "very wet" mask areas
-WATER_THRESHOLD = 0.75  # Higher threshold for less water (only very wet areas)
-
-
-# ---------- Remapping Functions with Guaranteed Proportions ----------
-
-def remap_height(u):
-    """
-    Remap uniform noise value u (0..1) to height distribution with guaranteed proportions.
+class BiomeStatistics:
+    """Sammelt Statistiken über generierte Biome-Werte."""
     
-    Target distribution:
-    - 15% low values (0.0-0.35): Water/Beach range
-    - 50% mid values (0.35-0.65): Plains/Forest range
-    - 25% high values (0.65-0.85): Mountains range
-    - 10% very high values (0.85-1.0): Snow peaks
+    def __init__(self):
+        # Dictionary: biome_id -> Liste von (height, temp, humidity) Tupeln
+        self.biome_data = {}
     
-    Args:
-        u: Uniform noise value in [0.0, 1.0] range
+    def add_sample(self, biome_id: str, height: float, temp: float, humidity: float):
+        """Fügt eine Probe für ein Biome hinzu."""
+        if biome_id not in self.biome_data:
+            self.biome_data[biome_id] = []
+        self.biome_data[biome_id].append((height, temp, humidity))
+    
+    def get_statistics(self):
+        """
+        Berechnet Statistiken für jedes Biome.
         
-    Returns:
-        Remapped height value in [0.0, 1.0] range with guaranteed proportions
-    """
-    # Clamp input to [0.0, 1.0]
-    u = max(0.0, min(1.0, u))
-    
-    # Define guaranteed proportions
-    LOW_PROPORTION = 0.15      # 15% low (water/beach)
-    MID_PROPORTION = 0.50      # 50% mid (plains/forest)
-    HIGH_PROPORTION = 0.25     # 25% high (mountains)
-    PEAK_PROPORTION = 0.10     # 10% very high (snow peaks)
-    
-    # Map uniform input to these ranges
-    if u < LOW_PROPORTION:
-        # Low range: [0.0, 0.15) → [0.0, 0.35)
-        t = u / LOW_PROPORTION
-        return 0.0 + t * 0.35
-    elif u < LOW_PROPORTION + MID_PROPORTION:
-        # Mid range: [0.15, 0.65) → [0.35, 0.65)
-        t = (u - LOW_PROPORTION) / MID_PROPORTION
-        return 0.35 + t * 0.30
-    elif u < LOW_PROPORTION + MID_PROPORTION + HIGH_PROPORTION:
-        # High range: [0.65, 0.90) → [0.65, 0.85)
-        t = (u - LOW_PROPORTION - MID_PROPORTION) / HIGH_PROPORTION
-        return 0.65 + t * 0.20
-    else:
-        # Peak range: [0.90, 1.0] → [0.85, 1.0]
-        t = (u - LOW_PROPORTION - MID_PROPORTION - HIGH_PROPORTION) / PEAK_PROPORTION
-        return 0.85 + t * 0.15
-
-
-def remap_temp(u):
-    """
-    Remap uniform noise value u (0..1) to temperature distribution with guaranteed proportions.
-    
-    Target distribution:
-    - 20% cold (0.0-0.35): Tundra/Snow range
-    - 60% moderate (0.35-0.70): Plains/Forest range
-    - 20% warm (0.70-1.0): Desert/Savanna range
-    
-    Args:
-        u: Uniform noise value in [0.0, 1.0] range
+        Returns:
+            Dictionary: biome_id -> {
+                'count': Anzahl Proben,
+                'height': {'min': ..., 'max': ..., 'mean': ...},
+                'temp': {'min': ..., 'max': ..., 'mean': ...},
+                'humidity': {'min': ..., 'max': ..., 'mean': ...}
+            }
+        """
+        stats = {}
         
-    Returns:
-        Remapped temperature value in [0.0, 1.0] range with guaranteed proportions
-    """
-    # Clamp input to [0.0, 1.0]
-    u = max(0.0, min(1.0, u))
+        for biome_id, samples in self.biome_data.items():
+            if not samples:
+                continue
+            
+            heights = [s[0] for s in samples]
+            temps = [s[1] for s in samples]
+            humidities = [s[2] for s in samples]
+            
+            stats[biome_id] = {
+                'count': len(samples),
+                'height': {
+                    'min': min(heights),
+                    'max': max(heights),
+                    'mean': sum(heights) / len(heights)
+                },
+                'temp': {
+                    'min': min(temps),
+                    'max': max(temps),
+                    'mean': sum(temps) / len(temps)
+                },
+                'humidity': {
+                    'min': min(humidities),
+                    'max': max(humidities),
+                    'mean': sum(humidities) / len(humidities)
+                }
+            }
+        
+        return stats
     
-    # Define guaranteed proportions
-    COLD_PROPORTION = 0.20      # 20% cold (tundra/snow)
-    MODERATE_PROPORTION = 0.60  # 60% moderate (plains/forest)
-    WARM_PROPORTION = 0.20      # 20% warm (desert/savanna)
-    
-    # Map uniform input to these ranges
-    if u < COLD_PROPORTION:
-        # Cold range: [0.0, 0.20) → [0.0, 0.35)
-        t = u / COLD_PROPORTION
-        return 0.0 + t * 0.35
-    elif u < COLD_PROPORTION + MODERATE_PROPORTION:
-        # Moderate range: [0.20, 0.80) → [0.35, 0.70)
-        t = (u - COLD_PROPORTION) / MODERATE_PROPORTION
-        return 0.35 + t * 0.35
-    else:
-        # Warm range: [0.80, 1.0] → [0.70, 1.0]
-        t = (u - COLD_PROPORTION - MODERATE_PROPORTION) / WARM_PROPORTION
-        return 0.70 + t * 0.30
+    def print_statistics(self):
+        """Gibt die Statistiken formatiert aus."""
+        stats = self.get_statistics()
+        
+        if not stats:
+            print("No biome statistics available.")
+            return
+        
+        print("\n" + "=" * 100)
+        print("BIOME STATISTIKEN - Tatsächlich generierte Wertebereiche")
+        print("=" * 100)
+        print(f"{'Biome':<20} | {'Count':>8} | {'Height Range':>20} | {'Temp Range':>20} | {'Humidity Range':>20}")
+        print("-" * 100)
+        
+        # Sortiere Biome nach Name für bessere Lesbarkeit
+        sorted_biomes = sorted(stats.items())
+        
+        for biome_id, data in sorted_biomes:
+            count = data['count']
+            h = data['height']
+            t = data['temp']
+            hum = data['humidity']
+            
+            height_range = f"[{h['min']:.3f}, {h['max']:.3f}]"
+            temp_range = f"[{t['min']:.3f}, {t['max']:.3f}]"
+            humidity_range = f"[{hum['min']:.3f}, {hum['max']:.3f}]"
+            
+            print(f"{biome_id:<20} | {count:>8} | {height_range:>20} | {temp_range:>20} | {humidity_range:>20}")
+        
+        print("\n" + "=" * 100)
+        print("Detaillierte Statistiken (Mittelwerte):")
+        print("=" * 100)
+        print(f"{'Biome':<20} | {'Height Mean':>12} | {'Temp Mean':>12} | {'Humidity Mean':>14}")
+        print("-" * 100)
+        
+        for biome_id, data in sorted_biomes:
+            h = data['height']
+            t = data['temp']
+            hum = data['humidity']
+            
+            print(f"{biome_id:<20} | {h['mean']:>12.3f} | {t['mean']:>12.3f} | {hum['mean']:>14.3f}")
+        
+        print("=" * 100 + "\n")
 
 
 class TerrainGenerator:
     """Generates continuous procedural terrain using OpenSimplex Noise"""
     
-    def __init__(self, config_path="data/worldgen/biomes.json", seed=None):
+    def __init__(self, config_path="data/worldgen/biomes.json", seed=None, collect_statistics=False):
+        """
+        Initialize terrain generator.
+        
+        Args:
+            config_path: Path to biome configuration JSON file
+            seed: Random seed for terrain generation (None = random seed)
+            collect_statistics: If True, collect biome statistics during generation
+        """
         self.load_config(config_path)
         
         # Initialize noise generator with seed
-        # Support both "noise_settings" and "noisesettings" for compatibility
         noise_settings = self.config.get("noise_settings") or self.config.get("noisesettings", {})
         if seed is None:
             seed = noise_settings.get("seed")
@@ -118,25 +134,76 @@ class TerrainGenerator:
             seed = random.randint(0, 1000000)
         
         self.seed = seed
-        self.noise = OpenSimplex(seed=self.seed)
-        self.temp_noise = OpenSimplex(seed=self.seed + 1)  # Second noise generator for temperature
-        self.water_noise = OpenSimplex(seed=self.seed + 100)  # Third noise generator for water mask
-        self.region_noise = OpenSimplex(seed=self.seed + 200)  # Fourth noise generator for region layer
-        self.humidity_noise = OpenSimplex(seed=self.seed + 300)  # Fifth noise generator for humidity
-        self.erosion_noise = OpenSimplex(seed=self.seed + 400)  # Sixth noise generator for erosion
-        self.cont_noise = OpenSimplex(seed=self.seed + 500)  # Seventh noise generator for continentalness
+        self.collect_statistics = collect_statistics
         
-        # Performance: LRU Cache for generated tiles (prevents unbounded memory growth)
-        # Max size: 100k tiles ≈ 444 chunks (100k / 225 tiles per chunk)
-        # This covers a large area around the player while preventing memory issues
-        self._tile_cache_max_size = 100000  # Max 100k tiles in cache
-        self._tile_cache: OrderedDict[Tuple[int, int], dict] = OrderedDict()
+        if collect_statistics:
+            self.statistics = BiomeStatistics()
+        else:
+            self.statistics = None
+        
+        self.noise = OpenSimplex(seed=self.seed)
+        self.temp_noise = OpenSimplex(seed=self.seed + 1)  # Separate noise for temperature
+        self.cont_noise = OpenSimplex(seed=self.seed + 2)  # Separate noise for continentalness
+        self.humidity_noise = OpenSimplex(seed=self.seed + 3)  # Separate noise for humidity
+        self.ridge_noise = OpenSimplex(seed=self.seed + 4)  # Separate noise for mountain ridges/spikes
+        self.river_noise = OpenSimplex(seed=self.seed + 5)  # Separate noise for river paths
+        
+        # Get noise parameters from config
+        self.scale = noise_settings.get("scale", 200.0)
+        self.octaves = noise_settings.get("octaves", 6)
+        self.persistence = noise_settings.get("persistence", 0.5)
+        self.lacunarity = noise_settings.get("lacunarity", 2.0)
+        
+        # Temperature noise parameters (can be different from height noise)
+        self.temp_scale = noise_settings.get("temp_scale", 400.0)  # Larger scale = bigger temperature zones
+        self.temp_octaves = noise_settings.get("temp_octaves", 4)  # Number of octaves for temperature
+        self.temp_persistence = noise_settings.get("temp_persistence", 0.5)  # Temperature persistence
+        self.temp_lacunarity = noise_settings.get("temp_lacunarity", 2.0)  # Temperature lacunarity
+        
+        # Temperature gradient parameters
+        self.latitude_effect = noise_settings.get("latitude_effect", 0.3)  # Strength of latitude gradient (0.0-1.0)
+        self.continentalness_effect = noise_settings.get("continentalness_effect", 0.2)  # Strength of continentalness effect
+        self.height_cooling = noise_settings.get("height_cooling", 0.4)  # How much height cools temperature (0.0-1.0)
+        
+        # Continentalness noise for temperature (separate from height)
+        self.cont_noise = OpenSimplex(seed=self.seed + 2)  # Separate noise for continentalness
+        self.cont_scale = noise_settings.get("continentalness_scale", 600.0)  # Large scale for continental patterns
+        
+        # Humidity noise parameters
+        self.humidity_scale = noise_settings.get("humidity_scale", 500.0)  # Scale for humidity noise
+        self.humidity_base = noise_settings.get("humidity_base", 0.5)  # Base humidity level
+        self.coastal_humidity_boost = noise_settings.get("coastal_humidity_boost", 0.3)  # Humidity boost near coast
+        self.orographic_effect = noise_settings.get("orographic_effect", 0.4)  # Strength of windward/leeward effect
+        
+        # Ridge/Spikes noise parameters (for mountain chains)
+        self.ridge_scale = noise_settings.get("ridge_scale", 300.0)  # Scale for ridge noise
+        self.ridge_threshold = noise_settings.get("ridge_threshold", 0.6)  # Base height threshold for spikes
+        self.ridge_strength = noise_settings.get("ridge_strength", 0.15)  # Maximum height addition from spikes
+        self.spike_cooling = noise_settings.get("spike_cooling", 0.2)  # Additional temperature cooling in spikes
+        
+        # River noise parameters
+        self.river_scale = noise_settings.get("river_scale", 800.0)  # Large scale for river networks
+        self.river_threshold = noise_settings.get("river_threshold", 0.65)  # Noise threshold for river placement
+        self.river_width = noise_settings.get("river_width", 3.0)  # River width in tiles (affects influence radius)
+        self.river_depth_reduction = noise_settings.get("river_depth_reduction", 0.08)  # Height reduction along rivers
+        self.river_cooling = noise_settings.get("river_cooling", 0.1)  # Temperature reduction along rivers
+        self.river_humidity_boost = noise_settings.get("river_humidity_boost", 0.25)  # Humidity boost along rivers
+        
+        # Height exponent for terrain shaping (1.0 = normal, >1.0 = more peaks, <1.0 = more plateaus)
+        self.height_exponent = noise_settings.get("height_exponent", 1.0)
+        
+        # Sea level threshold (water:shallow height_max)
+        self.water_level = 0.24
+        
+        # World height for latitude calculation (None = use modulo-based zones)
+        self.world_height = None
+        
+        # Pre-process biome data for efficient lookup
+        self._process_biomes()
     
     def set_seed(self, seed: int):
         """
-        Set new seed and reinitialize noise generator
-        
-        Also updates the seed in noise_settings for consistency (useful if seed is saved to savegame).
+        Set new seed and reinitialize noise generator.
         
         Args:
             seed: New seed value for terrain generation
@@ -144,24 +211,15 @@ class TerrainGenerator:
         self.seed = seed
         self.noise = OpenSimplex(seed=self.seed)
         self.temp_noise = OpenSimplex(seed=self.seed + 1)  # Reinitialize temperature noise
-        self.water_noise = OpenSimplex(seed=self.seed + 100)  # Reinitialize water noise
-        self.region_noise = OpenSimplex(seed=self.seed + 200)  # Reinitialize region noise
-        self.humidity_noise = OpenSimplex(seed=self.seed + 300)  # Reinitialize humidity noise
-        self.erosion_noise = OpenSimplex(seed=self.seed + 400)  # Reinitialize erosion noise
-        self.cont_noise = OpenSimplex(seed=self.seed + 500)  # Reinitialize continentalness noise
-        self._tile_cache.clear()  # Clear cache when seed changes
-        
-        # Update seed in config for consistency (useful if seed is saved to savegame)
-        if "noise_settings" in self.config:
-            self.config["noise_settings"]["seed"] = seed
-        
+        self.cont_noise = OpenSimplex(seed=self.seed + 2)  # Reinitialize continentalness noise
+        self.humidity_noise = OpenSimplex(seed=self.seed + 3)  # Reinitialize humidity noise
+        self.ridge_noise = OpenSimplex(seed=self.seed + 4)  # Reinitialize ridge noise
+        self.river_noise = OpenSimplex(seed=self.seed + 5)  # Reinitialize river noise
         print(f"[TerrainGen] Seed updated to: {self.seed}")
     
     def load_config(self, path):
         """
-        Load biome configuration from JSON and pre-calculate normalized height ranges
-        
-        Uses Path for robust path handling, especially useful for tools/tests.
+        Load biome configuration from JSON.
         
         Args:
             path: Relative path to config file (e.g., "data/worldgen/biomes.json")
@@ -172,238 +230,200 @@ class TerrainGenerator:
         
         with open(full_path, "r", encoding="utf-8") as f:
             self.config = json.load(f)
+    
+    def _process_biomes(self):
+        """Pre-process biome data for efficient lookup by height, temperature, and humidity."""
+        # Normalize height ranges from [-1, 1] to [0, 1] for easier comparison
+        self.biomes_by_height = []
         
-        # Separate biomes into land and water biomes
-        # Water biomes are identified by having "water" in their name (e.g., "terrain:water_deep")
-        # Beach is excluded from land_biomes - it's only set in the beach overlay pass
-        self.land_biomes = {
-            k: v for k, v in self.config["biomes"].items()
-            if "water" not in k.lower() and k != "terrain:beach"
-        }
-        self.water_biomes = {
-            k: v for k, v in self.config["biomes"].items()
-            if "water" in k.lower()
-        }
-        
-        # Pre-calculate normalized height and temperature ranges for efficient lookup
-        # Normalize config values from [-1, 1] to [0, 1] once during config load
-        # Support both "height_min"/"heightmax" and "temp_min"/"tempmax" formats for compatibility
-        biome_list = []
-        for biome_id, biome_data in self.config["biomes"].items():
-            # Support both naming conventions: "height_min"/"heightmax" and "temp_min"/"tempmax"
-            h_min = biome_data.get("height_min") or biome_data.get("heightmin", -1.0)
-            h_max = biome_data.get("height_max") or biome_data.get("heightmax", 1.0)
-            t_min = biome_data.get("temp_min") or biome_data.get("tempmin", 0.0)
-            t_max = biome_data.get("temp_max") or biome_data.get("tempmax", 1.0)
+        for biome_id, biome_data in self.config.get("biomes", {}).items():
+            h_min = biome_data.get("height_min", -1.0)
+            h_max = biome_data.get("height_max", 1.0)
+            t_min = biome_data.get("temp_min", 0.0)
+            t_max = biome_data.get("temp_max", 1.0)
+            hum_min = biome_data.get("humidity_min", 0.0)  # Optional humidity range
+            hum_max = biome_data.get("humidity_max", 1.0)
             
-            # Pre-calculate normalized height values (from [-1, 1] to [0, 1])
+            # Normalize height from [-1, 1] to [0, 1]
             h_min_norm = (h_min + 1.0) / 2.0
             h_max_norm = (h_max + 1.0) / 2.0
             
-            # Temperature is already in [0, 1] range, but normalize for consistency
+            # Temperature is already in [0, 1] range
             t_min_norm = max(0.0, min(1.0, t_min))
             t_max_norm = max(0.0, min(1.0, t_max))
             
-            # Store normalized values in biome_data for fast lookup
-            biome_entry = (biome_id, {
-                **biome_data,
-                "height_min_norm": h_min_norm,
-                "height_max_norm": h_max_norm,
-                "temp_min_norm": t_min_norm,
-                "temp_max_norm": t_max_norm
+            # Humidity is already in [0, 1] range (default to full range if not specified)
+            hum_min_norm = max(0.0, min(1.0, hum_min)) if hum_min is not None else 0.0
+            hum_max_norm = max(0.0, min(1.0, hum_max)) if hum_max is not None else 1.0
+            
+            # Get target values for distance-based matching
+            target_height = biome_data.get("target_height")
+            target_temp = biome_data.get("target_temp")
+            target_humidity = biome_data.get("target_humidity")
+            
+            # If target_height not specified, use midpoint of height range
+            if target_height is None:
+                target_height = (h_min_norm + h_max_norm) / 2.0
+            
+            # Normalize target_height from [-1, 1] to [0, 1] if needed
+            if target_height is not None and target_height < 0:
+                target_height = (target_height + 1.0) / 2.0
+            
+            self.biomes_by_height.append({
+                "id": biome_id,
+                "data": biome_data,
+                "height_min": h_min_norm,
+                "height_max": h_max_norm,
+                "temp_min": t_min_norm,
+                "temp_max": t_max_norm,
+                "humidity_min": hum_min_norm,
+                "humidity_max": hum_max_norm,
+                "target_height": target_height if target_height is not None else 0.5,
+                "target_temp": target_temp if target_temp is not None else 0.5,
+                "target_humidity": target_humidity if target_humidity is not None else 0.5
             })
-            biome_list.append(biome_entry)
         
-        # Sort biomes by height_min_norm for efficient lookup (and potential binary search)
-        # Create separate sorted lists for land and water biomes
-        self.sorted_land_biomes = sorted(
-            [entry for entry in biome_list if entry[0] in self.land_biomes],
-            key=lambda x: x[1]["height_min_norm"]
-        )
-        self.sorted_water_biomes = sorted(
-            [entry for entry in biome_list if entry[0] in self.water_biomes],
-            key=lambda x: x[1]["height_min_norm"]
-        )
-        # Keep sorted_biomes for backward compatibility (contains all biomes)
-        self.sorted_biomes = sorted(
-            biome_list,
-            key=lambda x: x[1]["height_min_norm"]
-        )
+        # Sort by height_min for efficient lookup
+        self.biomes_by_height.sort(key=lambda x: x["height_min"])
     
-    def update_biome_config(self, biome_config):
+    def _get_noise_value(self, x: float, y: float) -> float:
         """
-        Update biome configuration without reloading from file
+        Get multi-octave noise value at world coordinates.
         
-        Useful for interactive tools that want to modify biome ranges dynamically.
+        Based on: https://loady.one/blog/terrain_mesh.html
         
         Args:
-            biome_config: Dictionary with biome configuration (same format as JSON)
+            x: World X coordinate
+            y: World Y coordinate
+            
+        Returns:
+            Noise value in [-1, 1] range
         """
-        self.config["biomes"] = biome_config
+        amplitude = 1.0
+        frequency = 1.0
+        noise_value = 0.0
+        max_value = 0.0
         
-        # Re-separate biomes into land and water biomes
-        # Beach is excluded from land_biomes - it's only set in the beach overlay pass
-        self.land_biomes = {
-            k: v for k, v in self.config["biomes"].items()
-            if "water" not in k.lower() and k != "terrain:beach"
-        }
-        self.water_biomes = {
-            k: v for k, v in self.config["biomes"].items()
-            if "water" in k.lower()
-        }
-        
-        # Recalculate normalized ranges
-        biome_list = []
-        for biome_id, biome_data in self.config["biomes"].items():
-            # Support both naming conventions
-            h_min = biome_data.get("height_min") or biome_data.get("heightmin", -1.0)
-            h_max = biome_data.get("height_max") or biome_data.get("heightmax", 1.0)
-            t_min = biome_data.get("temp_min") or biome_data.get("tempmin", 0.0)
-            t_max = biome_data.get("temp_max") or biome_data.get("tempmax", 1.0)
+        # Multi-octave noise for natural variation
+        for _ in range(self.octaves):
+            sample_x = x / self.scale * frequency
+            sample_y = y / self.scale * frequency
             
-            # Pre-calculate normalized height values (from [-1, 1] to [0, 1])
-            h_min_norm = (h_min + 1.0) / 2.0
-            h_max_norm = (h_max + 1.0) / 2.0
+            noise_value += self.noise.noise2(sample_x, sample_y) * amplitude
+            max_value += amplitude
             
-            # Temperature is already in [0, 1] range, but normalize for consistency
-            t_min_norm = max(0.0, min(1.0, t_min))
-            t_max_norm = max(0.0, min(1.0, t_max))
-            
-            # Store normalized values
-            biome_entry = (biome_id, {
-                **biome_data,
-                "height_min_norm": h_min_norm,
-                "height_max_norm": h_max_norm,
-                "temp_min_norm": t_min_norm,
-                "temp_max_norm": t_max_norm
-            })
-            biome_list.append(biome_entry)
+            amplitude *= self.persistence
+            frequency *= self.lacunarity
         
-        # Re-sort biomes into separate lists for land and water
-        self.sorted_land_biomes = sorted(
-            [entry for entry in biome_list if entry[0] in self.land_biomes],
-            key=lambda x: x[1]["height_min_norm"]
-        )
-        self.sorted_water_biomes = sorted(
-            [entry for entry in biome_list if entry[0] in self.water_biomes],
-            key=lambda x: x[1]["height_min_norm"]
-        )
-        # Keep sorted_biomes for backward compatibility (contains all biomes)
-        self.sorted_biomes = sorted(
-            biome_list,
-            key=lambda x: x[1]["height_min_norm"]
-        )
-        
-        # Clear cache to force regeneration with new biome ranges
-        self._tile_cache.clear()
+        # Normalize to [-1, 1] range
+        return noise_value / max_value if max_value > 0 else 0.0
     
-    # ============================================================================
-    # LAYER 1: Base Region
-    # ============================================================================
-    
-    def get_base_region(self, world_x, world_y):
+    def _normalize_heightmap(self, heightmap, min_val=None, max_val=None):
         """
-        Get base region type for a world coordinate (Layer 1).
+        Normalize heightmap to [0, 1] range.
         
-        Defines large-scale "meta-biomes" using noise:
-        - "wet": Forest/taiga/rainforest regions (0-33%)
-        - "neutral": Plains, mixed forest regions (33-66%)
-        - "dry": Steppe, desert, rocky mountain regions (66-100%)
+        Args:
+            heightmap: 2D list or array of height values
+            min_val: Minimum value (None = calculate from heightmap)
+            max_val: Maximum value (None = calculate from heightmap)
+            
+        Returns:
+            Normalized heightmap in [0, 1] range
+        """
+        # Find min/max if not provided
+        if min_val is None or max_val is None:
+            flat_values = [h for row in heightmap for h in row]
+            if not flat_values:
+                return heightmap
+            min_val = min(flat_values)
+            max_val = max(flat_values)
         
-        Uses a large scale (800 tiles) to create continent-sized regions.
+        # Avoid division by zero
+        if max_val == min_val:
+            return [[0.5 for _ in row] for row in heightmap]
+        
+        # Normalize each value
+        normalized = []
+        for row in heightmap:
+            normalized_row = []
+            for h in row:
+                normalized_value = (h - min_val) / (max_val - min_val)
+                normalized_row.append(max(0.0, min(1.0, normalized_value)))
+            normalized.append(normalized_row)
+        
+        return normalized
+    
+    def _apply_height_exponent(self, heightmap):
+        """
+        Apply exponential function to heightmap for terrain shaping.
+        
+        Exponent > 1.0 creates more peaks, < 1.0 creates more plateaus.
+        Based on: https://loady.one/blog/terrain_mesh.html
+        
+        Args:
+            heightmap: 2D list of normalized height values [0, 1]
+            
+        Returns:
+            Modified heightmap with exponential curve applied
+        """
+        if self.height_exponent == 1.0:
+            return heightmap
+        
+        result = []
+        for row in heightmap:
+            result_row = []
+            for h in row:
+                # Apply exponent and re-normalize
+                result_row.append(h ** self.height_exponent)
+            result.append(result_row)
+        
+        # Re-normalize after exponent
+        return self._normalize_heightmap(result)
+    
+    def _get_spikes_at(self, world_x: int, world_y: int, base_height: float) -> float:
+        """
+        Get additional height from ridge/spikes noise.
+        
+        Only adds height where base height is already above threshold (ridge_threshold).
+        This creates clear mountain chains instead of random spikes everywhere.
         
         Args:
             world_x: World X coordinate (tile coordinate)
             world_y: World Y coordinate (tile coordinate)
+            base_height: Base height value (before spikes)
             
         Returns:
-            str: Region identifier ("wet", "neutral", or "dry")
+            Additional height value in [0.0, ridge_strength] range
         """
-        # Large-scale noise for continent-sized regions
-        scale = 1.0 / 800.0  # Large structures (800 tiles per region feature)
+        # Only add spikes where base height is already elevated
+        if base_height < self.ridge_threshold:
+            return 0.0
         
-        # Sample noise (returns -1.0 to 1.0)
-        n = self.region_noise.noise2(world_x * scale, world_y * scale)
+        # Get ridge noise value
+        noise_value = self.ridge_noise.noise2(
+            world_x / self.ridge_scale,
+            world_y / self.ridge_scale
+        )
         
-        # Normalize to [0.0, 1.0] range
-        r = (n + 1.0) / 2.0
+        # Normalize from [-1, 1] to [0, 1]
+        ridge_factor = (noise_value + 1.0) / 2.0
         
-        # Map to region types
-        if r < 0.33:
-            return "wet"      # Forest/taiga/rainforest regions
-        elif r < 0.66:
-            return "neutral"  # Plains, mixed forest regions
-        else:
-            return "dry"      # Steppe, desert, rocky mountain regions
+        # Scale by how much base height exceeds threshold
+        # More elevated areas get stronger spikes
+        threshold_excess = (base_height - self.ridge_threshold) / (1.0 - self.ridge_threshold)
+        
+        # Calculate spike height: stronger in more elevated areas
+        spike_height = ridge_factor * self.ridge_strength * threshold_excess
+        
+        return max(0.0, min(self.ridge_strength, spike_height))
     
-    # ============================================================================
-    # LAYER 2: Height
-    # ============================================================================
-    
-    def spline_height(self, cont, erosion):
+    def _get_height_at(self, world_x: int, world_y: int) -> float:
         """
-        Calculate base height from continentalness and erosion using spline-like mapping.
+        Get normalized height value at world coordinates.
         
-        Creates consistent continent-sized height patterns:
-        - Low continentalness (0.0-0.3) → Below sea level (ocean basins) [0.0-0.3]
-        - Medium continentalness (0.3-0.7) → Coast/flatland [0.3-0.6]
-        - High continentalness (0.7-1.0) + low erosion (0.0-0.5) → High mountains/plateaus [0.7-0.9]
-        - High continentalness (0.7-1.0) + high erosion (0.5-1.0) → Rugged mountains [0.8-1.0]
-        
-        Args:
-            cont: Continentalness value [0.0, 1.0]
-            erosion: Erosion value [0.0, 1.0]
-            
-        Returns:
-            Base height value in [0.0, 1.0] range
-        """
-        # Clamp inputs
-        cont = max(0.0, min(1.0, cont))
-        erosion = max(0.0, min(1.0, erosion))
-        
-        # Low continentalness → ocean basins (below sea level)
-        if cont < 0.3:
-            # Map [0.0, 0.3] to [0.0, 0.3] (below sea level)
-            base_height = cont * 1.0  # Linear mapping
-        # Medium continentalness → coast/flatland
-        elif cont < 0.7:
-            # Map [0.3, 0.7] to [0.3, 0.6] (coast to flatland)
-            t = (cont - 0.3) / 0.4  # Normalize to [0, 1]
-            base_height = 0.3 + t * 0.3  # Linear interpolation
-        # High continentalness → mountains (erosion-dependent)
-        else:
-            # Map [0.7, 1.0] to [0.7, 1.0] with erosion influence
-            t = (cont - 0.7) / 0.3  # Normalize to [0, 1]
-            
-            # Base height from continentalness: [0.7, 0.85]
-            base_height = 0.7 + t * 0.15
-            
-            # Add erosion influence: low erosion → plateaus, high erosion → rugged peaks
-            if erosion < 0.5:
-                # Low erosion: smooth plateaus/highlands [0.7, 0.9]
-                # Plateaus are high but smooth
-                erosion_factor = erosion / 0.5  # [0, 1]
-                base_height = 0.7 + (base_height - 0.7) * 2.0 + erosion_factor * 0.2  # Boost to plateaus
-            else:
-                # High erosion: rugged mountains [0.85, 1.0]
-                # Rugged peaks are highest
-                erosion_factor = (erosion - 0.5) / 0.5  # [0, 1]
-                base_height = base_height + erosion_factor * 0.15  # Push towards peaks
-        
-        return max(0.0, min(1.0, base_height))
-    
-    def get_height_value(self, world_x, world_y):
-        """
-        Get normalized height value for any world coordinate (Layer 2).
-        
-        Height is derived from continentalness and erosion (base height) plus detail noise.
-        This creates consistent continent-sized height patterns instead of random noise everywhere.
-        
-        Returns a continuous height value in [0.0, 1.0] range where:
-        - 0.0 = lowest (deep water)
-        - 1.0 = highest (snow peaks)
-        
-        This ensures world continuity across chunks!
+        Uses natural noise distribution without remapping for organic variation.
+        Adds ridge/spikes noise for mountain chains.
+        Reduces height along rivers to create valleys.
         
         Args:
             world_x: World X coordinate (tile coordinate)
@@ -412,1241 +432,495 @@ class TerrainGenerator:
         Returns:
             Normalized height value in [0.0, 1.0] range
         """
-        # Get continentalness and erosion for base height calculation
-        cont = self.get_continentalness_value(world_x, world_y)
-        erosion = self.get_erosion_value(world_x, world_y)
+        # Get base height from noise
+        noise_value = self._get_noise_value(world_x, world_y)
         
-        # Calculate base height from continentalness and erosion
-        base_height = self.spline_height(cont, erosion)
+        # Normalize from [-1, 1] to [0, 1]
+        base_height = (noise_value + 1.0) / 2.0
         
-        # Add detail noise for local variation (use existing height noise)
-        noise_settings = self.config.get("noise_settings") or self.config.get("noisesettings", {})
-        detail_scale = noise_settings.get("scale", 200.0)  # Detail scale
-        detail_octaves = noise_settings.get("detail_octaves", 3)  # Fewer octaves for detail only
-        detail_persistence = noise_settings.get("persistence", 0.5)
-        detail_lacunarity = noise_settings.get("lacunarity", 2.0)
-        detail_amplitude = noise_settings.get("detail_amplitude", 0.15)  # Small amplitude for subtle variation
+        # Apply exponential shaping if configured
+        if self.height_exponent != 1.0:
+            base_height = base_height ** self.height_exponent
         
-        amplitude = 1.0
-        frequency = 1.0
-        noise_value = 0.0
-        max_value = 0.0
+        # Add ridge/spikes for mountain chains (only on elevated terrain)
+        spikes = self._get_spikes_at(world_x, world_y, base_height)
+        height = base_height + spikes
         
-        # Multi-octave detail noise
-        for _ in range(detail_octaves):
-            sample_x = world_x / detail_scale * frequency
-            sample_y = world_y / detail_scale * frequency
-            
-            noise_value += self.noise.noise2(sample_x, sample_y) * amplitude
-            max_value += amplitude
-            
-            amplitude *= detail_persistence
-            frequency *= detail_lacunarity
+        # Reduce height along rivers to create valleys
+        river_influence = self._get_river_influence_at(world_x, world_y)
+        if river_influence > 0.0:
+            # Only reduce height on land (not below sea level)
+            if height > self.water_level:
+                height_reduction = river_influence * self.river_depth_reduction
+                height -= height_reduction
         
-        # Normalize detail noise to [-1, 1] range, then scale by amplitude
-        detail_noise = ((noise_value / max_value + 1.0) / 2.0 - 0.5) * 2.0  # [-1, 1]
-        detail_noise *= detail_amplitude  # Scale to small variation
-        
-        # Combine base height with detail noise
-        height = base_height + detail_noise
-        
-        # Shift distribution upward to favor land biomes, but keep some variation
-        # Goal: 40-50% tiles above 0.4, noticeable portion above 0.6, some above 0.8
-        # But also keep some lower values (0.3-0.4) for water/coastal areas
-        # Strategy: moderate upward shift with balanced distribution
-        
-        # First, shift the entire distribution upward moderately
-        # Map [0.0, 1.0] to approximately [0.15, 1.0] to allow some low areas for water
-        height = 0.15 + height * 0.85
-        
-        # Then apply a balanced curve to create variation across all ranges
-        # This creates a more natural distribution with peaks in mid-to-high ranges
-        if height < 0.4:
-            # Lower values (water/beach range): [0.15, 0.4] → [0.15, 0.35]
-            # Keep some low values for water, but compress slightly
-            t = (height - 0.15) / 0.25  # Normalize to [0, 1]
-            height = 0.15 + t * 0.20  # Compress to smaller range
-        elif height < 0.6:
-            # Mid values (plains/coast range): [0.4, 0.6] → [0.35, 0.55]
-            # Moderate compression for mid-range
-            t = (height - 0.4) / 0.2  # Normalize to [0, 1]
-            height = 0.35 + t * 0.20  # Moderate range
-        else:
-            # Upper values (forest/mountains range): [0.6, 1.0] → [0.55, 1.0]
-            # Expand upper values to create mountains, but not too extreme
-            t = (height - 0.6) / 0.4  # Normalize to [0, 1]
-            # Use moderate power curve to create peaks without overdoing it
-            t_powered = t ** 0.8  # Moderate power curve
-            height = 0.55 + t_powered * 0.45  # Expand to larger range, reaching up to 1.0
-        
-        # Clamp to [0.0, 1.0] range
         return max(0.0, min(1.0, height))
     
-    def get_noise_value(self, world_x, world_y):
+    def _get_river_influence_at(self, world_x: int, world_y: int) -> float:
         """
-        Get continuous noise value for any world coordinate (DEPRECATED).
+        Get river influence value at world coordinates.
         
-        DEPRECATED: Use get_height_value() instead. This method is kept for
-        backward compatibility and simply calls get_height_value().
-        
-        This ensures world continuity across chunks!
-        """
-        # Get noise settings (support both "noise_settings" and "noisesettings" for compatibility)
-        noise_settings = self.config.get("noise_settings") or self.config.get("noisesettings", {})
-        
-        # Adjusted parameters for more diverse terrain
-        scale = noise_settings.get("scale", 200.0)  # Larger scale = bigger features
-        octaves = noise_settings.get("octaves", 6)
-        persistence = noise_settings.get("persistence", 0.5)
-        lacunarity = noise_settings.get("lacunarity", 2.0)
-        
-        amplitude = 1.0
-        frequency = 1.0
-        noise_value = 0.0
-        max_value = 0.0
-        
-        # Multi-octave noise for natural variation
-        for _ in range(octaves):
-            sample_x = world_x / scale * frequency
-            sample_y = world_y / scale * frequency
-            
-            noise_value += self.noise.noise2(sample_x, sample_y) * amplitude
-            max_value += amplitude
-            
-            amplitude *= persistence
-            frequency *= lacunarity
-        
-        # Normalize to [0, 1] range (easier for biome thresholds)
-        normalized = (noise_value / max_value + 1.0) / 2.0
-        
-        # Shift distribution significantly upward to favor land biomes
-        # The noise naturally tends toward 0.5, but we need more land than water
-        # Strategy: Very strong upward shift, then power curve for variation
-        
-        # Shift the entire distribution upward: Map [0, 1] to [0.5, 1.0]
-        # This ensures most tiles are land (height > 0.5 normalized = height > 0.0 world)
-        # Beach starts at 0.5, so we want most values above 0.6 (tundra/plains/desert)
-        normalized = 0.5 + normalized * 0.5
-        
-        # Apply power curve to create variation at extremes
-        # Lower values stay low (for water/beach), higher values get pushed up (for mountains)
-        if normalized < 0.65:
-            # Compress lower values but keep some in water/beach range
-            normalized = 0.5 + (normalized - 0.5) * 0.4
-        else:
-            # Reduced expansion for higher values - less "stone" mountains, more snow peaks
-            # Use gentler power curve to favor more moderate heights (Plains/Forest)
-            # and push fewer tiles into extreme mountain range
-            normalized = 0.65 + pow((normalized - 0.65) / 0.35, 0.65) * 0.35  # Changed from 0.55 to 0.65 (less aggressive)
-        
-        # Final spread: multiply deviation to increase variation
-        # Reduced stretch to favor more moderate heights (Plains/Forest) vs. extreme mountains
-        # This creates more tiles in 0.4-0.7 range (Plains/Forest) and fewer in 0.8-0.9 (pure mountains)
-        center = 0.7  # High center to favor land biomes (tundra/plains/desert/forest)
-        normalized = 0.5 + (normalized - 0.5) * 1.15  # Gentler stretch to favor moderate heights
-        
-        # Clamp to [0.0, 1.0] range to ensure valid biome lookup
-        return max(0.0, min(1.0, normalized))
-    
-    # ============================================================================
-    # LAYER 3: Temperature
-    # ============================================================================
-    
-    def get_latitude_factor(self, world_y, world_height=None):
-        """
-        Get latitude factor for a world Y coordinate.
-        
-        Returns normalized latitude position [0.0, 1.0] where:
-        - 0.0 = top edge (north pole)
-        - 1.0 = bottom edge (south pole)
-        
-        If world_height is None, uses modulo to create repeating climate zones
-        (useful for preview tools that generate small areas).
-        
-        Args:
-            world_y: World Y coordinate (tile coordinate)
-            world_height: Total world height in tiles (None = use modulo for repeating zones)
-        
-        Returns:
-            Latitude factor in [0.0, 1.0] range
-        """
-        if world_height is None:
-            # Use modulo to create repeating climate zones
-            # This works well for preview tools that generate small areas
-            # Creates a repeating pattern every 500 tiles (allows multiple zones in preview)
-            zone_size = 500
-            relative_y = world_y % zone_size
-            return relative_y / float(zone_size - 1) if zone_size > 1 else 0.5
-        
-        if world_height <= 1:
-            return 0.5  # Fallback for single-tile worlds
-        return world_y / float(max(1, world_height - 1))
-    
-    def get_latitude_temperature(self, world_y, world_height=None):
-        """
-        Get base temperature based on latitude using a smooth curve.
-        
-        Creates a smooth North-South temperature gradient (cold-warm-cold)
-        using a cosine function instead of hard bands.
-        
-        Args:
-            world_y: World Y coordinate (tile coordinate)
-            world_height: Total world height in tiles (None = use repeating zones)
-        
-        Returns:
-            Base temperature value in [0.0, 1.0] range (~0.1 to ~0.9)
-        """
-        lat = self.get_latitude_factor(world_y, world_height)  # 0..1
-        
-        # Smooth North-South curve: cold-warm-cold
-        # cos(0) = 1 (cold at north), cos(pi) = -1 (cold at south), cos(pi/2) = 0 (warm at equator)
-        # Map: 0.5 - 0.4 * cos(pi * lat) gives ~0.1 (cold) to ~0.9 (warm)
-        return 0.5 - 0.4 * math.cos(math.pi * lat)
-    
-    def get_temperature_value(self, world_x, world_y, world_height=None):
-        """
-        Get continuous temperature value for any world coordinate (Layer 3).
-        
-        Temperature is influenced by:
-        1. Smooth latitude gradient (North-South: cold-warm-cold)
-        2. Noise (local variation)
-        3. Height (higher regions are colder)
-        
-        Returns normalized temperature value [0.0, 1.0] where:
-        - 0.0 = cold (tundra, snow)
-        - 1.0 = warm (desert, tropical)
-        
-        Uses smooth cosine-based latitude curve instead of hard bands.
-        This ensures world continuity across chunks!
+        Uses noise to create river paths, then calculates influence based on distance
+        to nearest river. Higher values indicate proximity to rivers.
         
         Args:
             world_x: World X coordinate (tile coordinate)
             world_y: World Y coordinate (tile coordinate)
-            world_height: Total world height in tiles (None = use repeating zones for preview tools)
+            
+        Returns:
+            River influence value in [0.0, 1.0] range (1.0 = on river, 0.0 = far from river)
+        """
+        # Get river noise value (large scale for river networks)
+        noise_value = self.river_noise.noise2(
+            world_x / self.river_scale,
+            world_y / self.river_scale
+        )
+        
+        # Normalize from [-1, 1] to [0, 1]
+        river_noise = (noise_value + 1.0) / 2.0
+        
+        # Check if this location is on a river path (noise above threshold)
+        # Use a smooth falloff around the threshold for gradual influence
+        if river_noise > self.river_threshold:
+            # Calculate distance from threshold (0.0 at threshold, 1.0 at max)
+            distance_from_threshold = (river_noise - self.river_threshold) / (1.0 - self.river_threshold)
+            
+            # Smooth falloff: stronger influence closer to river center
+            # Use exponential falloff for natural river valley shape
+            influence = 1.0 - (distance_from_threshold ** 0.5)
+            
+            # Scale by river width (wider rivers have more influence)
+            influence *= (1.0 / self.river_width)
+            
+            return max(0.0, min(1.0, influence))
+        
+        return 0.0
+    
+    def _get_continentalness_at(self, world_x: int, world_y: int) -> float:
+        """
+        Get continentalness value at world coordinates.
+        
+        Continentalness represents distance from ocean: low = coastal (warmer),
+        high = inland (colder). Used for temperature gradient.
+        
+        Args:
+            world_x: World X coordinate (tile coordinate)
+            world_y: World Y coordinate (tile coordinate)
+            
+        Returns:
+            Continentalness value in [0.0, 1.0] range (0.0 = coastal, 1.0 = inland)
+        """
+        # Large-scale noise for continental patterns
+        noise_value = self.cont_noise.noise2(
+            world_x / self.cont_scale,
+            world_y / self.cont_scale
+        )
+        
+        # Normalize from [-1, 1] to [0, 1]
+        cont = (noise_value + 1.0) / 2.0
+        
+        return max(0.0, min(1.0, cont))
+    
+    def _get_temperature_at(self, world_x: int, world_y: int, height: float = None) -> float:
+        """
+        Get normalized temperature value at world coordinates.
+        
+        Combines large-scale gradients (latitude, continentalness) with height falloff
+        and local noise variation to create natural climate zones.
+        
+        Temperature factors:
+        1. Latitude gradient: North (cold) → South (warm)
+        2. Continentalness: Coastal (warmer) → Inland (colder)
+        3. Height falloff: Higher elevations are colder
+        4. Local noise: Small-scale variation
+        
+        Args:
+            world_x: World X coordinate (tile coordinate)
+            world_y: World Y coordinate (tile coordinate)
+            height: Optional height value (if None, will be calculated)
             
         Returns:
             Normalized temperature value in [0.0, 1.0] range
         """
-        # Get noise settings (support both "noise_settings" and "noisesettings" for compatibility)
-        noise_settings = self.config.get("noise_settings") or self.config.get("noisesettings", {})
+        # 1. Latitude gradient (North-South: cold-warm-cold)
+        # Use world_height if set, otherwise use modulo-based repeating zones
+        if self.world_height is not None and self.world_height > 1:
+            # Use actual world height for smooth latitude calculation
+            latitude_factor = world_y / max(1.0, self.world_height - 1.0)
+            latitude_factor = max(0.0, min(1.0, latitude_factor))  # Clamp to [0, 1]
+        else:
+            # Fallback: Use modulo for repeating zones (useful for infinite worlds)
+            zone_size = 500  # Repeating climate zones every 500 tiles
+            relative_y = world_y % zone_size
+            latitude_factor = relative_y / float(zone_size - 1) if zone_size > 1 else 0.5
         
-        scale = noise_settings.get("temp_scale", 300.0)  # Temperature scale (larger = bigger temperature zones)
-        octaves = noise_settings.get("temp_octaves", 4)  # Temperature octaves
-        persistence = noise_settings.get("temp_persistence", 0.5)  # Temperature persistence
-        lacunarity = noise_settings.get("temp_lacunarity", 2.0)  # Temperature lacunarity
+        # Cosine-based latitude: cold at poles (0.0 and 1.0), warm at equator (0.5)
+        # cos(0) = 1 (cold), cos(pi) = -1 (cold), cos(pi/2) = 0 (warm)
+        # Smooth continuous function - no hard cuts or jumps
+        lat_temp = 0.5 - 0.4 * math.cos(math.pi * latitude_factor)  # ~0.1 (cold) to ~0.9 (warm)
         
-        amplitude = 1.0
-        frequency = 1.0
-        noise_value = 0.0
-        max_value = 0.0
+        # 2. Continentalness gradient (coastal warmer, inland colder)
+        continentalness = self._get_continentalness_at(world_x, world_y)
+        # Invert: low continentalness (coastal) = warmer, high (inland) = colder
+        cont_temp = 1.0 - continentalness * 0.3  # Coastal: +0.3, Inland: -0.0
         
-        # Multi-octave noise for natural temperature variation
-        for _ in range(octaves):
-            sample_x = world_x / scale * frequency
-            sample_y = world_y / scale * frequency
-            
-            noise_value += self.temp_noise.noise2(sample_x, sample_y) * amplitude
-            max_value += amplitude
-            
-            amplitude *= persistence
-            frequency *= lacunarity
+        # 3. Height falloff (higher elevations are colder)
+        if height is None:
+            height = self._get_height_at(world_x, world_y)
+        # Height cooling: subtract up to height_cooling based on height
+        height_cooling_factor = (height - 0.5) * self.height_cooling  # Higher = more cooling
         
-        # 1) Noise temperature (local variation)
-        # Normalize noise to [0, 1] range
-        noise_temp = (noise_value / max_value + 1.0) / 2.0
+        # 4. Local noise variation (small-scale temperature variation)
+        noise_value = self.temp_noise.noise2(
+            world_x / self.temp_scale,
+            world_y / self.temp_scale
+        )
+        noise_temp = (noise_value + 1.0) / 2.0  # Normalize to [0, 1]
         
-        # 2) Smooth latitude temperature gradient (North-South: cold-warm-cold)
-        lat_temp = self.get_latitude_temperature(world_y, world_height)
+        # Combine all factors
+        # Base temperature from latitude and continentalness
+        base_temp = lat_temp * self.latitude_effect + cont_temp * self.continentalness_effect
         
-        # 3) Mix latitude gradient (40%) with noise (60%)
-        # Noise dominates more → less "always cold" in large areas, more local variation
-        temp = lat_temp * 0.4 + noise_temp * 0.6
+        # Add local noise variation (remaining weight)
+        noise_weight = 1.0 - self.latitude_effect - self.continentalness_effect
+        temp = base_temp + noise_temp * noise_weight
         
-        # 4) Height cools down less strongly (higher regions are colder, but not as much)
-        # Weaker height cooling: medium and high elevations are not automatically tundra/snow
-        height = self.get_height_value(world_x, world_y)
-        temp -= (height - 0.5) * 0.3  # Reduced from 0.5 to 0.3
+        # Apply height cooling
+        temp -= height_cooling_factor
         
-        # 5) Shift temperature upward to neutral/warm average (~0.6)
-        # This makes Desert/Savanna/Plains compete more strongly with Snow/Tundra in distance score
-        temp = 0.6 + (temp - 0.5) * 0.7  # Average ~0.6 instead of ~0.55
+        # 5. Additional cooling in spikes/mountain ridges (for snow peaks)
+        # Check if this location has spikes (elevated terrain with ridge noise)
+        if height is None:
+            height = self._get_height_at(world_x, world_y)
         
-        # 6) Clamp to [0.0, 1.0] range
+        # Get base height (without spikes) to check for spikes
+        noise_value = self._get_noise_value(world_x, world_y)
+        base_height = (noise_value + 1.0) / 2.0
+        if self.height_exponent != 1.0:
+            base_height = base_height ** self.height_exponent
+        
+        # If base height is above threshold, check for spikes
+        if base_height >= self.ridge_threshold:
+            spikes = self._get_spikes_at(world_x, world_y, base_height)
+            # Additional cooling proportional to spike height
+            spike_cooling_factor = spikes / self.ridge_strength * self.spike_cooling
+            temp -= spike_cooling_factor
+        
+        # Clamp to [0, 1] range
+        temp = max(0.0, min(1.0, temp))
+        
+        # 6. Additional cooling along rivers (for river valleys and oases)
+        river_influence = self._get_river_influence_at(world_x, world_y)
+        if river_influence > 0.0:
+            # Slight cooling along rivers (creates cooler valleys)
+            river_cooling_factor = river_influence * self.river_cooling
+            temp -= river_cooling_factor
+        
+        # Final clamp to [0, 1] range
         return max(0.0, min(1.0, temp))
     
-    # ============================================================================
-    # CLIMATE VECTOR COMPONENTS
-    # ============================================================================
-    
-    def get_humidity_value(self, world_x, world_y):
+    def _get_humidity_at(self, world_x: int, world_y: int, height: float = None) -> float:
         """
-        Get humidity value for any world coordinate (Climate Vector Component).
+        Get normalized humidity value at world coordinates.
         
-        Humidity controls forest vs. steppe/desert distribution.
-        Higher humidity = more forests, lower humidity = more steppe/desert.
-        
-        Returns normalized humidity value [0.0, 1.0] where:
-        - 0.0 = dry (desert, steppe)
-        - 1.0 = humid (forest, rainforest)
+        Combines base noise with modifications from:
+        1. Distance to sea (continentalness): Coastal areas are more humid
+        2. Orography (windward/leeward): Windward side of mountains is more humid
         
         Args:
             world_x: World X coordinate (tile coordinate)
             world_y: World Y coordinate (tile coordinate)
+            height: Optional height value (if None, will be calculated)
             
         Returns:
             Normalized humidity value in [0.0, 1.0] range
         """
-        # Get noise settings
-        noise_settings = self.config.get("noise_settings") or self.config.get("noisesettings", {})
+        # 1. Base humidity from noise
+        noise_value = self.humidity_noise.noise2(
+            world_x / self.humidity_scale,
+            world_y / self.humidity_scale
+        )
+        humidity = (noise_value + 1.0) / 2.0  # Normalize to [0, 1]
         
-        # Humidity noise parameters: large scale, few octaves
-        humidity_scale = noise_settings.get("humidity_scale", 400.0)  # Large scale for regional humidity zones
-        humidity_octaves = noise_settings.get("humidity_octaves", 2)  # Few octaves for smooth transitions
-        humidity_persistence = noise_settings.get("humidity_persistence", 0.5)
-        humidity_lacunarity = noise_settings.get("humidity_lacunarity", 2.0)
+        # 2. Coastal humidity boost (coastal areas are more humid)
+        continentalness = self._get_continentalness_at(world_x, world_y)
+        # Invert: low continentalness (coastal) = more humid
+        coastal_boost = (1.0 - continentalness) * self.coastal_humidity_boost
+        humidity += coastal_boost
         
-        amplitude = 1.0
-        frequency = 1.0
-        noise_value = 0.0
-        max_value = 0.0
+        # 3. Orographic effect (windward/leeward sides of mountains)
+        if height is None:
+            height = self._get_height_at(world_x, world_y)
         
-        # Multi-octave noise for natural humidity variation
-        for _ in range(humidity_octaves):
-            sample_x = world_x / humidity_scale * frequency
-            sample_y = world_y / humidity_scale * frequency
-            
-            noise_value += self.humidity_noise.noise2(sample_x, sample_y) * amplitude
-            max_value += amplitude
-            
-            amplitude *= humidity_persistence
-            frequency *= humidity_lacunarity
+        # Calculate height gradient (approximate windward/leeward)
+        # Sample neighbors to detect slopes
+        # For simplicity, use a directional gradient based on noise
+        # In real implementation, you'd check actual neighbors
+        # Here we approximate by checking if we're on a slope facing a certain direction
         
-        # Normalize to [0, 1] range
-        humidity = (noise_value / max_value + 1.0) / 2.0
+        # Get height at nearby points to estimate slope direction
+        # East-West gradient (simplified: assume prevailing winds from west)
+        height_west = self._get_height_at(world_x - 5, world_y)
+        height_east = self._get_height_at(world_x + 5, world_y)
+        height_north = self._get_height_at(world_x, world_y - 5)
+        height_south = self._get_height_at(world_x, world_y + 5)
         
-        # Optional: Combine with temperature (warmer regions can be more humid)
-        # For now, keep it simple - just noise-based
+        # Calculate gradients
+        gradient_x = height_east - height_west  # Positive = slope facing east (leeward)
+        gradient_y = height_south - height_north  # Positive = slope facing south
         
-        # Clamp to [0.0, 1.0] range
+        # Windward side (west-facing slopes) = more humid
+        # Leeward side (east-facing slopes) = less humid
+        # Use X gradient as primary (assuming west winds)
+        if height > 0.5:  # Only apply to elevated areas (mountains/hills)
+            orographic_modifier = -gradient_x * self.orographic_effect
+            # Windward (negative gradient_x) = positive modifier = more humid
+            # Leeward (positive gradient_x) = negative modifier = less humid
+            humidity += orographic_modifier
+        
+        # Clamp to [0, 1] range
+        humidity = max(0.0, min(1.0, humidity))
+        
+        # 4. Humidity boost along rivers (for green river valleys even in dry zones)
+        river_influence = self._get_river_influence_at(world_x, world_y)
+        if river_influence > 0.0:
+            # Boost humidity along rivers (creates green oases in deserts)
+            river_humidity_boost = river_influence * self.river_humidity_boost
+            humidity += river_humidity_boost
+        
+        # Final clamp to [0, 1] range
         return max(0.0, min(1.0, humidity))
     
-    def get_continentalness_value(self, world_x, world_y):
+    def _get_biome_for_height_temp_humidity(self, height: float, temperature: float, humidity: float):
         """
-        Get continentalness value for any world coordinate (Climate Vector Component).
+        Find appropriate biome using distance-based matching in 3D climate space.
         
-        Continentalness represents distance from ocean: ocean ↔ coast ↔ inland.
-        Controls ocean/beach distribution.
-        
-        Returns normalized continentalness value [0.0, 1.0] where:
-        - 0.0 = ocean (far from land)
-        - 0.5 = coast (transition zone)
-        - 1.0 = inland (far from ocean)
+        Uses weighted Euclidean distance to find the biome with the smallest distance
+        to its target vector (target_height, target_temp, target_humidity).
+        This creates smooth transitions like "Plains → Savanna → Desert" or
+        "Plains → Forest → Rainforest" based on climate gradients instead of hard thresholds.
         
         Args:
-            world_x: World X coordinate (tile coordinate)
-            world_y: World Y coordinate (tile coordinate)
+            height: Normalized height value [0.0, 1.0]
+            temperature: Normalized temperature value [0.0, 1.0]
+            humidity: Normalized humidity value [0.0, 1.0]
             
         Returns:
-            Normalized continentalness value in [0.0, 1.0] range
+            Tuple of (biome_id, biome_data)
         """
-        # Get noise settings
-        noise_settings = self.config.get("noise_settings") or self.config.get("noisesettings", {})
-        
-        # Continentalness noise parameters: very large scale → continents/oceans
-        continentalness_scale = noise_settings.get("continentalness_scale", 800.0)  # Very large scale for continent-sized features
-        continentalness_octaves = noise_settings.get("continentalness_octaves", 2)  # Very few octaves for smooth continental transitions
-        continentalness_persistence = noise_settings.get("continentalness_persistence", 0.5)
-        continentalness_lacunarity = noise_settings.get("continentalness_lacunarity", 2.0)
-        
-        amplitude = 1.0
-        frequency = 1.0
-        noise_value = 0.0
-        max_value = 0.0
-        
-        # Multi-octave noise for continental distribution
-        for _ in range(continentalness_octaves):
-            sample_x = world_x / continentalness_scale * frequency
-            sample_y = world_y / continentalness_scale * frequency
-            
-            noise_value += self.cont_noise.noise2(sample_x, sample_y) * amplitude
-            max_value += amplitude
-            
-            amplitude *= continentalness_persistence
-            frequency *= continentalness_lacunarity
-        
-        # Normalize to [0, 1] range
-        continentalness = (noise_value / max_value + 1.0) / 2.0
-        
-        # Clamp to [0.0, 1.0] range
-        return max(0.0, min(1.0, continentalness))
-    
-    def get_erosion_value(self, world_x, world_y):
-        """
-        Get erosion value for any world coordinate (Climate Vector Component).
-        
-        Erosion represents terrain roughness: smooth vs. rugged.
-        Controls mountains vs. gentle hills.
-        
-        Returns normalized erosion value [0.0, 1.0] where:
-        - 0.0 = smooth (gentle hills, plains)
-        - 1.0 = rugged (mountains, cliffs)
-        
-        Args:
-            world_x: World X coordinate (tile coordinate)
-            world_y: World Y coordinate (tile coordinate)
-            
-        Returns:
-            Normalized erosion value in [0.0, 1.0] range
-        """
-        # Get noise settings
-        noise_settings = self.config.get("noise_settings") or self.config.get("noisesettings", {})
-        
-        # Erosion noise parameters: medium scale, somewhat "rougher"
-        erosion_scale = noise_settings.get("erosion_scale", 220.0)  # Medium scale for regional variation
-        erosion_octaves = noise_settings.get("erosion_octaves", 4)  # More octaves for detail
-        erosion_persistence = noise_settings.get("erosion_persistence", 0.6)  # Higher persistence for rougher terrain
-        erosion_lacunarity = noise_settings.get("erosion_lacunarity", 2.2)  # Slightly higher lacunarity for more variation
-        
-        amplitude = 1.0
-        frequency = 1.0
-        noise_value = 0.0
-        max_value = 0.0
-        
-        # Multi-octave noise for erosion variation
-        for _ in range(erosion_octaves):
-            sample_x = world_x / erosion_scale * frequency
-            sample_y = world_y / erosion_scale * frequency
-            
-            noise_value += self.erosion_noise.noise2(sample_x, sample_y) * amplitude
-            max_value += amplitude
-            
-            amplitude *= erosion_persistence
-            frequency *= erosion_lacunarity
-        
-        # Normalize to [0, 1] range
-        erosion = (noise_value / max_value + 1.0) / 2.0
-        
-        # Optional: Combine with height (higher regions tend to be more eroded)
-        # For now, keep it simple - just noise-based
-        
-        # Clamp to [0.0, 1.0] range
-        return max(0.0, min(1.0, erosion))
-    
-    # ============================================================================
-    # LAYER 4: Water Mask
-    # ============================================================================
-    
-    def get_water_mask(self, world_x, world_y):
-        """
-        Get water mask value for any world coordinate (Layer 4).
-        
-        Uses noise-based water distribution. Returns a value in [0.0, 1.0] range where:
-        - 0.0 = no water (land)
-        - 1.0 = water (ocean/lake)
-        
-        Water placement is determined separately in should_place_water() based on
-        height and mask threshold.
-        
-        Args:
-            world_x: World X coordinate (tile coordinate)
-            world_y: World Y coordinate (tile coordinate)
-        
-        Returns:
-            Water mask value in [0.0, 1.0] range
-        """
-        # Get noise settings (support both "noise_settings" and "noisesettings" for compatibility)
-        noise_settings = self.config.get("noise_settings") or self.config.get("noisesettings", {})
-        
-        # Water noise parameters
-        water_scale = noise_settings.get("water_scale", 300.0)  # Water scale (larger = bigger water bodies)
-        water_octaves = noise_settings.get("water_octaves", 4)  # Water octaves
-        water_persistence = noise_settings.get("water_persistence", 0.5)  # Water persistence
-        water_lacunarity = noise_settings.get("water_lacunarity", 2.0)  # Water lacunarity
-        
-        amplitude = 1.0
-        frequency = 1.0
-        noise_value = 0.0
-        max_value = 0.0
-        
-        # Multi-octave noise for natural water distribution
-        for _ in range(water_octaves):
-            sample_x = world_x / water_scale * frequency
-            sample_y = world_y / water_scale * frequency
-            
-            noise_value += self.water_noise.noise2(sample_x, sample_y) * amplitude
-            max_value += amplitude
-            
-            amplitude *= water_persistence
-            frequency *= water_lacunarity
-        
-        # Normalize noise to [0, 1] range
-        mask = (noise_value / max_value + 1.0) / 2.0
-        
-        # Reduce extremes: compress towards center for smoother water distribution
-        # This creates less extreme values, leading to more controlled water placement
-        mask = 0.5 + (mask - 0.5) * 0.7
-        
-        # Clamp to [0.0, 1.0] range
-        return max(0.0, min(1.0, mask))
-    
-    # ============================================================================
-    # BIOME RESOLVER
-    # ============================================================================
-    
-    def resolve_biome(self, region, height, temp, humid, cont, eros):
-        """
-        Resolve biome from region, height, and climate vector using distance-based scoring.
-        
-        This is the central function that determines which biome a tile should have
-        based on all layer values. Uses climate distance (weighted euclidean) to find
-        the best matching biome, combined with region-based bias.
-        
-        Process:
-        1. Filter candidates by height_min/max (coarse filtering)
-        2. Calculate weighted climate distance for each candidate
-        3. Convert distance to score: score = 1.0 / (distance + epsilon)
-        4. Apply region-based bias
-        5. Select biome with highest score
-        
-        Args:
-            region: Region identifier (from Layer 1: get_base_region) - "wet", "neutral", or "dry"
-            height: Normalized height value [0.0, 1.0] (from Layer 2: get_height_value)
-            temp: Normalized temperature value [0.0, 1.0] (from Layer 3: get_temperature_value)
-            humid: Normalized humidity value [0.0, 1.0] (from Climate Vector)
-            cont: Normalized continentalness value [0.0, 1.0] (from Climate Vector)
-            eros: Normalized erosion value [0.0, 1.0] (from Climate Vector)
-            
-        Returns:
-            Tuple of (biome_id, biome_data) for the resolved biome
-        """
-        # NOTE: Beach is no longer set here - it's applied in Pass 2 (apply_beach_overlay_to_chunk)
-        # where land directly borders shallow water. Deep areas will be handled by water overlay.
-        
-        # Climate distance weights (can be adjusted for different importance)
+        # Distance weights (can be adjusted for different importance)
+        WEIGHT_HEIGHT = 1.0
         WEIGHT_TEMP = 1.0
-        WEIGHT_HUMID = 1.0
-        WEIGHT_CONT = 0.8  # Slightly less important
-        WEIGHT_EROS = 0.6  # Less important than temp/humidity
-        EPSILON = 0.01  # Small value to prevent division by zero
+        WEIGHT_HUMIDITY = 1.0
         
-        # 1. Filter candidates by height_min/max (coarse filtering)
-        # Only consider terrain biomes (exclude water biomes)
-        candidates = []
-        for biome_id, biome_data in self.sorted_land_biomes:
-            # Get pre-calculated normalized height ranges
-            h_min_norm = biome_data.get("height_min_norm", 0.0)
-            h_max_norm = biome_data.get("height_max_norm", 1.0)
-            
-            # Coarse filtering: only check height range
-            if h_min_norm <= height <= h_max_norm:
-                candidates.append((biome_id, biome_data))
+        best_biome = None
+        best_distance = float('inf')
         
-        # If no candidates found, fallback to get_land_biome
-        if not candidates:
-            return self.get_land_biome(height, temp)
-        
-        # 2. Calculate climate distance for each candidate
-        scored = []
-        for biome_id, biome_data in candidates:
-            # Get target climate values from biome config
-            target_temp = biome_data.get("target_temp")
-            target_humid = biome_data.get("target_humidity")
-            target_cont = biome_data.get("target_continentalness")
-            target_eros = biome_data.get("target_erosion")
+        # Calculate distance to each biome's target vector
+        for biome in self.biomes_by_height:
+            # Get target values
+            target_h = biome.get("target_height", 0.5)
+            target_t = biome.get("target_temp", 0.5)
+            target_hum = biome.get("target_humidity", 0.5)
             
-            # If target values not available, skip climate distance (use fallback)
-            if (target_temp is None or target_humid is None or 
-                target_cont is None or target_eros is None):
-                # Fallback: use simple region-based scoring
-                score = 1.0
-                if region == "wet":
-                    if "forest" in biome_id.lower() or "plains" in biome_id.lower():
-                        score *= 1.3
-                    if "desert" in biome_id.lower():
-                        score *= 0.3
-                elif region == "dry":
-                    if "desert" in biome_id.lower() or "mountains" in biome_id.lower():
-                        score *= 1.3
-                scored.append((score, biome_id, biome_data))
-                continue
-            
-            # Calculate weighted euclidean distance
-            # d = sqrt(w_T * (temp - T_b)^2 + w_H * (humid - H_b)^2 + w_C * (cont - C_b)^2 + w_E * (eros - E_b)^2)
-            d_temp = (temp - target_temp) ** 2
-            d_humid = (humid - target_humid) ** 2
-            d_cont = (cont - target_cont) ** 2
-            d_eros = (eros - target_eros) ** 2
+            # Calculate weighted Euclidean distance in 3D climate space
+            d_height = (height - target_h) ** 2
+            d_temp = (temperature - target_t) ** 2
+            d_humidity = (humidity - target_hum) ** 2
             
             distance = math.sqrt(
+                WEIGHT_HEIGHT * d_height +
                 WEIGHT_TEMP * d_temp +
-                WEIGHT_HUMID * d_humid +
-                WEIGHT_CONT * d_cont +
-                WEIGHT_EROS * d_eros
+                WEIGHT_HUMIDITY * d_humidity
             )
             
-            # Convert distance to score: score = 1.0 / (distance + epsilon)
-            # Smaller distance = higher score
-            score = 1.0 / (distance + EPSILON)
+            # Optional: Apply soft filtering by height range (biomes outside range get penalty)
+            # This prevents water biomes from appearing on mountains, but allows smooth transitions
+            if height < biome["height_min"] or height > biome["height_max"]:
+                # Add penalty for being outside height range (but don't exclude completely)
+                height_penalty = 0.0
+                if height < biome["height_min"]:
+                    height_penalty = (biome["height_min"] - height) * 2.0
+                elif height > biome["height_max"]:
+                    height_penalty = (height - biome["height_max"]) * 2.0
+                distance += height_penalty
             
-            # 3. Apply region-based bias
-            if region == "wet":
-                # Wet regions favor: forest, plains, tundra
-                if "forest" in biome_id.lower() or "plains" in biome_id.lower() or "tundra" in biome_id.lower():
-                    score *= 1.3
-                # Wet regions disfavor: desert
-                if "desert" in biome_id.lower():
-                    score *= 0.3
-            
-            elif region == "dry":
-                # Dry regions favor: desert, mountains
-                if "desert" in biome_id.lower() or "mountains" in biome_id.lower():
-                    score *= 1.3
-                # Dry regions slightly disfavor: tundra, snow
-                if "tundra" in biome_id.lower() or "snow" in biome_id.lower():
-                    score *= 0.7
-            
-            # neutral: no bias (score stays as is)
-            
-            scored.append((score, biome_id, biome_data))
+            # Keep track of best matching biome (smallest distance)
+            if distance < best_distance:
+                best_distance = distance
+                best_biome = biome
         
-        # 4. Sort by score (highest first)
-        scored.sort(reverse=True, key=lambda s: s[0])
+        # Return best matching biome
+        if best_biome:
+            return best_biome["id"], best_biome["data"]
         
-        # 5. Return best matching biome (highest score)
-        best_score, best_biome_id, best_biome_data = scored[0]
-        return best_biome_id, best_biome_data
+        # Fallback: If height is at or below water level, use water:shallow
+        if height <= self.water_level:
+            if "water:shallow" in self.config.get("biomes", {}):
+                return "water:shallow", self.config["biomes"]["water:shallow"]
+        
+        # Otherwise, fallback to neutral land biome (plains)
+        if "terrain:plains" in self.config.get("biomes", {}):
+            return "terrain:plains", self.config["biomes"]["terrain:plains"]
+        
+        # Ultimate fallback: return first available biome
+        if self.config.get("biomes"):
+            first_id = list(self.config["biomes"].keys())[0]
+            return first_id, self.config["biomes"][first_id]
+        
+        # Should never happen
+        return "terrain:unknown", {"color": [128, 128, 128], "tile_id": "core:unknown", "traversable": True}
     
-    def get_land_biome(self, height_value, temperature_value):
+    def generate_chunk(self, chunk_x, chunk_y, chunk_size=None, world_height=None):
         """
-        Helper function to determine land biome based on normalized height and temperature values [0, 1].
+        Generate a complete chunk with heightmap-based terrain.
         
-        This is used as a fallback by resolve_biome() when no region-biased candidates are found.
-        Only searches through land biomes (excludes water biomes).
-        Uses pre-calculated normalized height and temperature ranges for efficient lookup.
-        Checks both height and temperature ranges to find matching biome.
-        
-        Args:
-            height_value: Normalized height value in [0, 1] range
-            temperature_value: Normalized temperature value in [0, 1] range (0.0 = cold, 1.0 = warm)
-        
-        Returns:
-            Tuple of (biome_id, biome_data)
-        """
-        # Linear search through land biomes only (check both height and temperature)
-        # For few biomes (<20), linear search is fast enough
-        for biome_id, biome_data in self.sorted_land_biomes:
-            # Use pre-calculated normalized values (no recalculation needed!)
-                h_min_norm = biome_data["height_min_norm"]
-                h_max_norm = biome_data["height_max_norm"]
-                t_min_norm = biome_data["temp_min_norm"]
-                t_max_norm = biome_data["temp_max_norm"]
-            
-            # Check if both height and temperature match
-                if (h_min_norm <= height_value <= h_max_norm and 
-                    t_min_norm <= temperature_value <= t_max_norm):
-                    return biome_id, biome_data
-        
-        # Fallback: Find best matching biome by height (temperature-agnostic)
-        # This ensures we always return a valid biome
-        for biome_id, biome_data in self.sorted_land_biomes:
-            h_min_norm = biome_data["height_min_norm"]
-            h_max_norm = biome_data["height_max_norm"]
-            
-            if h_min_norm <= height_value <= h_max_norm:
-                return biome_id, biome_data
-        
-        # Final fallback: last land biome (highest elevation)
-        return self.sorted_land_biomes[-1]
-    
-    def get_water_biome(self, height_value, temperature_value):
-        """
-        Determine water biome based on normalized height and temperature values [0, 1]
-        
-        Only searches through water biomes (excludes land biomes).
-        Uses pre-calculated normalized height and temperature ranges for efficient lookup.
-        Checks both height and temperature ranges to find matching biome.
-        
-        Args:
-            height_value: Normalized height value in [0, 1] range
-            temperature_value: Normalized temperature value in [0, 1] range (0.0 = cold, 1.0 = warm)
-        
-        Returns:
-            Tuple of (biome_id, biome_data)
-        """
-        # Linear search through water biomes only (check both height and temperature)
-        for biome_id, biome_data in self.sorted_water_biomes:
-                # Use pre-calculated normalized values (no recalculation needed!)
-            h_min_norm = biome_data["height_min_norm"]
-            h_max_norm = biome_data["height_max_norm"]
-            t_min_norm = biome_data["temp_min_norm"]
-            t_max_norm = biome_data["temp_max_norm"]
-            
-            # Check if both height and temperature match
-            if (h_min_norm <= height_value <= h_max_norm and 
-                t_min_norm <= temperature_value <= t_max_norm):
-                return biome_id, biome_data
-        
-        # Fallback: Find best matching biome by height (temperature-agnostic)
-        for biome_id, biome_data in self.sorted_water_biomes:
-                h_min_norm = biome_data["height_min_norm"]
-                h_max_norm = biome_data["height_max_norm"]
-                
-                if h_min_norm <= height_value <= h_max_norm:
-                    return biome_id, biome_data
-        
-        # Final fallback: last water biome (highest elevation)
-        if self.sorted_water_biomes:
-            return self.sorted_water_biomes[-1]
-        # If no water biomes exist, return None (should not happen in normal operation)
-        return None, None
-    
-    def get_biome(self, height_value, temperature_value):
-        """
-        Determine biome based on normalized height and temperature values [0, 1]
-        
-        DEPRECATED: Use get_land_biome() or get_water_biome() instead.
-        This method searches through all biomes for backward compatibility.
-        
-        Args:
-            height_value: Normalized height value in [0, 1] range
-            temperature_value: Normalized temperature value in [0, 1] range (0.0 = cold, 1.0 = warm)
-        
-        Returns:
-            Tuple of (biome_id, biome_data)
-        """
-        # Linear search through all biomes (check both height and temperature)
-        for biome_id, biome_data in self.sorted_biomes:
-            h_min_norm = biome_data["height_min_norm"]
-            h_max_norm = biome_data["height_max_norm"]
-            t_min_norm = biome_data["temp_min_norm"]
-            t_max_norm = biome_data["temp_max_norm"]
-            
-            if (h_min_norm <= height_value <= h_max_norm and 
-                t_min_norm <= temperature_value <= t_max_norm):
-                return biome_id, biome_data
-        
-        # Fallback: Find best matching biome by height
-        for biome_id, biome_data in self.sorted_biomes:
-            h_min_norm = biome_data["height_min_norm"]
-            h_max_norm = biome_data["height_max_norm"]
-            
-            if h_min_norm <= height_value <= h_max_norm:
-                return biome_id, biome_data
-        
-        # Final fallback: last biome (highest elevation)
-        return self.sorted_biomes[-1]
-    
-    def generate_tile(self, world_x, world_y):
-        """
-        Generate a single tile at world coordinates using the layer-based architecture.
-        
-        This method queries all layers and resolves the biome:
-        1. Layer 1: Base Region (get_base_region)
-        2. Layer 2: Height (get_height_value)
-        3. Layer 3: Temperature (get_temperature_value)
-        4. Biome Resolution: resolve_biome(region, height, temp)
-        
-        Water overlay is applied separately in apply_water_overlay_to_chunk().
-        
-        PERFORMANCE: Returns minimal tile data (no resources!)
-        Uses LRU cache to prevent unbounded memory growth during long play sessions.
-        
-        IMPORTANT: The returned tile structure (biome, height, temperature, tile_id, color, traversable)
-        is binary-compatible with RegionManager.serialize_chunk(). Any changes to this
-        structure must be reflected in RegionManager.serialize_chunk() and deserialize_chunk()
-        to maintain compatibility.
-        
-        Args:
-            world_x: World X coordinate (tile coordinate)
-            world_y: World Y coordinate (tile coordinate)
-        
-        Returns:
-            Dictionary with tile data (biome, height, temperature, tile_id, color, traversable)
-        """
-        cache_key = (world_x, world_y)
-        
-        # Check cache first (LRU: move to end if found)
-        if cache_key in self._tile_cache:
-            # Move to end (mark as recently used)
-            tile = self._tile_cache.pop(cache_key)
-            self._tile_cache[cache_key] = tile
-            return tile
-        
-        # ========================================================================
-        # LAYER-BASED GENERATION
-        # ========================================================================
-        # Query all layers
-        region = self.get_base_region(world_x, world_y)  # Layer 1: Base Region
-        height = self.get_height_value(world_x, world_y)  # Layer 2: Height
-        temperature = self.get_temperature_value(world_x, world_y)  # Layer 3: Temperature
-        
-        # Climate Vector Components
-        temp = self.get_temperature_value(world_x, world_y)  # Climate: Temperature
-        humid = self.get_humidity_value(world_x, world_y)  # Climate: Humidity
-        cont = self.get_continentalness_value(world_x, world_y)  # Climate: Continentalness
-        eros = self.get_erosion_value(world_x, world_y)  # Climate: Erosion
-        
-        # Resolve biome from layers using central resolver (climate distance-based)
-        biome_id, biome_data = self.resolve_biome(region, height, temp, humid, cont, eros)
-        
-        # Support both "tile_id" and "tileid" for compatibility
-        # Always use terrain:* format (never core:*)
-        tile_id = biome_data.get("tile_id") or biome_data.get("tileid", "terrain:unknown")
-        
-        # Ensure tileid is terrain:* format (not core:*)
-        # Convert core:* to terrain:* by replacing prefix
-        if tile_id.startswith("core:"):
-            tile_id = tile_id.replace("core:", "terrain:", 1)
-        elif not tile_id.startswith("terrain:"):
-            # If it doesn't start with terrain:, add the prefix
-            tile_id = f"terrain:{tile_id}"
-        
-        # ========================================================================
-        # TILE STRUCTURE
-        # ========================================================================
-        # Build tile structure from resolved biome and layer values
-        tile = {
-            "base_biome": biome_id,
-            "biome": biome_id,
-            "height": float(height),
-            "temperature": float(temp),
-            "tileid": tile_id,  # Always terrain:*
-            "color": tuple(biome_data["color"]),
-            "traversable": biome_data["traversable"],
-            # Debug information: store layer values for debugging
-            "region": region,  # Layer 1: Base Region (wet/neutral/dry)
-            # Climate Vector: v = (temp, humidity, continentalness, erosion)
-            "humidity": float(humid),  # Climate: Humidity (0.0 = dry, 1.0 = humid)
-            "continentalness": float(cont),  # Climate: Continentalness (0.0 = ocean, 1.0 = inland)
-            "erosion": float(eros),  # Climate: Erosion (0.0 = smooth, 1.0 = rugged)
-            # Climate vector as tuple for easy access: v = (temp, humid, cont, eros)
-            "climate": (float(temp), float(humid), float(cont), float(eros)),
-            # height and temperature already stored above
-            # NO "resources" field = massive performance gain!
-        }
-        
-        # NOTE: Water overlay is applied separately in apply_water_overlay_to_chunk()
-        # This keeps the generation pipeline clean: land first, then water overlay
-        
-        # Cache result (add to end = most recently used)
-        self._tile_cache[cache_key] = tile
-        
-        # Evict oldest entries if cache exceeds max size
-        while len(self._tile_cache) > self._tile_cache_max_size:
-            # Remove oldest (first item)
-            self._tile_cache.popitem(last=False)
-        
-        return tile
-    
-    def _generate_land_chunk(self, chunk_x, chunk_y, chunk_size=None):
-        """
-        Generate a land chunk (first pass) - only terrain:* biomes, no water.
-        
-        This is a private helper method that generates the base terrain with land biomes only.
-        Water overlay is applied separately in apply_water_overlay_to_chunk().
-        
-        This ensures chunks connect seamlessly!
+        Based on: https://loady.one/blog/terrain_mesh.html
         
         Args:
             chunk_x: Chunk X coordinate
             chunk_y: Chunk Y coordinate  
             chunk_size: Tiles per chunk (defaults to settings.CHUNK_SIZE if None)
+            world_height: World height in tiles for latitude calculation (None = use modulo zones)
         
         Returns:
-            2D list of tile dictionaries (all terrain:* biomes, no water)
-        
-        Raises:
-            AssertionError: If chunk_size doesn't match settings.CHUNK_SIZE (prevents mismatches)
+            2D list of tile dictionaries
         """
-        # Use settings.CHUNK_SIZE as default to avoid hardcoded values
         if chunk_size is None:
             chunk_size = settings.CHUNK_SIZE
         
-        # Assert to catch mismatches early (prevents silent bugs)
-        assert chunk_size == settings.CHUNK_SIZE, (
-            f"chunk_size mismatch: got {chunk_size}, expected {settings.CHUNK_SIZE}. "
-            f"This would cause save/load inconsistencies!"
-        )
+        # Set world_height for this generation (temporary, for latitude calculation)
+        old_world_height = self.world_height
+        if world_height is not None:
+            self.world_height = float(world_height)
+        
         # Calculate world offset for this chunk
         world_offset_x = chunk_x * chunk_size
         world_offset_y = chunk_y * chunk_size
         
+        # Generate heightmap for this chunk
+        heightmap = []
+        for tile_y in range(chunk_size):
+            row = []
+            for tile_x in range(chunk_size):
+                world_x = world_offset_x + tile_x
+                world_y = world_offset_y + tile_y
+                height = self._get_height_at(world_x, world_y)
+                row.append(height)
+            heightmap.append(row)
+        
+        # No normalization needed: _get_height_at already returns clamped [0.0, 1.0] values
+        # Normalizing with fixed min/max (0.0, 1.0) would create hard cuts by clamping
+        # all values to exact boundaries, causing visible bands in the heatmap
+        
+        # Generate tiles from heightmap
         tiles = []
         for tile_y in range(chunk_size):
             row = []
             for tile_x in range(chunk_size):
-                # Calculate absolute world coordinates
                 world_x = world_offset_x + tile_x
                 world_y = world_offset_y + tile_y
+                height = heightmap[tile_y][tile_x]
                 
-                # Generate tile from continuous world function (only land biomes)
-                # generate_tile uses resolve_biome which only returns land biomes
-                tile = self.generate_tile(world_x, world_y)
+                # Get temperature at this location (pass height for height-based cooling)
+                temperature = self._get_temperature_at(world_x, world_y, height)
+                
+                # Get humidity at this location (pass height for orographic effects)
+                humidity = self._get_humidity_at(world_x, world_y, height)
+                
+                # Get biome based on height, temperature, AND humidity
+                biome_id, biome_data = self._get_biome_for_height_temp_humidity(height, temperature, humidity)
+                
+                # Sammle Statistiken wenn aktiviert
+                if self.statistics is not None:
+                    self.statistics.add_sample(biome_id, height, temperature, humidity)
+                
+                # Support both "tile_id" and "tileid" for compatibility
+                tile_id = biome_data.get("tile_id") or biome_data.get("tileid", "terrain:unknown")
+                
+                # Ensure tileid is terrain:* format (not core:*)
+                if tile_id.startswith("core:"):
+                    tile_id = tile_id.replace("core:", "terrain:", 1)
+                elif not tile_id.startswith("terrain:") and not tile_id.startswith("water:"):
+                    tile_id = f"terrain:{tile_id}"
+                
+                # Build tile dictionary
+                tile = {
+                    "biome": biome_id,
+                    "base_biome": biome_id,
+                    "height": float(height),
+                    "temperature": float(temperature),
+                    "humidity": float(humidity),
+                    "tileid": tile_id,
+                    "color": tuple(biome_data.get("color", [128, 128, 128])),
+                    "traversable": biome_data.get("traversable", True),
+                }
+                
                 row.append(tile)
-            
             tiles.append(row)
         
-        return tiles
-    
-    def generate_chunk(self, chunk_x, chunk_y, chunk_size=None):
-        """
-        Generate a complete chunk with land biomes and water overlay (2-Pass Flow).
-        
-        This is the main entry point for chunk generation. It follows a clear 2-pass flow:
-        1. Pass 1: Generate land chunk (terrain:* biomes only, no water, no beach) via _generate_land_chunk()
-        2. Pass 2: Apply water overlay (3-step process):
-           - Step 1: Set water tiles based on water_mask (all initially shallow)
-           - Step 2: Classify water depth (convert inner water to deep)
-           - Step 3: Apply beach overlay (beach only at shallow water edges)
-        
-        This ensures:
-        - Beach exists only directly next to water:shallow
-        - water:deep can never directly touch land (always shallow water ring)
-        - Small "beach patches" inland automatically disappear
-        
-        This ensures chunks connect seamlessly and water distribution is consistent!
-        
-        Args:
-            chunk_x: Chunk X coordinate
-            chunk_y: Chunk Y coordinate  
-            chunk_size: Tiles per chunk (defaults to settings.CHUNK_SIZE if None)
-        
-        Returns:
-            2D list of tile dictionaries (terrain:* and water:* biomes)
-        
-        Raises:
-            AssertionError: If chunk_size doesn't match settings.CHUNK_SIZE (prevents mismatches)
-        """
-        # Pass 1: Generate land chunk (only terrain:* biomes, no water, no beach)
-        tiles = self._generate_land_chunk(chunk_x, chunk_y, chunk_size)
-        
-        # Pass 2: Apply water overlay (3-step process)
-        # Step 1: Set water tiles based on water_mask (all initially shallow)
-        self.apply_water_overlay_to_chunk(tiles, chunk_x, chunk_y)
-        
-        # Step 2: Classify water depth (convert inner water to deep)
-        self.classify_water_depth_in_chunk(tiles, chunk_x, chunk_y)
-        
-        # Step 3: Apply beach overlay (beach only at shallow water edges)
-        self.apply_beach_overlay_to_chunk(tiles, chunk_x, chunk_y)
+        # Restore original world_height
+        self.world_height = old_world_height
         
         return tiles
     
-    def clear_cache(self):
-        """Clear tile cache (useful when changing seeds)"""
-        self._tile_cache.clear()
-    
-    def should_place_water(self, height, water_mask, continentalness):
+    def generate_tile(self, world_x: int, world_y: int, world_height: float = None) -> dict:
         """
-        Determine if water should be placed at this location.
+        Generate a single tile at world coordinates.
         
-        Combines water_mask threshold with height and continentalness to decide if tile should become water.
-        - Lower heights are more likely to have water
-        - Low continentalness (ocean basins) → high water chance, even at higher heights
-        - High continentalness (inland) → low water chance, even at lower heights
-        
-        This creates connected oceans and inland continents like in Minecraft, where continentalness
-        defines large-scale ocean/inland structure, while height and water_mask add local variation.
-        
-        Parameters are tuned to achieve 10-20% water coverage overall.
+        This method is used for individual tile lookups (e.g., spawn position finding,
+        tile inspection) without generating entire chunks.
         
         Args:
-            height: Normalized height value [0.0, 1.0]
-            water_mask: Water mask value [0.0, 1.0]
-            continentalness: Normalized continentalness value [0.0, 1.0] (0.0 = ocean, 1.0 = inland)
+            world_x: World X coordinate (tile coordinate)
+            world_y: World Y coordinate (tile coordinate)
+            world_height: World height in tiles for latitude calculation (None = use self.world_height or modulo zones)
         
         Returns:
-            True if water should be placed, False otherwise
+            Tile dictionary with biome, height, temperature, humidity, etc.
         """
-        # Height factor: lower heights are more likely to have water
-        height_factor = 1.0 - height  # 1.0 at height 0.0, 0.0 at height 1.0
+        # Use provided world_height, or fall back to instance world_height, or None (modulo zones)
+        # No need to temporarily set it since we're not modifying instance state
+        # The _get_temperature_at method will use self.world_height if set
         
-        # Continentalness factor: low continentalness = ocean basins (high water chance)
-        # High continentalness = inland (low water chance)
-        # Invert continentalness: low cont (0.0) → high water chance, high cont (1.0) → low water chance
-        cont_factor = 1.0 - continentalness  # 1.0 at cont 0.0 (ocean), 0.0 at cont 1.0 (inland)
+        # Get height at this location
+        height = self._get_height_at(world_x, world_y)
         
-        # Weaker height influence: subtract a small amount from threshold based on height
-        # Lower heights reduce threshold slightly (making water more likely)
-        # Higher threshold (0.75) means water only in very wet mask areas
-        height_adjustment = height_factor * 0.2  # Weaker height influence (was 0.4 in combined_factor)
+        # Get temperature at this location (pass height for height-based cooling)
+        temperature = self._get_temperature_at(world_x, world_y, height)
         
-        # Continentalness still influences water placement, but more subtly
-        # Low continentalness (ocean basins) can slightly reduce threshold
-        cont_adjustment = cont_factor * 0.1  # Subtle continentalness influence
+        # Get humidity at this location (pass height for orographic effects)
+        humidity = self._get_humidity_at(world_x, world_y, height)
         
-        # Calculate adjusted threshold: subtract adjustments from base threshold
-        # Higher base threshold (0.75) - small adjustments = water only in very wet areas
-        adjusted_threshold = WATER_THRESHOLD - height_adjustment - cont_adjustment
+        # Get biome based on height, temperature, AND humidity
+        biome_id, biome_data = self._get_biome_for_height_temp_humidity(height, temperature, humidity)
         
-        return water_mask > adjusted_threshold
+        # Support both "tile_id" and "tileid" for compatibility
+        tile_id = biome_data.get("tile_id") or biome_data.get("tileid", "terrain:unknown")
+        
+        # Ensure tileid is terrain:* format (not core:*)
+        if tile_id.startswith("core:"):
+            tile_id = tile_id.replace("core:", "terrain:", 1)
+        elif not tile_id.startswith("terrain:") and not tile_id.startswith("water:"):
+            tile_id = f"terrain:{tile_id}"
+        
+        # Build tile dictionary
+        tile = {
+            "biome": biome_id,
+            "base_biome": biome_id,
+            "height": float(height),
+            "temperature": float(temperature),
+            "humidity": float(humidity),
+            "tileid": tile_id,
+            "color": tuple(biome_data.get("color", [128, 128, 128])),
+            "traversable": biome_data.get("traversable", True),
+        }
+        
+        return tile
     
-    def pick_water_biome(self, height, water_mask):
-        """
-        Pick appropriate water biome based on height and water mask depth.
-        
-        Uses depth calculation: depth = water_mask * (1.0 - height)
-        - Higher depth → deep water
-        - Lower depth → shallow water
-        
-        This creates shallow fringes around islands and deep cores in oceans.
-        
-        Args:
-            height: Normalized height value [0.0, 1.0]
-            water_mask: Water mask value [0.0, 1.0]
-        
-        Returns:
-            Tuple of (water_biome_id, water_biome_data)
-        """
-        # Calculate depth: combination of water_mask and height
-        # Lower height + higher mask = deeper water
-        depth = water_mask * (1.0 - height)
-        
-        # Determine water biome based on depth
-        if depth > 0.5:
-            # Deep water: high mask + low height
-            biome_id = "water:deep"
+    def print_biome_statistics(self):
+        """Gibt die gesammelten Biome-Statistiken aus."""
+        if self.statistics is not None:
+            self.statistics.print_statistics()
         else:
-            # Shallow water: lower mask or higher height (coastal areas)
-            biome_id = "water:shallow"
-        
-        # Get biome data from config
-        if biome_id in self.config.get("biomes", {}):
-            return biome_id, self.config["biomes"][biome_id]
-        
-        # Fallback: use first available water biome
-        if self.sorted_water_biomes:
-            return self.sorted_water_biomes[0]
-        
-        return None, None
-    
-    def is_water(self, tile):
-        """
-        Check if a tile is water.
-        
-        Args:
-            tile: Tile dictionary
-            
-        Returns:
-            True if tile is water, False otherwise
-        """
-        biome_id = tile.get("biome", "")
-        return biome_id.startswith("water:")
-    
-    def is_shallow_water(self, tile):
-        """
-        Check if a tile is shallow water.
-        
-        Args:
-            tile: Tile dictionary
-            
-        Returns:
-            True if tile is shallow water, False otherwise
-        """
-        biome_id = tile.get("biome", "")
-        return biome_id == "water:shallow"
-    
-    def get_neighbors(self, tiles, x, y, use_8_neighbors=True):
-        """
-        Get neighboring tiles around position (x, y).
-        
-        Args:
-            tiles: 2D list of tile dictionaries
-            x: X coordinate in tiles array
-            y: Y coordinate in tiles array
-            use_8_neighbors: If True, use 8-neighborhood (including diagonals), else 4-neighborhood
-            
-        Returns:
-            List of neighboring tile dictionaries (empty list if out of bounds)
-        """
-        neighbors = []
-        h = len(tiles)
-        w = len(tiles[0]) if h > 0 else 0
-        
-        # 8-neighborhood offsets (including diagonals)
-        offsets = [
-            (-1, -1), (-1, 0), (-1, 1),
-            (0, -1),           (0, 1),
-            (1, -1),  (1, 0),  (1, 1)
-        ] if use_8_neighbors else [
-            (-1, 0), (0, -1), (0, 1), (1, 0)  # 4-neighborhood (cardinal directions)
-        ]
-        
-        for dx, dy in offsets:
-            nx, ny = x + dx, y + dy
-            if 0 <= ny < h and 0 <= nx < w:
-                neighbors.append(tiles[ny][nx])
-        
-        return neighbors
-    
-    def classify_water_depth_in_chunk(self, tiles, chunk_x, chunk_y):
-        """
-        Classify water depth based on neighborhood and depth indicators.
-        
-        Converts inner water (completely surrounded by water) to deep, but only if
-        the water_mask or height indicates sufficient depth. This makes deep water
-        more restrictive, creating wider coastal zones (shallow + beach).
-        
-        Assumes all water tiles are already marked as shallow.
-        
-        This ensures that deep water never directly touches land - there's
-        always at least one ring of shallow water between land and deep water.
-        
-        Args:
-            tiles: 2D list of tile dictionaries (water tiles should already be shallow)
-            chunk_x: Chunk X coordinate (for calculating world coordinates)
-            chunk_y: Chunk Y coordinate (for calculating world coordinates)
-        """
-        h = len(tiles)
-        w = len(tiles[0]) if h > 0 else 0
-        chunk_size = settings.CHUNK_SIZE
-        
-        # Depth thresholds: water must meet at least one of these to become deep
-        DEEP_WATER_MASK_THRESHOLD = 0.85  # Very high water mask (very wet area)
-        DEEP_WATER_HEIGHT_THRESHOLD = 0.25  # Very low height (deep basin)
-        
-        # Convert inner water (completely surrounded by water) to deep
-        # Use 8-neighborhood to ensure deep water is fully surrounded
-        for y in range(h):
-            for x in range(w):
-                tile = tiles[y][x]
-                if not self.is_water(tile):
-                    continue
-                
-                # Get all neighbors (8-neighborhood)
-                neighbors = self.get_neighbors(tiles, x, y, use_8_neighbors=True)
-                
-                # Condition 1: All neighbors must be water (surrounded by water)
-                if not neighbors or not all(self.is_water(n) for n in neighbors):
-                    continue  # Not fully surrounded, keep as shallow
-                
-                # Condition 2: Must indicate sufficient depth via water_mask or height
-                # Calculate world coordinates to get water_mask
-                world_x = chunk_x * chunk_size + x
-                world_y = chunk_y * chunk_size + y
-                
-                # Get water mask and height
-                water_mask = self.get_water_mask(world_x, world_y)
-                height = tile.get("height", 0.5)
-                
-                # Check if depth indicators show sufficient depth
-                # Deep water requires: very high water_mask OR very low height
-                is_deep_enough = (
-                    water_mask >= DEEP_WATER_MASK_THRESHOLD or
-                    height <= DEEP_WATER_HEIGHT_THRESHOLD
-                )
-                
-                # Only convert to deep if both conditions are met:
-                # 1. Fully surrounded by water (neighborhood check)
-                # 2. Sufficient depth (mask or height check)
-                if is_deep_enough:
-                    biome_id = "water:deep"
-                    if biome_id in self.config.get("biomes", {}):
-                        data = self.config["biomes"][biome_id]
-                        tile["biome"] = biome_id
-                        tile["tileid"] = data.get("tile_id") or data.get("tileid", "core:unknown")
-                        tile["color"] = tuple(data["color"])
-                        tile["traversable"] = data["traversable"]
-    
-    def apply_beach_overlay_to_chunk(self, tiles, chunk_x, chunk_y):
-        """
-        Apply beach biome to land tiles that directly border shallow water.
-        
-        Beach is only placed where land directly touches shallow water (4-neighborhood).
-        Deep water never directly touches land - there's always shallow water in between.
-        
-        Beach replaces the existing land biome at the coast, but cannot appear
-        inland because the neighborhood check requires water:shallow.
-        
-        Args:
-            tiles: 2D list of tile dictionaries
-            chunk_x: Chunk X coordinate (unused, kept for API consistency)
-            chunk_y: Chunk Y coordinate (unused, kept for API consistency)
-        """
-        h = len(tiles)
-        w = len(tiles[0]) if h > 0 else 0
-        
-        # Get beach biome config
-        if "terrain:beach" not in self.config.get("biomes", {}):
-            return  # No beach biome found
-        
-        beach_data = self.config["biomes"]["terrain:beach"]
-        
-        # Check each tile
-        for y in range(h):
-            for x in range(w):
-                tile = tiles[y][x]
-                
-                # Skip if already water (beach only on land)
-                if self.is_water(tile):
-                    continue
-                
-                # Check 4-neighbors (cardinal directions only)
-                neighbors = self.get_neighbors(tiles, x, y, use_8_neighbors=False)
-                
-                # Beach placement: only if neighbor is shallow water AND height is low enough
-                # This prevents beach from appearing at high elevations (mountains shouldn't have beach)
-                if neighbors and any(self.is_shallow_water(n) for n in neighbors):
-                    # Only place beach at very low heights (true coastal areas only)
-                    # Height threshold: beach should only appear below ~0.38 (very low coastal range)
-                    # This makes beach very restrictive - only immediate coastal areas, not plains
-                    tile_height = tile.get("height", 0.5)
-                    if tile_height < 0.38:  # Only very low coastal elevations get beach (was 0.42, originally 0.5)
-                        tile["biome"] = "terrain:beach"
-                        tile["base_biome"] = tile.get("base_biome", "terrain:beach")
-                        tile["tileid"] = beach_data.get("tile_id") or beach_data.get("tileid", "core:sand")
-                        tile["color"] = tuple(beach_data["color"])
-                        tile["traversable"] = beach_data["traversable"]
-    
-    def apply_water_overlay_to_chunk(self, tiles, chunk_x, chunk_y):
-        """
-        Apply water overlay to a chunk (Step 1: Set water tiles based on water_mask).
-        
-        Sets water tiles based on water_mask and height threshold.
-        All water tiles are initially marked as shallow.
-        
-        Args:
-            tiles: 2D list of tile dictionaries (from _generate_land_chunk)
-            chunk_x: Chunk X coordinate
-            chunk_y: Chunk Y coordinate
-        """
-        chunk_size = settings.CHUNK_SIZE
-        
-        # Set water tiles based on water_mask (all initially shallow)
-        for ty, row in enumerate(tiles):
-            for tx, tile in enumerate(row):
-                # Skip if already water
-                if self.is_water(tile):
-                    continue
-                
-                # Calculate world coordinates
-                world_x = chunk_x * chunk_size + tx
-                world_y = chunk_y * chunk_size + ty
-                
-                # Get tile height, water mask, and continentalness
-                height = tile.get("height", 0.5)  # Normalized height [0, 1]
-                mask = self.get_water_mask(world_x, world_y)
-                continentalness = tile.get("continentalness", 0.5)  # Normalized continentalness [0, 1]
-                
-                # Decide if water should be placed here (threshold + height + continentalness)
-                if not self.should_place_water(height, mask, continentalness):
-                    continue
-                
-                # Initially set all water as shallow (depth classification happens later)
-                biome_id = "water:shallow"
-                if biome_id not in self.config.get("biomes", {}):
-                    continue  # Skip if biome not found
-                
-                data = self.config["biomes"][biome_id]
-                
-                # Update tile with water biome data (overwrites land biome)
-                tile["biome"] = biome_id
-                # Keep base_biome for reference (original land biome)
-                if "base_biome" not in tile:
-                    tile["base_biome"] = tile.get("biome", biome_id)
-                
-                # Get tile_id from water biome
-                tile_id = data.get("tile_id") or data.get("tileid", "core:unknown")
-                tile["tileid"] = tile_id
-                tile["color"] = tuple(data["color"])
-                tile["traversable"] = data["traversable"]
+            print("Statistics collection is disabled. Initialize with collect_statistics=True.")

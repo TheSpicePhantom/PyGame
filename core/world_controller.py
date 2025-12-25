@@ -661,20 +661,25 @@ class WorldController:
             return
         
         tile_x, tile_y, tile_data = tile_info
+        biome = tile_data.get('biome', 'unknown')
+        tile_id = tile_data.get('tileid', '') or tile_data.get('tile_id', 'unknown')
         
         if button == 1:  # Left click
             traversable = tile_data.get('traversable', False)
             if traversable:
                 destroyable = self._is_tile_destroyable(tile_data)
                 if self.diagnostics:
-                    self.diagnostics.info("WorldController", f"Left click on tile ({tile_x}, {tile_y}): destroyable={destroyable}")
+                    self.diagnostics.info("WorldController", f"Left click on tile ({tile_x}, {tile_y}): destroyable={destroyable} (Biome: {biome}, Tile-ID: {tile_id})")
             else:
                 if self.diagnostics:
-                    self.diagnostics.info("WorldController", f"Left click on tile ({tile_x}, {tile_y}): nicht zerstörbar (nicht traversable)")
+                    self.diagnostics.info("WorldController", f"Left click on tile ({tile_x}, {tile_y}): nicht zerstörbar (nicht traversable, Biome: {biome}, Tile-ID: {tile_id})")
         elif button == 4:  # Right click
             can_build = self._can_build_on_tile(tile_data)
             if self.diagnostics:
-                self.diagnostics.info("WorldController", f"Right click on tile ({tile_x}, {tile_y}): can_build={can_build}")
+                if can_build:
+                    self.diagnostics.info("WorldController", f"Right click on tile ({tile_x}, {tile_y}): can_build={can_build} (Biome: {biome}, Tile-ID: {tile_id})")
+                else:
+                    self.diagnostics.info("WorldController", f"Right click on tile ({tile_x}, {tile_y}): can_build={can_build} - darauf kann nicht gebaut werden (Biome: {biome}, Tile-ID: {tile_id})")
     
     def _get_tile_under_mouse(self, mouse_x: int, mouse_y: int):
         """Get tile under mouse cursor if within 8 tiles of player"""

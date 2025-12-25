@@ -26,7 +26,11 @@ class World:
         final_seed = self._init_seed(seed)
         
         # Now create the actual terrain generator with the correct seed
+        # Set world_height for smooth latitude calculation (prevents hard cuts)
+        world_height_tiles = settings.WORLD_SIZE_CHUNKS * settings.CHUNK_SIZE
         self.terrain_gen = TerrainGenerator(seed=final_seed)
+        self.terrain_gen.world_height = float(world_height_tiles)
+        
         # Update chunk manager to use the correct terrain generator
         self.chunk_manager.terrain_gen = self.terrain_gen
         if self.diagnostics:

@@ -1314,7 +1314,7 @@ class GameWindow(pyglet.window.Window):
         
         tile_x, tile_y, tile_data = tile_info
         traversable = tile_data.get('traversable', False)
-        tile_id = tile_data.get('tile_id', 'unknown')
+        tile_id = tile_data.get('tileid', '') or tile_data.get('tile_id', 'unknown')
         biome = tile_data.get('biome', 'unknown')
         
         if button == mouse.LEFT:

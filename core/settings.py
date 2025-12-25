@@ -81,15 +81,15 @@ def get_chunk_load_distance():
     return min(max(_BASE_CHUNK_LOAD_DISTANCE, min_distance), 8)  # Max 8 chunks distance
 
 # Chunk processing time budget (in milliseconds per frame)
-CHUNK_UPLOAD_BUDGET_MS = 4.5  # Maximum time allowed for chunk uploads per frame (increased from 3.0ms, avg 0.64ms, max 4.83ms observed)
-CHUNK_UPLOAD_MIN_PER_FRAME = 3  # Minimum chunks to process per frame (guarantees progress even if single chunk is expensive, increased for better zoom responsiveness)
+CHUNK_UPLOAD_BUDGET_MS = 3.5  # Maximum time allowed for chunk uploads per frame (reduced to prevent frame spikes)
+CHUNK_UPLOAD_MIN_PER_FRAME = 2  # Minimum chunks to process per frame (reduced for smoother frame times)
 
 # Chunk load rate limiting (HARD CAPS to prevent IO spikes)
-CHUNK_LOAD_RATE_LIMIT = 60  # Maximum disk loads per second globally (30-40 range) - HARD CAP
+CHUNK_LOAD_RATE_LIMIT = 60  # Maximum disk loads per second globally (conservative: prevents bursts)
 CHUNK_LOAD_RATE_WINDOW_MS = 1000  # Time window for measuring load rate (1 second)
-CHUNK_LOAD_RATE_SLEEP_MS = 0.025  # Sleep time when rate limit exceeded (25ms - longer sleep for stricter limit)
-CHUNK_LOAD_WORKER_RATE_LIMIT = 20  # Maximum chunks per second per worker (with 3 workers: ~36 total, limited by global cap)
-CHUNK_LOAD_TOKEN_BUCKET_SIZE = 8  # Token bucket size per worker (smaller bursts)
+CHUNK_LOAD_RATE_SLEEP_MS = 0.020  # Sleep time when rate limit exceeded (slightly increased for smoother load distribution)
+CHUNK_LOAD_WORKER_RATE_LIMIT = 25  # Maximum chunks per second per worker (conservative: with 3 workers: ~75 total)
+CHUNK_LOAD_TOKEN_BUCKET_SIZE = 8  # Token bucket size per worker (reduced to prevent bursts)
 CHUNK_LOAD_TOKEN_REFILL_RATE = CHUNK_LOAD_WORKER_RATE_LIMIT / 1000.0  # Tokens per millisecond
 
 # Chunk save rate limiting (HARD CAPS to prevent IO spikes)

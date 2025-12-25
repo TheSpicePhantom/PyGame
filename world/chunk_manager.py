@@ -127,10 +127,10 @@ class ChunkManager:
         self._worker_token_lock = threading.Lock()  # Lock for token buckets
         
         # Performance limits (documented for tuning):
-        # - Max chunks loaded per second: ~30 chunks/sec (3 workers, ~100ms per chunk average)
+        # - Max chunks loaded per second: ~60 chunks/sec (3 workers, ~25 chunks/sec per worker)
         # - Max chunks saved per second: 20 chunks/sec (1 worker, 50ms delay between saves)
-        # - Max chunks processed per frame: 3 chunks per frame (via process_loaded_chunks)
-        #   - Conservative limit to prevent render/upload spikes during fast camera movements
+        # - Max chunks processed per frame: 2 chunks per frame (via process_loaded_chunks)
+        #   - Conservative limit to prevent frame spikes and maintain smooth FPS
         #   - Keeps FPS stable while continuously loading chunks in visible area + buffer
         # These limits prevent frame drops and I/O overload
         
@@ -152,7 +152,7 @@ class ChunkManager:
         self.save_worker_thread = threading.Thread(target=self._chunk_save_worker, daemon=True, name="ChunkSaveWorker")
         self.save_worker_thread.start()
         
-        # Start 3 worker threads for chunk loading (increased from 2)
+        # Start 3 worker threads for chunk loading (balanced: good parallelization without overload)
         for i in range(3):
             thread = threading.Thread(target=self._chunk_loader_worker, daemon=True)
             thread.start()
@@ -1665,12 +1665,12 @@ class ChunkManager:
         Worker thread that loads chunks from the priority queue.
         
         HARD RATE LIMITS (prevents IO spikes):
-        - 3 worker threads running in parallel
-        - Global rate limit: CHUNK_LOAD_RATE_LIMIT chunks/second (HARD CAP: 30-40/sec)
-        - Per-worker rate limit: CHUNK_LOAD_WORKER_RATE_LIMIT chunks/second (HARD CAP: ~12/sec per worker)
-        - Token bucket per worker prevents bursts
+        - 3 worker threads running in parallel (balanced for good performance)
+        - Global rate limit: CHUNK_LOAD_RATE_LIMIT chunks/second (HARD CAP: 60/sec, conservative to prevent bursts)
+        - Per-worker rate limit: CHUNK_LOAD_WORKER_RATE_LIMIT chunks/second (HARD CAP: ~25/sec per worker, conservative)
+        - Token bucket per worker prevents bursts (bucket size: 8 tokens)
         - Chunks are loaded in priority order (closer to player = higher priority)
-        - Better delayed chunks than storage controller under constant fire causing 100ms spikes
+        - Sleep times: 20ms for smoother load distribution
         """
         import time
         import threading as thread_module
@@ -1721,9 +1721,9 @@ class ChunkManager:
                         time.sleep(settings.CHUNK_LOAD_RATE_SLEEP_MS)
                         continue
                 
-                # Get chunk coordinates from priority queue (reduced timeout for faster response)
+                # Get chunk coordinates from priority queue (conservative timeout for smooth load distribution)
                 # PriorityQueue returns items in order: (priority, chunk_x, chunk_y)
-                priority, chunk_x, chunk_y = self.chunk_load_queue.get(timeout=0.01)
+                priority, chunk_x, chunk_y = self.chunk_load_queue.get(timeout=0.01)  # Standard timeout for smooth operation
                 
                 # Check if chunk already loaded (double-check with lock)
                 if (chunk_x, chunk_y) in self.loaded_chunks:

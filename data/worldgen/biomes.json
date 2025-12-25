@@ -14,28 +14,37 @@
   "biomes": {
     "water:deep": {
       "height_min": -1.0,
-      "height_max": -0.3,
+      "height_max": 0.05,
       "temp_min": 0.0,
       "temp_max": 1.0,
+      "target_height": 0.0,
+      "target_temp": 0.5,
+      "target_humidity": 1.0,
       "color": [20, 60, 120],
       "tile_id": "core:deepwater",
       "traversable": false
     },
     "water:shallow": {
-      "height_min": -0.3,
-      "height_max": 0.10,
+      "height_min": 0.06,
+      "height_max": 0.15,
       "temp_min": 0.0,
       "temp_max": 1.0,
+      "target_height": 0.10,
+      "target_temp": 0.5,
+      "target_humidity": 0.9,
       "color": [40, 100, 180],
       "tile_id": "core:shallowwater",
       "traversable": false
     },
 
     "terrain:beach": {
-      "height_min": -0.15,
-      "height_max": 0.22,
+      "height_min": 0.30,
+      "height_max": 0.38,
       "temp_min": 0.45,
-      "temp_max": 1.0,
+      "temp_max": 0.85,
+      "humidity_min": 0.0,
+      "humidity_max": 0.7,
+      "target_height": 0.34,
       "target_temp": 0.65,
       "target_humidity": 0.55,
       "target_continentalness": 0.25,
@@ -46,10 +55,11 @@
     },
 
     "terrain:tundra": {
-      "height_min": 0.15,
+      "height_min": 0.30,
       "height_max": 0.55,
-      "temp_min": 0.0,
-      "temp_max": 0.50,
+      "temp_min": -0.05,
+      "temp_max": 0.40,
+      "target_height": 0.42,
       "target_temp": 0.18,
       "target_humidity": 0.35,
       "target_continentalness": 0.65,
@@ -59,10 +69,11 @@
       "traversable": true
     },
     "terrain:plains": {
-      "height_min": 0.15,
+      "height_min": 0.24,
       "height_max": 0.55,
-      "temp_min": 0.20,
-      "temp_max": 0.80,
+      "temp_min": 0.50,
+      "temp_max": 0.85,
+      "target_height": 0.40,
       "target_temp": 0.5,
       "target_humidity": 0.55,
       "target_continentalness": 0.6,
@@ -72,10 +83,11 @@
       "traversable": true
     },
     "terrain:desert": {
-      "height_min": 0.15,
+      "height_min": 0.30,
       "height_max": 0.55,
-      "temp_min": 0.40,
+      "temp_min": 0.75,
       "temp_max": 1.0,
+      "target_height": 0.42,
       "target_temp": 0.88,
       "target_humidity": 0.12,
       "target_continentalness": 0.55,
@@ -90,6 +102,7 @@
       "height_max": 0.75,
       "temp_min": 0.15,
       "temp_max": 0.85,
+      "target_height": 0.57,
       "target_temp": 0.52,
       "target_humidity": 0.8,
       "target_continentalness": 0.65,
@@ -105,13 +118,14 @@
       "height_max": 0.90,
       "temp_min": 0.0,
       "temp_max": 1.0,
+      "target_height": 0.75,
       "target_temp": 0.3,
       "target_humidity": 0.45,
       "target_continentalness": 0.8,
       "target_erosion": 0.8,
       "color": [120, 120, 100],
       "tile_id": "core:stone",
-      "traversable": true,
+      "traversable": false,
       "movementspeedmodifier": 0.6
     },
     "terrain:snow": {
@@ -119,19 +133,21 @@
       "height_max": 1.0,
       "temp_min": 0.0,
       "temp_max": 0.55,
+      "target_height": 0.87,
       "target_temp": 0.15,
       "target_humidity": 0.35,
       "target_continentalness": 0.9,
       "target_erosion": 0.85,
       "color": [240, 240, 250],
       "tile_id": "core:snow",
-      "traversable": true
+      "traversable": false
     },
     "terrain:taiga": {
       "height_min": 0.35,
       "height_max": 0.70,
       "temp_min": 0.10,
       "temp_max": 0.60,
+      "target_height": 0.52,
       "target_temp": 0.35,
       "target_humidity": 0.7,
       "target_continentalness": 0.7,
@@ -142,10 +158,11 @@
     },
 
     "terrain:savanna": {
-      "height_min": 0.15,
+      "height_min": 0.30,
       "height_max": 0.55,
-      "temp_min": 0.50,
+      "temp_min": 0.65,
       "temp_max": 1.0,
+      "target_height": 0.42,
       "target_temp": 0.75,
       "target_humidity": 0.35,
       "target_continentalness": 0.55,
@@ -156,10 +173,11 @@
     },
 
     "terrain:steppe": {
-      "height_min": 0.20,
+      "height_min": 0.30,
       "height_max": 0.60,
       "temp_min": 0.20,
       "temp_max": 0.70,
+      "target_height": 0.45,
       "target_temp": 0.45,
       "target_humidity": 0.25,
       "target_continentalness": 0.65,
@@ -170,10 +188,11 @@
     },
 
     "terrain:chaparral": {
-      "height_min": 0.25,
+      "height_min": 0.30,
       "height_max": 0.65,
       "temp_min": 0.45,
       "temp_max": 0.85,
+      "target_height": 0.47,
       "target_temp": 0.6,
       "target_humidity": 0.45,
       "target_continentalness": 0.5,
@@ -184,10 +203,11 @@
     },
 
     "terrain:rainforest": {
-      "height_min": 0.20,
+      "height_min": 0.30,
       "height_max": 0.70,
       "temp_min": 0.60,
       "temp_max": 1.0,
+      "target_height": 0.50,
       "target_temp": 0.9,
       "target_humidity": 0.9,
       "target_continentalness": 0.4,
