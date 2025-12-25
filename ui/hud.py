@@ -115,3 +115,7 @@ class Minimap:
                     color = (255, 0, 0) if hasattr(entity, 'enemy_type') else (255, 255, 0)
                     pygame.draw.circle(self.screen, color, (entity_x, entity_y), 2)
 
+
+
+
+

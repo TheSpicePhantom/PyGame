@@ -108,3 +108,7 @@ class CaptureManager:
         for cp in self.capture_points:
             cp.update(dt)
 
+
+
+
+

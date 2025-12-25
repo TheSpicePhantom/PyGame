@@ -83,3 +83,7 @@ class RangedWeapon(Weapon):
             amount = self.max_ammo - self.ammo
         self.ammo = min(self.max_ammo, self.ammo + amount)
 
+
+
+
+

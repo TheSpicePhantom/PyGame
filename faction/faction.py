@@ -115,3 +115,7 @@ class FactionManager:
         
         return attacker_faction.is_hostile_to(target_faction.faction_id)
 
+
+
+
+

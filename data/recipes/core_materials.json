@@ -1,0 +1,52 @@
+{
+  "core:iron_plate": {
+    "inputs": {
+      "core:iron_ore": 1
+    },
+    "output": {
+      "core:iron_plate": 1
+    },
+    "time": 1.0,
+    "description": "Smelts iron ore into iron plates"
+  },
+  "core:copper_plate": {
+    "inputs": {
+      "core:copper_ore": 1
+    },
+    "output": {
+      "core:copper_plate": 1
+    },
+    "time": 1.0,
+    "description": "Smelts copper ore into copper plates"
+  },
+  "core:steel_plate": {
+    "inputs": {
+      "core:iron_plate": 5
+    },
+    "output": {
+      "core:steel_plate": 1
+    },
+    "time": 5.0,
+    "description": "Smelts iron plates into steel plates"
+  },
+  "core:iron_gear": {
+    "inputs": {
+      "core:iron_plate": 2
+    },
+    "output": {
+      "core:iron_gear": 1
+    },
+    "time": 0.5,
+    "description": "Crafts iron gears from iron plates"
+  },
+  "core:copper_wire": {
+    "inputs": {
+      "core:copper_plate": 1
+    },
+    "output": {
+      "core:copper_wire": 2
+    },
+    "time": 0.5,
+    "description": "Crafts copper wire from copper plates"
+  }
+}

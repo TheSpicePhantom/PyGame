@@ -1,76 +1,70 @@
 """
 Core: Spiel-Einstellungen und Konfiguration
 """
-import json
-from typing import Dict, Any
+import pygame
+
+# Fenster - Default Werte für Windowed Mode
+SCREEN_WIDTH = 1920
+SCREEN_HEIGHT = 1080
+FPS = 60
+
+def get_screen_size():
+    """Get current screen size (works even if display mode changed)"""
+    try:
+        screen = pygame.display.get_surface()
+        if screen:
+            return screen.get_size()
+    except:
+        pass
+    return (SCREEN_WIDTH, SCREEN_HEIGHT)
+
+def get_screen_width():
+    """Get current screen width"""
+    return get_screen_size()[0]
+
+def get_screen_height():
+    """Get current screen height"""
+    return get_screen_size()[1]
+
+# Tiles
+TILE_SIZE = 16
+
+# Farben
+COLOR_BG = (10, 10, 12)
+COLOR_GRID = (40, 40, 48)
+COLOR_PLAYER = (200, 200, 50)
+COLOR_RESOURCE = (60, 100, 160)
+COLOR_BUILDING = (120, 120, 180)
+
+# Layer-Z-Reihenfolge
+LAYER_FLOOR = 0
+LAYER_BUILDINGS = 1
+LAYER_PLAYER = 2
+
+# Controls
+KEY_MOVE_UP = pygame.K_w
+KEY_MOVE_DOWN = pygame.K_s
+KEY_MOVE_LEFT = pygame.K_a
+KEY_MOVE_RIGHT = pygame.K_d
+KEY_BUILD_MODE = pygame.K_b
+KEY_ROTATE = pygame.K_r
+
+# Gameplay
+PLAYER_SPEED = 200  # pixels per second
+MINER_PRODUCTION_TIME = 1.0  # seconds per item
+
+# Camera / Perspective
+CAMERA_LERP_SPEED = 0.15  # 0.05-0.2 (lower = smoother)
+PERSPECTIVE_OFFSET_ENABLED = True  # Enable angled view
+PERSPECTIVE_TILE_HEIGHT_RATIO = 0.5  # For 60° view simulation
+
+# Chunk System (Minecraft-Style)
+CHUNK_SIZE = 15  # Tiles per chunk (15x15)
+WORLD_SIZE_CHUNKS = 128  # Max world size in chunks (128x128 chunks)
+WORLD_SIZE_TILES = CHUNK_SIZE * WORLD_SIZE_CHUNKS  # 1920x1920 tiles total
+CHUNK_LOAD_DISTANCE = 2  # Load chunks within N chunks of player
+CHUNK_UNLOAD_DISTANCE = 4  # Unload chunks farther than N chunks from player
 
 
-class Settings:
-    """Verwaltet alle Spiel-Einstellungen"""
-    
-    def __init__(self, config_path: str = "config/game_config.json"):
-        self.config_path = config_path
-        self.load_config()
-    
-    def load_config(self):
-        """Lädt die Konfiguration aus der JSON-Datei"""
-        try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                self.config = json.load(f)
-        except FileNotFoundError:
-            self.config = self.get_default_config()
-            self.save_config()
-    
-    def save_config(self):
-        """Speichert die Konfiguration in die JSON-Datei"""
-        with open(self.config_path, 'w', encoding='utf-8') as f:
-            json.dump(self.config, f, indent=2)
-    
-    def get_default_config(self) -> Dict[str, Any]:
-        """Gibt die Standard-Konfiguration zurück"""
-        return {
-            "window": {
-                "width": 800,
-                "height": 600,
-                "title": "PyGame"
-            },
-            "map": {
-                "width": 128,
-                "height": 128,
-                "tile_size": 64
-            },
-            "player": {
-                "color": [0, 255, 0],
-                "size": 1,
-                "height": 1,
-                "speed": 0.1
-            },
-            "isometric": {
-                "tile_width": 64,
-                "tile_height": 64
-            }
-        }
-    
-    def get(self, key: str, default=None):
-        """Gibt einen Konfigurationswert zurück"""
-        keys = key.split('.')
-        value = self.config
-        for k in keys:
-            if isinstance(value, dict):
-                value = value.get(k)
-                if value is None:
-                    return default
-            else:
-                return default
-        return value
-    
-    def set(self, key: str, value: Any):
-        """Setzt einen Konfigurationswert"""
-        keys = key.split('.')
-        config = self.config
-        for k in keys[:-1]:
-            if k not in config:
-                config[k] = {}
-            config = config[k]
-        config[keys[-1]] = value
+
 

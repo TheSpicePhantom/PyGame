@@ -1,75 +1,52 @@
 """
-World: Entitäten-System
+World: Basis-Entity-Klassen für Spielobjekte
 """
-from typing import Optional
-from abc import ABC, abstractmethod
+import pygame
+from core import settings
 
 
-class Entity:
-    """Basisklasse für alle Entitäten in der Welt"""
+class Entity(pygame.sprite.Sprite):
+    """Basis-Klasse für alle Spielobjekte"""
     
-    def __init__(self, x: float, y: float, entity_id: str = ""):
-        self.x = float(x)
-        self.y = float(y)
-        self.entity_id = entity_id
-        self.active = True
-        self.world: Optional['World'] = None
+    def __init__(self, pos, color=(80, 80, 80), *groups):
+        super().__init__(*groups)
+        self.image = pygame.Surface((settings.TILE_SIZE, settings.TILE_SIZE))
+        self.image.fill(color)
+        self.rect = self.image.get_rect(topleft=pos)
+        self._layer = settings.LAYER_FLOOR
     
-    def update(self, dt: float, world: 'World'):
-        """Aktualisiert die Entität"""
-        if not self.active:
-            return
-        self.world = world
-        self.on_update(dt)
-    
-    @abstractmethod
-    def on_update(self, dt: float):
-        """Wird bei jedem Update aufgerufen"""
+    def update(self, dt):
+        """Update-Methode, überschrieben von Unterklassen"""
         pass
-    
-    def get_position(self) -> tuple[float, float]:
-        """Gibt die Position zurück"""
-        return (self.x, self.y)
-    
-    def set_position(self, x: float, y: float):
-        """Setzt die Position"""
-        self.x = float(x)
-        self.y = float(y)
-    
-    def destroy(self):
-        """Zerstört die Entität"""
-        self.active = False
-        if self.world:
-            self.world.remove_entity(self)
 
 
-class MovableEntity(Entity):
-    """Entität, die sich bewegen kann"""
+class ResourceNode(Entity):
+    """Ressourcen-Knoten (Erz, Kohle, etc.)"""
     
-    def __init__(self, x: float, y: float, speed: float = 1.0, entity_id: str = ""):
-        super().__init__(x, y, entity_id)
-        self.speed = speed
-        self.velocity_x = 0.0
-        self.velocity_y = 0.0
-    
-    def move(self, dx: float, dy: float, world: 'World'):
-        """Bewegt die Entität"""
-        new_x = self.x + dx * self.speed
-        new_y = self.y + dy * self.speed
+    def __init__(self, pos, resource_type, amount, *groups):
+        super().__init__(pos, settings.COLOR_RESOURCE, *groups)
+        self.resource_type = resource_type
+        self.amount = amount
+        self._layer = settings.LAYER_FLOOR
         
-        # Begrenze auf Weltbereich
-        if world:
-            new_x = max(0, min(new_x, world.width - 1))
-            new_y = max(0, min(new_y, world.height - 1))
-        
-        self.x = new_x
-        self.y = new_y
+        # Visuelle Unterscheidung nach Ressourcentyp
+        if resource_type == "core:iron_ore":
+            self.image.fill((100, 120, 140))
+        elif resource_type == "core:copper_ore":
+            self.image.fill((180, 100, 60))
+        elif resource_type == "core:coal":
+            self.image.fill((30, 30, 30))
     
-    def on_update(self, dt: float):
-        """Bewegt die Entität basierend auf Geschwindigkeit"""
-        if self.velocity_x != 0 or self.velocity_y != 0:
-            if self.world:
-                self.move(self.velocity_x * dt, self.velocity_y * dt, self.world)
-            self.velocity_x = 0.0
-            self.velocity_y = 0.0
+    def mine(self, amount=1):
+        """Baut Ressourcen ab und gibt zurück, wie viel tatsächlich abgebaut wurde"""
+        mined = min(amount, self.amount)
+        self.amount -= mined
+        
+        if self.amount <= 0:
+            self.kill()  # Entfernt Sprite wenn leer
+        
+        return mined
+
+
+
 

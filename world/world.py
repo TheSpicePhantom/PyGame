@@ -1,67 +1,97 @@
 """
-World: Welt- und Karten-Logik
+World: Spielwelt mit Chunk-basiertem Grid und Ressourcen
 """
-from typing import List, Tuple, Optional
-from world.entities import Entity
-
-
-class Tile:
-    """Repräsentiert ein einzelnes Tile auf der Karte"""
-    
-    def __init__(self, x: int, y: int, tile_type: int = 0):
-        self.x = x
-        self.y = y
-        self.tile_type = tile_type
-        self.entity: Optional[Entity] = None
-        self.building = None
-    
-    def is_walkable(self) -> bool:
-        """Prüft, ob das Tile begehbar ist"""
-        return self.tile_type == 0 and self.entity is None and self.building is None
-
+import pygame
+from core import settings
+from world.terrain_generator import TerrainGenerator
+from world.chunk_manager import ChunkManager
 
 class World:
-    """Verwaltet die Spielwelt und Karte"""
+    """Verwaltet die Spielwelt mit dynamischen Chunks und prozeduralem Terrain"""
     
-    def __init__(self, width: int, height: int):
-        self.width = width
-        self.height = height
-        self.tiles: List[List[Tile]] = []
-        self.entities: List[Entity] = []
+    def __init__(self, all_sprites, resource_sprites, save_slot=1, seed=None): 
+        self.all_sprites = all_sprites
+        self.all_sprites = all_sprites
+        self.resource_sprites = resource_sprites
+        self.save_slot = save_slot
         
-        # Initialisiere Karte
-        for y in range(height):
-            row = []
-            for x in range(width):
-                row.append(Tile(x, y, 0))
-            self.tiles.append(row)
+        # Initialize terrain generator
+        self.terrain_gen = TerrainGenerator(seed=seed)
+        print(f"[World] Terrain generator initialized with seed: {self.terrain_gen.seed}")
+        
+        # Initialize chunk manager
+        self.chunk_manager = ChunkManager(save_slot, self.terrain_gen)
+        
+        # Load or set seed
+        existing_seed = self.chunk_manager.get_seed()
+        if existing_seed is not None:
+            # Load existing world seed
+            self.terrain_gen.seed = existing_seed
+            print(f"[World] Loaded existing world with seed: {existing_seed}")
+        elif seed is not None:
+            # Use provided seed for new world
+            self.chunk_manager.set_seed(seed)
+            print(f"[World] Created new world with seed: {seed}")
+        else:
+            # Generate random seed for new world
+            import random
+            new_seed = random.randint(0, 999999)
+            self.chunk_manager.set_seed(new_seed)
+            self.terrain_gen.seed = new_seed
+            print(f"[World] Created new world with random seed: {new_seed}")
+        
+        print(f"[World] ChunkManager initialized for save slot {save_slot}")
     
-    def get_tile(self, x: int, y: int) -> Optional[Tile]:
-        """Gibt das Tile an der Position zurück"""
-        if self.is_valid_position(x, y):
-            return self.tiles[y][x]
-        return None
+    def update(self, player_pos):
+        """Update world based on player position (load/unload chunks)"""
+        self.chunk_manager.update(player_pos)
     
-    def is_valid_position(self, x: int, y: int) -> bool:
-        """Prüft, ob eine Position auf der Karte gültig ist"""
-        return 0 <= x < self.width and 0 <= y < self.height
+    def draw_grid(self, surface, camera):
+        """Draw grid and terrain colors for loaded chunks"""
+        # Draw terrain tiles for all loaded chunks
+        for chunk in self.chunk_manager.loaded_chunks.values():
+            for y, row in enumerate(chunk.tiles):
+                for x, tile in enumerate(row):
+                    # Calculate world position
+                    world_x = (chunk.chunk_x * settings.CHUNK_SIZE + x) * settings.TILE_SIZE
+                    world_y = (chunk.chunk_y * settings.CHUNK_SIZE + y) * settings.TILE_SIZE
+                    
+                    screen_pos = camera.world_to_screen(world_x, world_y)
+                    rect = pygame.Rect(
+                        screen_pos[0],
+                        screen_pos[1],
+                        settings.TILE_SIZE,
+                        settings.TILE_SIZE
+                    )
+                    
+                    pygame.draw.rect(surface, tile["color"], rect)
+        
+        # Draw grid lines for all loaded chunks
+        for chunk in self.chunk_manager.loaded_chunks.values():
+            self._draw_chunk_grid(surface, camera, chunk)
     
-    def add_entity(self, entity: Entity):
-        """Fügt eine Entität zur Welt hinzu"""
-        if entity not in self.entities:
-            self.entities.append(entity)
-    
-    def remove_entity(self, entity: Entity):
-        """Entfernt eine Entität aus der Welt"""
-        if entity in self.entities:
-            self.entities.remove(entity)
-    
-    def update(self, dt: float):
-        """Aktualisiert die Welt"""
-        for entity in self.entities:
-            entity.update(dt, self)
-    
-    def get_entities_at(self, x: int, y: int) -> List[Entity]:
-        """Gibt alle Entitäten an einer Position zurück"""
-        return [e for e in self.entities if int(e.x) == x and int(e.y) == y]
-
+    def _draw_chunk_grid(self, surface, camera, chunk):
+        """Draw grid lines for a single chunk"""
+        # Chunk boundaries in world coordinates
+        chunk_world_x = chunk.chunk_x * settings.CHUNK_SIZE * settings.TILE_SIZE
+        chunk_world_y = chunk.chunk_y * settings.CHUNK_SIZE * settings.TILE_SIZE
+        
+        # Vertical lines
+        for x in range(settings.CHUNK_SIZE + 1):
+            world_x = chunk_world_x + x * settings.TILE_SIZE
+            start_world = (world_x, chunk_world_y)
+            end_world = (world_x, chunk_world_y + settings.CHUNK_SIZE * settings.TILE_SIZE)
+            
+            start_screen = camera.world_to_screen(*start_world)
+            end_screen = camera.world_to_screen(*end_world)
+            pygame.draw.line(surface, settings.COLOR_GRID, start_screen, end_screen, 1)
+        
+        # Horizontal lines
+        for y in range(settings.CHUNK_SIZE + 1):
+            world_y = chunk_world_y + y * settings.TILE_SIZE
+            start_world = (chunk_world_x, world_y)
+            end_world = (chunk_world_x + settings.CHUNK_SIZE * settings.TILE_SIZE, world_y)
+            
+            start_screen = camera.world_to_screen(*start_world)
+            end_screen = camera.world_to_screen(*end_world)
+            pygame.draw.line(surface, settings.COLOR_GRID, start_screen, end_screen, 1)

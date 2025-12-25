@@ -1,0 +1,40 @@
+{
+  "trees": {
+    "noise_scale": 50.0,
+    "threshold": 0.6,
+    "allowed_biomes": ["terrain:forest", "terrain:plains"],
+    "sprite": "tree_oak"
+  },
+  "rocks": {
+    "noise_scale": 30.0,
+    "threshold": 0.7,
+    "allowed_biomes": ["terrain:mountains"],
+    "sprite": "rock_large"
+  },
+  "resource_patches": {
+    "core:iron_ore": {
+      "noise_scale": 80.0,
+      "threshold": 0.65,
+      "cluster_size": 5,
+      "allowed_biomes": ["terrain:plains", "terrain:mountains"]
+    },
+    "core:copper_ore": {
+      "noise_scale": 75.0,
+      "threshold": 0.68,
+      "cluster_size": 4,
+      "allowed_biomes": ["terrain:plains"]
+    },
+    "core:coal": {
+      "noise_scale": 70.0,
+      "threshold": 0.70,
+      "cluster_size": 6,
+      "allowed_biomes": ["terrain:forest", "terrain:mountains"]
+    },
+    "core:stone": {
+      "noise_scale": 60.0,
+      "threshold": 0.60,
+      "cluster_size": 8,
+      "allowed_biomes": ["terrain:mountains"]
+    }
+  }
+}

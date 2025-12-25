@@ -35,3 +35,7 @@ class Camera:
         """Gibt den aktuellen Zoom-Wert zurück"""
         return self.zoom
 
+
+
+
+
