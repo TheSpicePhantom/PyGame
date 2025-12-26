@@ -38,61 +38,24 @@ class WorldRenderer:
         # Step 1.5: Load chunks in visible area + buffer (dynamically based on zoom)
         self.world_controller.load_visible_chunks(camera_x, camera_y)
         
-        # Step 2: Collect all visible chunks (with frustum culling based on zoom)
-        chunks_data = []
-        screen_width = self.modern_gl_renderer.screen_width
-        screen_height = self.modern_gl_renderer.screen_height
-        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        # Step 2: Get visible chunks from controller (includes frustum culling)
+        visible_chunks = self.world_controller.get_visible_chunks(camera_x, camera_y)
         
-        # Calculate visible area bounds
-        # Shader multiplies by zoom: screen_pos = (pos - center) * zoom + center
-        # When zoom < 1.0 (rauszoomen): position offset becomes smaller → more world visible → more chunks
-        # When zoom > 1.0 (reinzoomen): position offset becomes larger → less world visible → fewer chunks
-        # To get visible world size, we divide screen size by zoom (inverse of shader multiplication)
-        visible_world_width = screen_width / self.world_controller.camera_zoom
-        visible_world_height = screen_height / self.world_controller.camera_zoom
+        # Step 2.5: Inform renderer which chunks are visible (enables smart pool management)
+        if visible_chunks:
+            visible_chunk_keys = set((cx, cy) for cx, cy, _ in visible_chunks)
+            self.modern_gl_renderer.set_visible_chunks(visible_chunk_keys)
         
-        world_min_x = camera_x - visible_world_width / 2.0
-        world_max_x = camera_x + visible_world_width / 2.0
-        world_min_y = camera_y - visible_world_height / 2.0
-        world_max_y = camera_y + visible_world_height / 2.0
-        
-        # Collect all loaded chunks for rendering (stable list from loaded_chunks)
-        # Optional: Simple frustum culling to skip chunks far outside screen
-        enable_frustum_cull = True  # Set to False to render all loaded chunks without culling
-        
-        for chunk in self.world_controller.world.chunk_manager.loaded_chunks.values():
-            if not chunk.tiles:
-                continue
-            
-            # Optional frustum culling: Skip chunks that are clearly outside visible area
-            if enable_frustum_cull:
-                chunk_world_x = chunk.chunk_x * chunk_size_pixels
-                chunk_world_y = chunk.chunk_y * chunk_size_pixels
-                chunk_world_max_x = chunk_world_x + chunk_size_pixels
-                chunk_world_max_y = chunk_world_y + chunk_size_pixels
-                
-                # Simple frustum check: chunk overlaps with visible area
-                x_overlaps = (chunk_world_x <= world_max_x) and (chunk_world_max_x >= world_min_x)
-                y_overlaps = (chunk_world_y <= world_max_y) and (chunk_world_max_y >= world_min_y)
-                chunk_overlaps = x_overlaps and y_overlaps
-                
-                if not chunk_overlaps:
-                    continue  # Skip chunks outside visible area
-            
-            # Add chunk to render list
-            chunks_data.append((chunk.chunk_x, chunk.chunk_y, chunk.tiles))
-        
-        # Step 3: Render all chunks from stable loaded_chunks list
-        if chunks_data:
-            self.modern_gl_renderer.render_chunks(chunks_data, performance_monitor=self.world_controller.performance_monitor)
+        # Step 3: Render visible chunks
+        if visible_chunks:
+            self.modern_gl_renderer.render_chunks(visible_chunks, performance_monitor=self.world_controller.performance_monitor)
         
         # Step 4: Render player
         if self.world_controller.player:
             self._render_player()
         
         # Store chunks_data for debug visualization
-        self._last_chunks_data = chunks_data
+        self._last_chunks_data = visible_chunks if visible_chunks else []
     
     def get_chunks_data(self):
         """Get the last rendered chunks data for debug visualization"""

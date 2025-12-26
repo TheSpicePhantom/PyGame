@@ -1,13 +1,14 @@
 """
 Core: WorldController - Verwaltung von World, Player und Camera
 """
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 import numpy as np
 import moderngl
 import math
 from core import settings
 from core.camera import Camera
 from core.input_pyglet import InputHandler
+from core.zoom_utils import calculate_visible_world_size
 from world.world import World
 from world.player_data_manager import PlayerDataManager
 from world.auto_save import AutoSaveSystem
@@ -311,46 +312,150 @@ class WorldController:
         
         self.performance_monitor.end_update()
     
-    def load_visible_chunks(self, camera_x: float, camera_y: float):
-        """Load chunks in visible area + buffer based on zoom, unload chunks outside visible area"""
+    def get_chunks_to_unload(self, visible_chunks: set, loaded_chunks: set, 
+                             camera_x: float, camera_y: float, 
+                             hysteresis_factor: float = 1.5) -> List[Tuple[int, int]]:
+        """
+        Unload chunks that are far outside visible area (with hysteresis to avoid thrashing)
+        
+        Args:
+            visible_chunks: Set of (chunk_x, chunk_y) tuples that are currently visible
+            loaded_chunks: Set of (chunk_x, chunk_y) tuples that are currently loaded
+            camera_x: Camera X position in world coordinates
+            camera_y: Camera Y position in world coordinates
+            hysteresis_factor: Factor to multiply padding for unload threshold (default: 1.5)
+        
+        Returns:
+            List of (chunk_x, chunk_y) tuples to unload
+        """
+        from core import settings
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        padding_chunks = 2
+        unload_threshold = chunk_size_pixels * padding_chunks * hysteresis_factor
+        
+        chunks_to_unload = []
+        for chunk_key in loaded_chunks:
+            if chunk_key not in visible_chunks:
+                # Berechne Distanz vom Chunk-Zentrum zur Kamera
+                chunk_center_x = chunk_key[0] * chunk_size_pixels + chunk_size_pixels / 2
+                chunk_center_y = chunk_key[1] * chunk_size_pixels + chunk_size_pixels / 2
+                
+                # Squared distance (ohne sqrt für Performance)
+                distance_squared = (chunk_center_x - camera_x)**2 + (chunk_center_y - camera_y)**2
+                unload_threshold_squared = unload_threshold**2
+                
+                if distance_squared > unload_threshold_squared:
+                    chunks_to_unload.append(chunk_key)
+        
+        return chunks_to_unload
+    
+    def get_visible_chunks(self, camera_x: float, camera_y: float) -> List[Tuple[int, int, List[List[dict]]]]:
+        """
+        Get list of chunks that are currently visible (frustum culling).
+        
+        Args:
+            camera_x: Camera X position in world coordinates (pixels)
+            camera_y: Camera Y position in world coordinates (pixels)
+        
+        Returns:
+            List of (chunk_x, chunk_y, tiles) tuples for visible chunks
+        """
         if not self.world or not self.world.chunk_manager:
-            return
+            return []
+        
+        if not self.modern_gl_renderer:
+            return []
+        
+        from core.zoom_utils import calculate_visible_world_size
+        from core import settings
+        
+        # Calculate visible area
+        screen_width = self.modern_gl_renderer.screen_width
+        screen_height = self.modern_gl_renderer.screen_height
+        visible_world_width, visible_world_height = calculate_visible_world_size(
+            screen_width, screen_height, self.camera_zoom
+        )
+        
+        world_min_x = camera_x - visible_world_width / 2.0
+        world_max_x = camera_x + visible_world_width / 2.0
+        world_min_y = camera_y - visible_world_height / 2.0
+        world_max_y = camera_y + visible_world_height / 2.0
+        
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        visible_chunks = []
+        
+        # Frustum culling - check which loaded chunks overlap with visible area
+        for chunk in self.world.chunk_manager.loaded_chunks.values():
+            if not chunk.tiles:
+                continue
+            
+            chunk_world_x = chunk.chunk_x * chunk_size_pixels
+            chunk_world_y = chunk.chunk_y * chunk_size_pixels
+            chunk_world_max_x = chunk_world_x + chunk_size_pixels
+            chunk_world_max_y = chunk_world_y + chunk_size_pixels
+            
+            # Check overlap
+            x_overlaps = (chunk_world_x <= world_max_x) and (chunk_world_max_x >= world_min_x)
+            y_overlaps = (chunk_world_y <= world_max_y) and (chunk_world_max_y >= world_min_y)
+            
+            if x_overlaps and y_overlaps:
+                visible_chunks.append((chunk.chunk_x, chunk.chunk_y, chunk.tiles))
+        
+        return visible_chunks
+    
+    def get_chunk_ranges(self, camera_x: float, camera_y: float) -> dict:
+        """
+        Get chunk ranges for load/unload areas (for debug visualization).
+        
+        Args:
+            camera_x: Camera X position in world coordinates (pixels)
+            camera_y: Camera Y position in world coordinates (pixels)
+        
+        Returns:
+            Dictionary with 'load_range' and 'unload_range' containing (min_x, max_x, min_y, max_y) tuples
+        """
+        if not self.world or not self.world.chunk_manager or not self.modern_gl_renderer:
+            return {'load_range': None, 'unload_range': None, 'render_range': None}
         
         chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
         screen_width = self.modern_gl_renderer.screen_width
         screen_height = self.modern_gl_renderer.screen_height
         
-        # Calculate visible area bounds using zoom
-        # Shader multiplies by zoom: screen_pos = (pos - center) * zoom + center
-        # When zoom < 1.0 (rauszoomen): position offset becomes smaller → more world visible → more chunks
-        # When zoom > 1.0 (reinzoomen): position offset becomes larger → less world visible → fewer chunks
-        # To get visible world size, we divide screen size by zoom (inverse of shader multiplication)
-        # Example: zoom=0.5 → screen_width/0.5 = screen_width*2 → larger visible area ✓
-        # Example: zoom=2.0 → screen_width/2.0 = screen_width*0.5 → smaller visible area ✓
-        visible_world_width = screen_width / self.camera_zoom
-        visible_world_height = screen_height / self.camera_zoom
+        # Calculate visible area bounds using central zoom utility
+        visible_world_width, visible_world_height = calculate_visible_world_size(
+            screen_width, screen_height, self.camera_zoom
+        )
         
-        # Add buffer (load extra chunks around visible area)
-        # Buffer scales with zoom: when zoomed out (zoom < 1.0), we need more buffer
-        # When zoomed in (zoom > 1.0), we need less buffer
-        buffer_chunks = max(2, int(2 / self.camera_zoom))  # More buffer when zoomed out
-        buffer_pixels = buffer_chunks * chunk_size_pixels
+        import math
         
-        world_min_x = camera_x - visible_world_width / 2.0 - buffer_pixels
-        world_max_x = camera_x + visible_world_width / 2.0 + buffer_pixels
-        world_min_y = camera_y - visible_world_height / 2.0 - buffer_pixels
-        world_max_y = camera_y + visible_world_height / 2.0 + buffer_pixels
+        # LOAD RANGE - sichtbarer Bereich + kleiner Buffer
+        load_buffer_chunks = 2  # Fester Buffer für Load-Bereich
+        load_buffer_pixels = load_buffer_chunks * chunk_size_pixels
         
-        # Convert to chunk coordinates
-        min_chunk_x = int(world_min_x // chunk_size_pixels)
-        max_chunk_x = int(world_max_x // chunk_size_pixels) + 1
-        min_chunk_y = int(world_min_y // chunk_size_pixels)
-        max_chunk_y = int(world_max_y // chunk_size_pixels) + 1
+        world_min_x = camera_x - visible_world_width / 2.0 - load_buffer_pixels
+        world_max_x = camera_x + visible_world_width / 2.0 + load_buffer_pixels
+        world_min_y = camera_y - visible_world_height / 2.0 - load_buffer_pixels
+        world_max_y = camera_y + visible_world_height / 2.0 + load_buffer_pixels
         
-        # Calculate unload distance (chunks outside this distance will be unloaded)
-        # Unload distance should be MUCH larger than load distance to avoid thrashing
-        # Use at least 5-6 chunks more buffer to prevent rapid load/unload cycles
-        unload_buffer_chunks = buffer_chunks + 6  # Increased from +2 to +6 for better stability
+        # Convert to chunk coordinates (use floor for min, ceil for max)
+        min_chunk_x = int(math.floor(world_min_x / chunk_size_pixels))
+        max_chunk_x = int(math.ceil(world_max_x / chunk_size_pixels))
+        min_chunk_y = int(math.floor(world_min_y / chunk_size_pixels))
+        max_chunk_y = int(math.ceil(world_max_y / chunk_size_pixels))
+        
+        # RENDER RANGE - sichtbarer Bereich ohne Buffer (nur was gerendert wird)
+        render_world_min_x = camera_x - visible_world_width / 2.0
+        render_world_max_x = camera_x + visible_world_width / 2.0
+        render_world_min_y = camera_y - visible_world_height / 2.0
+        render_world_max_y = camera_y + visible_world_height / 2.0
+        
+        render_min_chunk_x = int(math.floor(render_world_min_x / chunk_size_pixels))
+        render_max_chunk_x = int(math.ceil(render_world_max_x / chunk_size_pixels))
+        render_min_chunk_y = int(math.floor(render_world_min_y / chunk_size_pixels))
+        render_max_chunk_y = int(math.ceil(render_world_max_y / chunk_size_pixels))
+        
+        # UNLOAD RANGE - größerer Buffer als Load Range (Hysterese)
+        unload_buffer_chunks = load_buffer_chunks + 5  # 5 zusätzliche Chunks bevor Unload
         unload_buffer_pixels = unload_buffer_chunks * chunk_size_pixels
         
         unload_min_x = camera_x - visible_world_width / 2.0 - unload_buffer_pixels
@@ -358,18 +463,73 @@ class WorldController:
         unload_min_y = camera_y - visible_world_height / 2.0 - unload_buffer_pixels
         unload_max_y = camera_y + visible_world_height / 2.0 + unload_buffer_pixels
         
-        unload_min_chunk_x = int(unload_min_x // chunk_size_pixels)
-        unload_max_chunk_x = int(unload_max_x // chunk_size_pixels) + 1
-        unload_min_chunk_y = int(unload_min_y // chunk_size_pixels)
-        unload_max_chunk_y = int(unload_max_y // chunk_size_pixels) + 1
+        unload_min_chunk_x = int(math.floor(unload_min_x / chunk_size_pixels))
+        unload_max_chunk_x = int(math.ceil(unload_max_x / chunk_size_pixels))
+        unload_min_chunk_y = int(math.floor(unload_min_y / chunk_size_pixels))
+        unload_max_chunk_y = int(math.ceil(unload_max_y / chunk_size_pixels))
+        
+        return {
+            'load_range': (min_chunk_x, max_chunk_x, min_chunk_y, max_chunk_y),
+            'render_range': (render_min_chunk_x, render_max_chunk_x, render_min_chunk_y, render_max_chunk_y),
+            'unload_range': (unload_min_chunk_x, unload_max_chunk_x, unload_min_chunk_y, unload_max_chunk_y)
+        }
+    
+    def load_visible_chunks(self, camera_x: float, camera_y: float):
+        """Load chunks in visible area + buffer based on zoom, unload chunks outside visible area"""
+        if not self.world or not self.world.chunk_manager:
+            return
+        
+        # Check if renderer is available
+        if not self.modern_gl_renderer:
+            return
+        
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        screen_width = self.modern_gl_renderer.screen_width
+        screen_height = self.modern_gl_renderer.screen_height
+        
+        # Calculate visible area bounds using central zoom utility
+        visible_world_width, visible_world_height = calculate_visible_world_size(
+            screen_width, screen_height, self.camera_zoom
+        )
+        
+        import math
+        
+        # LOAD RANGE - sichtbarer Bereich + kleiner Buffer
+        load_buffer_chunks = 2  # Fester Buffer für Load-Bereich
+        load_buffer_pixels = load_buffer_chunks * chunk_size_pixels
+        
+        world_min_x = camera_x - visible_world_width / 2.0 - load_buffer_pixels
+        world_max_x = camera_x + visible_world_width / 2.0 + load_buffer_pixels
+        world_min_y = camera_y - visible_world_height / 2.0 - load_buffer_pixels
+        world_max_y = camera_y + visible_world_height / 2.0 + load_buffer_pixels
+        
+        # Convert to chunk coordinates (use floor for min, ceil for max)
+        min_chunk_x = int(math.floor(world_min_x / chunk_size_pixels))
+        max_chunk_x = int(math.ceil(world_max_x / chunk_size_pixels))
+        min_chunk_y = int(math.floor(world_min_y / chunk_size_pixels))
+        max_chunk_y = int(math.ceil(world_max_y / chunk_size_pixels))
+        
+        # UNLOAD RANGE - größerer Buffer als Load Range (Hysterese)
+        unload_buffer_chunks = load_buffer_chunks + 5  # 5 zusätzliche Chunks bevor Unload
+        unload_buffer_pixels = unload_buffer_chunks * chunk_size_pixels
+        
+        unload_min_x = camera_x - visible_world_width / 2.0 - unload_buffer_pixels
+        unload_max_x = camera_x + visible_world_width / 2.0 + unload_buffer_pixels
+        unload_min_y = camera_y - visible_world_height / 2.0 - unload_buffer_pixels
+        unload_max_y = camera_y + visible_world_height / 2.0 + unload_buffer_pixels
+        
+        unload_min_chunk_x = int(math.floor(unload_min_x / chunk_size_pixels))
+        unload_max_chunk_x = int(math.ceil(unload_max_x / chunk_size_pixels))
+        unload_min_chunk_y = int(math.floor(unload_min_y / chunk_size_pixels))
+        unload_max_chunk_y = int(math.ceil(unload_max_y / chunk_size_pixels))
         
         # Track chunks that should be loaded with priorities based on distance from camera
         chunks_to_load = []
-        camera_chunk_x = int(camera_x // chunk_size_pixels)
-        camera_chunk_y = int(camera_y // chunk_size_pixels)
+        camera_chunk_x = int(math.floor(camera_x / chunk_size_pixels))
+        camera_chunk_y = int(math.floor(camera_y / chunk_size_pixels))
         
-        for chunk_x in range(min_chunk_x, max_chunk_x + 1):
-            for chunk_y in range(min_chunk_y, max_chunk_y + 1):
+        for chunk_x in range(min_chunk_x, max_chunk_x):
+            for chunk_y in range(min_chunk_y, max_chunk_y):
                 # Check world bounds before loading
                 if (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
                     0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
@@ -396,16 +556,88 @@ class WorldController:
         for priority, chunk_x, chunk_y in chunks_to_load[:max_loads_per_frame]:
             self.world.chunk_manager.request_chunk_load(chunk_x, chunk_y, priority=priority)
         
+        # Get visible chunks for VBO release
+        # Use the unload range (unload_min_chunk_x, etc.) that was already calculated above
+        # This range is larger than the load range (buffer_chunks + 6), so chunks within this
+        # range should keep their VBOs loaded
+        visible_chunks_for_vbo = set()
+        for chunk_x in range(unload_min_chunk_x, unload_max_chunk_x):
+            for chunk_y in range(unload_min_chunk_y, unload_max_chunk_y):
+                if (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
+                    0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
+                    visible_chunks_for_vbo.add((chunk_x, chunk_y))
+        
+        # Find chunks to unload VBOs for (only those outside the unload range)
+        # This uses the same range as the chunk manager's unload logic for consistency
+        loaded_chunks = set(self.world.chunk_manager.loaded_chunks.keys())
+        chunks_to_unload_vbo = []
+        for chunk_key in loaded_chunks:
+            # Only unload VBO if chunk is outside the unload range
+            # This matches the chunk manager's unload logic - chunks within unload range
+            # should keep their VBOs loaded
+            if chunk_key not in visible_chunks_for_vbo:
+                chunks_to_unload_vbo.append(chunk_key)
+        
+        # Release VBOs for chunks that are far outside visible area
+        # Only release if there are chunks to unload (avoid unnecessary operations)
+        # IMPORTANT: Only release VBOs for chunks that are actually loaded and have VBOs
+        if chunks_to_unload_vbo and self.modern_gl_renderer:
+            # Filter: Only unload VBOs for chunks that are actually in the renderer's buffer cache
+            chunks_with_vbos = [
+                chunk_key for chunk_key in chunks_to_unload_vbo
+                if chunk_key in self.modern_gl_renderer.chunk_buffers
+            ]
+            if chunks_with_vbos:
+                self.modern_gl_renderer.release_chunk_buffers(chunks_with_vbos)
+                if self.modern_gl_renderer.diagnostics:
+                    self.modern_gl_renderer.diagnostics.debug("WorldController", 
+                        f"Released {len(chunks_with_vbos)} VBOs for chunks outside unload range "
+                        f"(unload_range: {unload_min_chunk_x}-{unload_max_chunk_x}, "
+                        f"{unload_min_chunk_y}-{unload_max_chunk_y}, "
+                        f"visible_chunks: {len(visible_chunks_for_vbo)}, "
+                        f"loaded_chunks: {len(loaded_chunks)})")
+        
         # Unload chunks that are outside the unload area (with cooldown to prevent thrashing)
         import time
         current_time = time.time()
         chunks_to_unload = []
         
+        # Debug: Log unload range (only occasionally to avoid spam)
+        if not hasattr(self, '_unload_debug_counter'):
+            self._unload_debug_counter = 0
+        self._unload_debug_counter += 1
+        
+        if self._unload_debug_counter % 60 == 0 and self.modern_gl_renderer and self.modern_gl_renderer.diagnostics:
+            # Verify that camera chunk is within load range
+            camera_in_load_range = (min_chunk_x <= camera_chunk_x < max_chunk_x and 
+                                   min_chunk_y <= camera_chunk_y < max_chunk_y)
+            camera_in_unload_range = (unload_min_chunk_x <= camera_chunk_x < unload_max_chunk_x and 
+                                     unload_min_chunk_y <= camera_chunk_y < unload_max_chunk_y)
+            
+            self.modern_gl_renderer.diagnostics.debug("WorldController", 
+                f"Unload range: X=[{unload_min_chunk_x}..{unload_max_chunk_x}], "
+                f"Y=[{unload_min_chunk_y}..{unload_max_chunk_y}], "
+                f"Load range: X=[{min_chunk_x}..{max_chunk_x}], Y=[{min_chunk_y}..{max_chunk_y}], "
+                f"Camera chunk: ({camera_chunk_x}, {camera_chunk_y}), "
+                f"camera_in_load_range: {camera_in_load_range}, "
+                f"camera_in_unload_range: {camera_in_unload_range}")
+            
+            if not camera_in_load_range:
+                self.modern_gl_renderer.diagnostics.warning("WorldController", 
+                    f"WARNING: Camera chunk ({camera_chunk_x}, {camera_chunk_y}) is OUTSIDE load range "
+                    f"X=[{min_chunk_x}..{max_chunk_x}], Y=[{min_chunk_y}..{max_chunk_y}]")
+        
         for chunk_key, chunk in list(self.world.chunk_manager.loaded_chunks.items()):
             chunk_x, chunk_y = chunk_key
-            # Check if chunk is outside unload bounds
-            if (chunk_x < unload_min_chunk_x or chunk_x > unload_max_chunk_x or
-                chunk_y < unload_min_chunk_y or chunk_y > unload_max_chunk_y):
+            
+            # Check if chunk is INSIDE the unload bounds (should be KEPT)
+            # Chunks inside: unload_min_chunk_x <= chunk_x < unload_max_chunk_x
+            # Chunks outside: chunk_x < unload_min_chunk_x OR chunk_x >= unload_max_chunk_x
+            is_inside_unload_range = (unload_min_chunk_x <= chunk_x < unload_max_chunk_x and
+                                      unload_min_chunk_y <= chunk_y < unload_max_chunk_y)
+            
+            # Only unload chunks that are OUTSIDE the unload range
+            if not is_inside_unload_range:
                 # Check cooldown: chunk must be outside visible area for at least cooldown seconds
                 load_time = self.world.chunk_manager.chunk_load_times.get(chunk_key, current_time)
                 time_since_load = current_time - load_time
@@ -414,14 +646,37 @@ class WorldController:
                 # This prevents rapid load/unload cycles
                 if time_since_load >= self.world.chunk_manager.chunk_unload_cooldown:
                     chunks_to_unload.append(chunk_key)
+                    
+                    # Debug: Log ALL chunks being unloaded (for debugging)
+                    if self.modern_gl_renderer and self.modern_gl_renderer.diagnostics:
+                        distance_from_camera = ((chunk_x - camera_chunk_x)**2 + (chunk_y - camera_chunk_y)**2)**0.5
+                        self.modern_gl_renderer.diagnostics.warning("WorldController", 
+                            f"UNLOADING chunk ({chunk_x}, {chunk_y}) - "
+                            f"distance from camera: {distance_from_camera:.1f} chunks, "
+                            f"camera_chunk: ({camera_chunk_x}, {camera_chunk_y}), "
+                            f"unload_range: X=[{unload_min_chunk_x}..{unload_max_chunk_x}], Y=[{unload_min_chunk_y}..{unload_max_chunk_y}], "
+                            f"is_inside: {is_inside_unload_range}")
         
         # Unload chunks (limit to avoid frame drops - reduced from 10 to 3 per frame)
+        if chunks_to_unload and self.modern_gl_renderer and self.modern_gl_renderer.diagnostics:
+            # Log which chunks are being unloaded (only occasionally)
+            if self._unload_debug_counter % 60 == 0:
+                chunks_to_unload_sorted = sorted(chunks_to_unload, 
+                    key=lambda k: ((k[0] - camera_chunk_x)**2 + (k[1] - camera_chunk_y)**2)**0.5)
+                closest_unload = chunks_to_unload_sorted[:5]  # Show 5 closest chunks being unloaded
+                self.modern_gl_renderer.diagnostics.debug("WorldController", 
+                    f"Unloading {len(chunks_to_unload)} chunks. Closest 5: {closest_unload}")
+        
         for chunk_key in chunks_to_unload[:3]:  # Unload max 3 chunks per frame
             self.world.chunk_manager.unload_chunk(chunk_key[0], chunk_key[1])
     
     def draw(self, debug_visualization_mode: int = 0):
         """Draw world, chunks, player and debug visualization"""
         if not self.game_initialized or not self.world or not self.world.chunk_manager:
+            return
+        
+        # Check if renderer is available
+        if not self.modern_gl_renderer:
             return
         
         # Step 1: Update view matrix based on camera position and zoom
@@ -440,9 +695,10 @@ class WorldController:
         screen_height = self.modern_gl_renderer.screen_height
         chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
         
-        # Calculate visible area bounds
-        visible_world_width = screen_width / self.camera_zoom
-        visible_world_height = screen_height / self.camera_zoom
+        # Calculate visible area bounds using central zoom utility
+        visible_world_width, visible_world_height = calculate_visible_world_size(
+            screen_width, screen_height, self.camera_zoom
+        )
         
         world_min_x = camera_x - visible_world_width / 2.0
         world_max_x = camera_x + visible_world_width / 2.0

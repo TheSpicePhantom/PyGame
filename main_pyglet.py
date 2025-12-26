@@ -671,8 +671,8 @@ class GameWindow(pyglet.window.Window):
         world_min_y = camera_y - visible_world_height / 2.0
         world_max_y = camera_y + visible_world_height / 2.0
         
-        # Add buffer to ensure edge chunks are loaded (1 chunk buffer in all directions)
-        buffer_pixels = chunk_size_pixels * 1.5  # 1.5 chunks buffer for safety
+        # Add buffer to ensure edge chunks are loaded (reduced buffer for aggressiveres culling)
+        buffer_pixels = chunk_size_pixels * 1.0  # 1.0 chunks buffer (reduced from 1.5)
         world_min_x -= buffer_pixels
         world_max_x += buffer_pixels
         world_min_y -= buffer_pixels

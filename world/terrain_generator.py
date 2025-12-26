@@ -230,7 +230,7 @@ class TerrainGenerator:
         
         with open(full_path, "r", encoding="utf-8") as f:
             self.config = json.load(f)
-    
+        
     def _process_biomes(self):
         """Pre-process biome data for efficient lookup by height, temperature, and humidity."""
         # Normalize height ranges from [-1, 1] to [0, 1] for easier comparison
@@ -428,7 +428,7 @@ class TerrainGenerator:
         Args:
             world_x: World X coordinate (tile coordinate)
             world_y: World Y coordinate (tile coordinate)
-            
+        
         Returns:
             Normalized height value in [0.0, 1.0] range
         """
@@ -506,7 +506,7 @@ class TerrainGenerator:
         Args:
             world_x: World X coordinate (tile coordinate)
             world_y: World Y coordinate (tile coordinate)
-            
+        
         Returns:
             Continentalness value in [0.0, 1.0] range (0.0 = coastal, 1.0 = inland)
         """

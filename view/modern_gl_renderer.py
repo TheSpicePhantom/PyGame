@@ -76,8 +76,8 @@ class ModernGLRenderer:
         # Initialize tile color palette (before pool, as pool needs correct buffer size)
         self.tile_color_palette = TileColorPalette()
         
-        # Initialize VBO/VAO pool for chunk buffers
-        self.chunk_vbo_pool = ChunkVboPool(ctx, self.chunk_program, pool_size=100)
+        # Initialize VBO/VAO pool for chunk buffers (adaptive sizing)
+        self.chunk_vbo_pool = ChunkVboPool(ctx, self.chunk_program, pool_size=100, diagnostics=self.diagnostics)
         
         # Update palette uniform in shader
         self._update_palette_uniform(self.chunk_program)
@@ -420,6 +420,17 @@ class ModernGLRenderer:
                 self.chunk_program['zoom'].value = zoom
                 # Store current zoom for render_chunks
                 self.current_zoom = zoom
+                
+                # Debug logging for shader zoom verification (only log occasionally)
+                if hasattr(self, '_shader_zoom_debug_counter'):
+                    self._shader_zoom_debug_counter += 1
+                else:
+                    self._shader_zoom_debug_counter = 0
+                
+                if self._shader_zoom_debug_counter % 60 == 0 and self.diagnostics:  # Log every 60 frames
+                    self.diagnostics.debug("ModernGLRenderer", 
+                        f"Shader zoom uniform set: zoom={zoom:.2f}, "
+                        f"shader_zoom_value={self.chunk_program['zoom'].value}")
         
         # Sprite shader still uses view matrix
         if self.sprite_program and 'view' in self.sprite_program:
@@ -449,10 +460,10 @@ class ModernGLRenderer:
         if chunk_key in self.chunk_buffers:
             old_vbo, old_vao, old_vertex_count, old_pool_index = self.chunk_buffers[chunk_key]
             # Release buffer back to pool if it came from pool
-            if old_pool_index is not None:
-                self.chunk_vbo_pool.release(old_pool_index)
+            if old_pool_index is not None and old_pool_index >= 0:
+                self.chunk_vbo_pool.release_chunk(chunk_key)
             else:
-                # Manually created buffer - release normally
+                # Manually created buffer or temporary buffer - release normally
                 old_vao.release()
                 old_vbo.release()
             # Remove from cache (will be re-added below)
@@ -558,22 +569,10 @@ class ModernGLRenderer:
         vertex_array = np.array(vertices, dtype=np.float32)
         vertex_count = len(vertices)
         
-        # Buffer aus Pool holen oder neuen erstellen
-        pool_result = self.chunk_vbo_pool.acquire()
-        if pool_result is None:
-            # Fallback: neuer Buffer
-            if self.diagnostics:
-                self.diagnostics.warning("ModernGLRenderer", "VBO pool exhausted, creating new buffer", chunk_x=chunk_x, chunk_y=chunk_y)
-            vbo = self.ctx.buffer(vertex_array.tobytes())
-            vao = self.ctx.vertex_array(
-                self.chunk_program,
-                [(vbo, "2f 1f 2f 1f", "in_position", "in_color_index", "in_texcoord", "in_use_texture")]
-            )
-            self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, None)
-        else:
-            vbo, vao, pool_index = pool_result
-            self.chunk_vbo_pool.write_data(vbo, vertex_array)
-            self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, pool_index)
+        # Buffer aus Pool holen (mit Recycling)
+        vbo, vao, pool_index = self.chunk_vbo_pool.get_vbo_for_chunk(chunk_key)
+        self.chunk_vbo_pool.write_data(vbo, vertex_array)
+        self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, pool_index)
         
         # Nach Upload ist der Chunk wieder "clean"
         self.mark_chunk_clean(chunk_x, chunk_y)
@@ -607,7 +606,56 @@ class ModernGLRenderer:
                 if self.diagnostics:
                     self.diagnostics.error("ModernGLRenderer", f"Failed to bind texture atlas: {e}")
     
-    def render_chunks(self, chunks_data: List[Tuple[int, int, List[List[dict]]]], performance_monitor=None, max_new_chunks_per_frame: int = 8):
+    def set_visible_chunks(self, visible_chunk_keys: set):
+        """
+        Inform renderer which chunks are currently visible.
+        This enables smart buffer management and cleanup.
+        
+        Args:
+            visible_chunk_keys: Set of (chunk_x, chunk_y) tuples for visible chunks
+        """
+        if not visible_chunk_keys:
+            return
+        
+        # Inform VBO pool about visibility for smart recycling
+        self.chunk_vbo_pool.set_visible_chunks(visible_chunk_keys)
+        
+        # DISABLED for debugging: Cleanup deaktiviert, um zu testen ob Timing das Problem ist
+        # cached_chunk_keys = set(self.chunk_buffers.keys())
+        # invisible_chunks = cached_chunk_keys - visible_chunk_keys
+        # if len(invisible_chunks) > 30:
+        #     if self.diagnostics:
+        #         self.diagnostics.debug(
+        #             "ModernGLRenderer",
+        #             f"Cleaning up {len(invisible_chunks)} invisible chunk buffers "
+        #             f"(visible: {len(visible_chunk_keys)}, cached: {len(cached_chunk_keys)})"
+        #         )
+        #     self.release_chunk_buffers(list(invisible_chunks))
+    
+    def log_vbo_pool_stats(self):
+        """Log VBO pool statistics for monitoring and optimization."""
+        if not self.diagnostics:
+            return
+        
+        stats = self.chunk_vbo_pool.get_stats()
+        
+        if stats['in_use'] > stats['pool_size'] * 0.9:
+            self.diagnostics.warning(
+                "ModernGLRenderer",
+                f"VBO Pool near capacity: {stats['in_use']}/{stats['pool_size']} in use. "
+                f"Peak visible: {stats['peak_visible_chunks']}, "
+                f"Recommended pool size: {stats['recommended_pool_size']}"
+            )
+        else:
+            self.diagnostics.info(
+                "ModernGLRenderer",
+                f"VBO Pool stats: {stats['in_use']}/{stats['pool_size']} in use, "
+                f"{stats['available']} available, "
+                f"Peak visible: {stats['peak_visible_chunks']}, "
+                f"Recycled: {stats['recycled_count']}"
+            )
+    
+    def render_chunks(self, chunks_data: List[Tuple[int, int, List[List[dict]]]], performance_monitor=None, max_new_chunks_per_frame: Optional[int] = None):
         """
         Render chunks using GPU (with caching - similar to Pygame surface cache)
         
@@ -615,11 +663,24 @@ class ModernGLRenderer:
             chunks_data: List of (chunk_x, chunk_y, tiles) tuples
                 tiles: 15x15 grid of tile dictionaries with 'color' key
             performance_monitor: Optional PerformanceMonitor instance for timing
-            max_new_chunks_per_frame: Maximum number of new/dirty chunks to upload per frame
-                (prevents frame time spikes when loading many chunks at once)
+            max_new_chunks_per_frame: Optional[int] = None
+                Maximum number of new/dirty chunks to upload per frame.
+                If None, uses dynamic budget: max(20, len(chunks_data) // 4)
+                This ensures all chunks are loaded within 4 frames worst-case.
+                Prevents frame time spikes when loading many chunks at once.
         """
         if not chunks_data:
             return
+        
+        # Dynamic upload budget: upload at least 25% of visible chunks per frame
+        # This ensures all chunks are loaded within 4 frames worst-case
+        if max_new_chunks_per_frame is None:
+            max_new_chunks_per_frame = max(20, len(chunks_data) // 4)
+        
+        # DEBUG: Track what's happening
+        skipped_chunks = []
+        rendered_chunks = []
+        uploaded_chunks = []
         
         import time
         chunk_render_start = time.perf_counter()
@@ -656,6 +717,7 @@ class ModernGLRenderer:
             if is_dirty and new_chunks_uploaded >= max_new_chunks_per_frame:
                 # Noch nicht im GPU-Cache? Dann diesen Chunk in diesem Frame überspringen
                 if chunk_key not in self.chunk_buffers:
+                    skipped_chunks.append(chunk_key)
                     continue
                 # Im Cache aber dirty? Mit altem Buffer rendern (ohne Upload)
                 if chunk_key in self.chunk_buffers:
@@ -663,20 +725,52 @@ class ModernGLRenderer:
                     if vao and vertex_count > 0:
                         # Atlas is already bound above, just render
                         vao.render(moderngl.TRIANGLES, vertices=vertex_count)
+                        rendered_chunks.append(chunk_key)
                     continue
             
             # Normaler Pfad: Buffer erstellen/aktualisieren
             vbo, vao, vertex_count = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
             if is_dirty:
                 new_chunks_uploaded += 1
+                uploaded_chunks.append(chunk_key)
             
             if vao and vertex_count > 0:
                 # Atlas is already bound above, just render
                 vao.render(moderngl.TRIANGLES, vertices=vertex_count)
+                rendered_chunks.append(chunk_key)
         
         upload_time = time.perf_counter() - upload_start_time
         if performance_monitor:
             performance_monitor.record_chunk_upload_time(upload_time)
+        
+        # DEBUG: Log what happened
+        if self.diagnostics and (skipped_chunks or uploaded_chunks):
+            self.diagnostics.debug(
+                "ModernGLRenderer",
+                f"Render: {len(rendered_chunks)} rendered, {len(uploaded_chunks)} uploaded, "
+                f"{len(skipped_chunks)} skipped. Budget: {max_new_chunks_per_frame}, "
+                f"Total chunks: {len(chunks_data)}"
+            )
+            if skipped_chunks:
+                self.diagnostics.warning(
+                    "ModernGLRenderer",
+                    f"Skipped chunks (will render next frame): {skipped_chunks[:10]}"
+                )
+        
+        # Periodisches Logging (z.B. alle 5 Sekunden bei 60 FPS = 300 Frames)
+        if self.diagnostics and hasattr(self, '_stats_log_counter'):
+            self._stats_log_counter += 1
+        else:
+            self._stats_log_counter = 0
+        
+        if self._stats_log_counter % 300 == 0:  # Alle 5 Sekunden
+            stats = self.chunk_vbo_pool.get_stats()
+            self.diagnostics.info(
+                "ModernGLRenderer",
+                f"VBO Pool: {stats['in_use']}/{stats['current_pool_size']} "
+                f"(peak: {stats['peak_usage']}, target: {stats['target_size']}, "
+                f"efficiency: {stats['efficiency']:.1%}, expansions: {stats['expansion_count']})"
+            )
         
         chunk_render_time = time.perf_counter() - chunk_render_start
         if performance_monitor:
@@ -986,11 +1080,11 @@ class ModernGLRenderer:
             # Remove from dirty set (chunk is being released, no need to track dirty state)
             self.chunk_dirty.discard(chunk_key)
             
-            if pool_index is not None:
+            if pool_index is not None and pool_index >= 0:
                 # Return buffer to pool for reuse
-                self.chunk_vbo_pool.release(pool_index)
+                self.chunk_vbo_pool.release_chunk(chunk_key)
             else:
-                # Manually created buffer (pool exhausted) - release normally
+                # Manually created buffer or temporary buffer - release normally
                 vao.release()
                 vbo.release()
     
@@ -1032,15 +1126,43 @@ class ModernGLRenderer:
         """
         return (chunk_x, chunk_y) in self.chunk_dirty
     
+    def release_chunk_buffers(self, chunk_keys: List[Tuple[int, int]]):
+        """
+        Release VBOs for chunks that are no longer visible (batch operation)
+        
+        Args:
+            chunk_keys: List of (chunk_x, chunk_y) tuples to release
+        """
+        if not chunk_keys:
+            return
+        
+        released_count = 0
+        for chunk_key in chunk_keys:
+            if chunk_key in self.chunk_buffers:
+                vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
+                if pool_index is not None and pool_index >= 0:
+                    # Buffer from pool
+                    self.chunk_vbo_pool.release_chunk(chunk_key)
+                else:
+                    # Manually created buffer or temporary buffer (index=-1)
+                    vao.release()
+                    vbo.release()
+                del self.chunk_buffers[chunk_key]
+                released_count += 1
+        
+        if released_count > 0 and self.diagnostics:
+            self.diagnostics.debug("ModernGLRenderer", 
+                f"Released {released_count} chunk buffers")
+    
     def cleanup(self):
         """Cleanup all cached buffers"""
         # Release all buffers back to pool
         for chunk_key, buffer_data in list(self.chunk_buffers.items()):
             vbo, vao, vertex_count, pool_index = buffer_data
-            if pool_index is not None:
-                self.chunk_vbo_pool.release(pool_index)
+            if pool_index is not None and pool_index >= 0:
+                self.chunk_vbo_pool.release_chunk(chunk_key)
             else:
-                # Manually created buffer (pool exhausted) - release normally
+                # Manually created buffer or temporary buffer - release normally
                 vao.release()
                 vbo.release()
         self.chunk_buffers.clear()

@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List, Set
 from core import settings
+from core.zoom_utils import calculate_visible_world_size
 import threading
 import queue
 import heapq
@@ -492,7 +493,7 @@ class ChunkManager:
 
     def get_visible_chunk_range(self, camera_x: float, camera_y: float, 
                                  screen_width: int, screen_height: int,
-                                 zoom: float = 1.0, padding_chunks: int = 3,
+                                 zoom: float = 1.0, padding_chunks: int = 2,
                                  movement_dir: Optional[Tuple[float, float]] = None) -> Tuple[int, int, int, int]:
         """
         Calculate visible chunk range based on camera position and screen size.
@@ -513,13 +514,10 @@ class ChunkManager:
         """
         chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
         
-        # Calculate visible area bounds using zoom
-        # Shader multiplies by zoom: screen_pos = (pos - center) * zoom + center
-        # When zoom < 1.0 (rauszoomen): position offset becomes smaller → more world visible → more chunks
-        # When zoom > 1.0 (reinzoomen): position offset becomes larger → less world visible → fewer chunks
-        # To get visible world size, we divide screen size by zoom (inverse of shader multiplication)
-        visible_world_width = screen_width / zoom
-        visible_world_height = screen_height / zoom
+        # Calculate visible area bounds using central zoom utility
+        visible_world_width, visible_world_height = calculate_visible_world_size(
+            screen_width, screen_height, zoom
+        )
         
         # Calculate world bounds (visible area centered on camera)
         world_min_x = camera_x - visible_world_width / 2.0
@@ -580,7 +578,7 @@ class ChunkManager:
     
     def update_visible_chunks(self, camera_x: float, camera_y: float,
                               screen_width: int, screen_height: int,
-                              zoom: float = 1.0, padding_chunks: int = 3,
+                              zoom: float = 1.0, padding_chunks: int = 2,
                               movement_dir: Optional[Tuple[float, float]] = None):
         """
         Update visible chunks by requesting load for all chunks in visible range.
@@ -701,9 +699,15 @@ class ChunkManager:
         for chunk_key, chunk in list(self.loaded_chunks.items()):
             chunk_x, chunk_y = chunk_key
             
-            # Check if chunk is outside visible range
-            if (chunk_x < min_chunk_x or chunk_x > max_chunk_x or
-                chunk_y < min_chunk_y or chunk_y > max_chunk_y):
+            # Check if chunk is INSIDE visible range (should be KEPT)
+            # Note: max_chunk_x is exclusive (like range()), so we use < not <=
+            # Chunks inside: min_chunk_x <= chunk_x < max_chunk_x
+            # Chunks outside: chunk_x < min_chunk_x OR chunk_x >= max_chunk_x
+            is_inside_visible_range = (min_chunk_x <= chunk_x < max_chunk_x and
+                                      min_chunk_y <= chunk_y < max_chunk_y)
+            
+            # Only unload chunks that are OUTSIDE the visible range
+            if not is_inside_visible_range:
                 
                 # Check cooldown: chunk must be loaded for at least cooldown seconds
                 # This prevents rapid load/unload cycles
@@ -713,6 +717,18 @@ class ChunkManager:
                 # Only unload if chunk has been loaded for at least cooldown seconds
                 if time_since_load >= self.chunk_unload_cooldown:
                     chunks_to_unload.append(chunk_key)
+                    
+                    # Debug: Log ALL chunks being unloaded (for debugging)
+                    if self.diagnostics:
+                        camera_chunk_x = int((camera_x / (settings.CHUNK_SIZE * settings.TILE_SIZE)))
+                        camera_chunk_y = int((camera_y / (settings.CHUNK_SIZE * settings.TILE_SIZE)))
+                        distance_from_camera = ((chunk_x - camera_chunk_x)**2 + (chunk_y - camera_chunk_y)**2)**0.5
+                        self.diagnostics.warning("ChunkManager", 
+                            f"UNLOADING chunk ({chunk_x}, {chunk_y}) - "
+                            f"distance from camera: {distance_from_camera:.1f} chunks, "
+                            f"camera_chunk: ({camera_chunk_x}, {camera_chunk_y}), "
+                            f"visible_range: X=[{min_chunk_x}..{max_chunk_x}], Y=[{min_chunk_y}..{max_chunk_y}], "
+                            f"is_inside: {is_inside_visible_range}")
         
         # Unload chunks (limit to avoid frame drops)
         for chunk_key in chunks_to_unload[:max_unloads_per_call]:
@@ -1553,14 +1569,14 @@ class ChunkManager:
                 self.load_chunks_around_player(player_chunk_x, player_chunk_y, preload_radius)
         
         # Update visible chunks based on camera position and screen size
-        # Increased padding to 3 chunks for smoother preload/cooldown ring, reducing disk loads
+        # Reduced padding to 2 chunks for aggressiveres culling (reduces VBO pool usage)
         # Pass movement direction for asymmetric loading (more chunks in movement direction)
-        self.update_visible_chunks(camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=3, movement_dir=movement_dir)
+        self.update_visible_chunks(camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=2, movement_dir=movement_dir)
         
         # Unload chunks outside visible view
-        # Increased padding to 3 chunks for smoother preload/cooldown ring, reducing disk loads
-        # Use movement direction for asymmetric unload range as well
-        self.unload_chunks_outside_view(camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=3, movement_dir=movement_dir)
+        # DISABLED: Unloading is now handled by world_controller.load_visible_chunks()
+        # to avoid conflicts and ensure consistent unload logic
+        # self.unload_chunks_outside_view(camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=2, movement_dir=movement_dir)
     
     def load_chunks_around_player(self, player_chunk_x: int, player_chunk_y: int, radius: int):
         """
@@ -1940,16 +1956,15 @@ class ChunkManager:
         if self.diagnostics:
             self.diagnostics.debug("ChunkManager", f"Refreshing visible chunks for zoom change (zoom={zoom:.2f})...")
         
-        # Calculate visible area in world coordinates
-        # When zoom < 1.0 (zoomed out): more world visible → more chunks
-        # When zoom > 1.0 (zoomed in): less world visible → fewer chunks
-        half_w = (screen_width / 2.0) / zoom
-        half_h = (screen_height / 2.0) / zoom
+        # Calculate visible area in world coordinates using central zoom utility
+        visible_world_width, visible_world_height = calculate_visible_world_size(
+            screen_width, screen_height, zoom
+        )
         
-        world_min_x = camera_x - half_w
-        world_max_x = camera_x + half_w
-        world_min_y = camera_y - half_h
-        world_max_y = camera_y + half_h
+        world_min_x = camera_x - visible_world_width / 2.0
+        world_max_x = camera_x + visible_world_width / 2.0
+        world_min_y = camera_y - visible_world_height / 2.0
+        world_max_y = camera_y + visible_world_height / 2.0
         
         # Convert to chunk coordinates (with padding)
         min_chunk_x = int(math.floor(world_min_x / chunk_size_pixels)) - 1
@@ -1983,7 +1998,7 @@ class ChunkManager:
             camera_x, camera_y,
             screen_width, screen_height,
             zoom=zoom,
-            padding_chunks=3
+            padding_chunks=2
         )
     
     def save_all_chunks(self):
