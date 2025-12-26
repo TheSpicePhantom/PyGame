@@ -1,139 +1,117 @@
 {
   "texture_mappings": {
     "terrain:plains": {
-      "base_texture": "grass",
-      "variants": [
-        "plains_grass_1",
-        "plains_grass_2",
-        "plains_grass_3",
-        "plains_grass_4",
-        "plains_grass_5",
-        "plains_grass_6"
-      ],
-      "base_path": "assets/tiles",
-      "default_variant": "plains_grass_1",
-      "overlays": [
-        {
-          "texture": "plains_grass_2",
-          "chance": 0.015,
-          "noise_scale": 0.12,
-          "noise_threshold": 0.75
-        },
-        {
-          "texture": "plains_grass_3",
-          "chance": 0.015,
-          "noise_scale": 0.12,
-          "noise_threshold": 0.75
-        },
-        {
-          "texture": "plains_grass_4",
-          "chance": 0.01,
-          "noise_scale": 0.15,
-          "noise_threshold": 0.8
-        },
-        {
-          "texture": "plains_grass_5",
-          "chance": 0.01,
-          "noise_scale": 0.15,
-          "noise_threshold": 0.8
-        },
-        {
-          "texture": "plains_grass_6",
-          "chance": 0.005,
-          "noise_scale": 0.1,
-          "noise_threshold": 0.85
-        }
-      ]
+      "base_texture": "plains_grass_1",
+      "base_path": "assets/core/tiles",
+      "variance_system": {
+        "mode": "organic_growth",
+        "rotation_enabled": true,
+        "growth_patterns": [
+          {
+            "overlay": "plains_grass_1",
+            "cluster_size": 8.0,
+            "cluster_density": 0.5,
+            "noise_scale": 0.3,
+            "noise_threshold": 0.4,
+            "spread_bias": "radial"
+          },
+          {
+            "overlay": "plains_grass_2",
+            "cluster_size": 5.0,
+            "cluster_density": 0.2,
+            "noise_scale": 0.08,
+            "noise_threshold": 0.55,
+            "spread_bias": "radial"
+          },
+          {
+            "overlay": "plains_grass_3",
+            "cluster_size": 4.5,
+            "cluster_density": 0.18,
+            "noise_scale": 0.09,
+            "noise_threshold": 0.60,
+            "spread_bias": "radial"
+          },
+          {
+            "overlay": "plains_grass_4",
+            "cluster_size": 3.5,
+            "cluster_density": 0.12,
+            "noise_scale": 0.12,
+            "noise_threshold": 0.65,
+            "spread_bias": "radial"
+          },
+          {
+            "overlay": "plains_grass_5",
+            "cluster_size": 3.0,
+            "cluster_density": 0.1,
+            "noise_scale": 0.15,
+            "noise_threshold": 0.7,
+            "spread_bias": "directional",
+            "spread_direction": [
+              0.7,
+              0.3
+            ]
+          },
+          {
+            "overlay": "plains_grass_6",
+            "cluster_size": 2.0,
+            "cluster_density": 0.05,
+            "noise_scale": 0.2,
+            "noise_threshold": 0.75,
+            "spread_bias": "radial"
+          }
+        ]
+      }
     },
     "terrain:forest": {
-      "base_texture": "forest",
-      "variants": [
-        "forest"
-      ],
+      "base_texture": "plains_grass_1",
       "base_path": "assets/core/tiles"
     },
     "terrain:rainforest": {
-      "base_texture": "rainforest",
-      "variants": [
-        "rainforest"
-      ],
+      "base_texture": "plains_grass_1",
       "base_path": "assets/core/tiles"
     },
     "terrain:desert": {
-      "base_texture": "sand",
-      "variants": [
-        "sand"
-      ],
+      "base_texture": "plains_grass_1",
       "base_path": "assets/core/tiles"
     },
     "terrain:beach": {
-      "base_texture": "sand",
-      "variants": [
-        "sand"
-      ],
+      "base_texture": "plains_grass_1",
       "base_path": "assets/core/tiles"
     },
     "terrain:tundra": {
-      "base_texture": "tundra",
-      "variants": [
-        "tundra"
-      ],
+      "base_texture": "plains_grass_1",
       "base_path": "assets/core/tiles"
     },
     "terrain:taiga": {
-      "base_texture": "taiga",
-      "variants": [
-        "taiga"
-      ],
+      "base_texture": "plains_grass_1",
       "base_path": "assets/core/tiles"
     },
     "terrain:savanna": {
-      "base_texture": "savanna",
-      "variants": [
-        "savanna"
-      ],
+      "base_texture": "plains_grass_1",
       "base_path": "assets/core/tiles"
     },
     "terrain:steppe": {
-      "base_texture": "steppe",
-      "variants": [
-        "steppe"
-      ],
+      "base_texture": "plains_grass_1",
       "base_path": "assets/core/tiles"
     },
     "terrain:chaparral": {
-      "base_texture": "chaparral",
-      "variants": [
-        "chaparral"
-      ],
+      "base_texture": "plains_grass_1",
       "base_path": "assets/core/tiles"
     },
     "terrain:mountains": {
-      "base_texture": "stone",
-      "variants": [
-        "stone"
-      ],
+      "base_texture": "plains_grass_1",
       "base_path": "assets/core/tiles"
     },
     "terrain:snow": {
-      "base_texture": "snow",
-      "variants": [
-        "snow"
-      ],
+      "base_texture": "plains_grass_1",
       "base_path": "assets/core/tiles"
     },
     "water:shallow": {
       "base_texture": "shallow",
-      "variants": [
-        "shallow"
-      ],
       "base_path": "assets/core/tiles"
     },
     "water:deep": {
       "base_texture": "deep",
-      "variants": [
-        "deep"
-      ],
       "base_path": "assets/core/tiles"
     }
   }

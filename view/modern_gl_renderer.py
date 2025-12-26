@@ -38,7 +38,7 @@ class ModernGLRenderer:
         
         # Initialize texture manager (may fail if assets don't exist, that's OK)
         try:
-            self.tile_texture_manager = TileTextureManager(ctx)
+            self.tile_texture_manager = TileTextureManager(ctx, diagnostics=self.diagnostics)
             if self.diagnostics and self.tile_texture_manager.texture_atlas:
                 self.diagnostics.info("ModernGLRenderer", f"Texture atlas initialized: {self.tile_texture_manager.atlas_size}x{self.tile_texture_manager.atlas_size}")
         except Exception as e:
