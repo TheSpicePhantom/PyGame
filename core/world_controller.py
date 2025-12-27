@@ -163,6 +163,7 @@ class WorldController:
             performance_monitor=self.performance_monitor,
             terrain_gen=self.world.terrain_gen,
             sprint_multiplier=sprint_multiplier,
+            world_controller=self,  # Add reference for decoration collision checking
             sneak_multiplier=sneak_multiplier
         )
         
@@ -284,6 +285,10 @@ class WorldController:
                 self.all_sprites if hasattr(self, 'all_sprites') else None,
                 self.resource_sprites if hasattr(self, 'resource_sprites') else None
             )
+        
+        # Update tile decorations (growth timers, regrowth, etc.)
+        if self.world and self.world.chunk_manager:
+            self.update_tile_decorations(dt)
         
         # Update auto-save system (checks if save is needed)
         if self.auto_save:
@@ -914,7 +919,7 @@ class WorldController:
                 )
     
     def _handle_tile_click(self, mouse_x: int, mouse_y: int, button: int):
-        """Handle tile click for debug output"""
+        """Handle tile click for interactions (harvest, mining) and debug output"""
         tile_info = self._get_tile_under_mouse(mouse_x, mouse_y)
         if not tile_info:
             return
@@ -923,6 +928,18 @@ class WorldController:
         biome = tile_data.get('biome', 'unknown')
         tile_id = tile_data.get('tileid', '') or tile_data.get('tile_id', 'unknown')
         
+        # Check for decoration interactions
+        decoration_data = tile_data.get('decoration')
+        if decoration_data:
+            if button == 4:  # Right click - Harvest
+                self.harvest_decoration(tile_x, tile_y)
+                return
+            elif button == 1:  # Left click - Start mining (hold for progress)
+                # Mining is handled via continuous mouse press, not single click
+                # This is a placeholder - actual mining happens in handle_mouse_press with hold detection
+                pass
+        
+        # Fallback to debug output for non-decoration tiles
         if button == 1:  # Left click
             traversable = tile_data.get('traversable', False)
             if traversable:
@@ -939,6 +956,352 @@ class WorldController:
                     self.diagnostics.info("WorldController", f"Right click on tile ({tile_x}, {tile_y}): can_build={can_build} (Biome: {biome}, Tile-ID: {tile_id})")
                 else:
                     self.diagnostics.info("WorldController", f"Right click on tile ({tile_x}, {tile_y}): can_build={can_build} - darauf kann nicht gebaut werden (Biome: {biome}, Tile-ID: {tile_id})")
+    
+    def harvest_decoration(self, tile_x: int, tile_y: int) -> bool:
+        """
+        Harvest decoration at tile position (right-click action).
+        
+        Args:
+            tile_x: Tile X coordinate
+            tile_y: Tile Y coordinate
+            
+        Returns:
+            True if harvest was successful, False otherwise
+        """
+        if not self.world or not self.world.chunk_manager or not self.player:
+            return False
+        
+        try:
+            from world.decoration_registry import DecorationRegistry
+            from world.decoration import Decoration
+        except ImportError:
+            return False
+        
+        # Get chunk coordinates
+        chunk_x = tile_x // settings.CHUNK_SIZE
+        chunk_y = tile_y // settings.CHUNK_SIZE
+        
+        # Get tile coordinates within chunk
+        tile_x_in_chunk = tile_x % settings.CHUNK_SIZE
+        tile_y_in_chunk = tile_y % settings.CHUNK_SIZE
+        
+        # Check if chunk is loaded
+        chunk_key = (chunk_x, chunk_y)
+        if chunk_key not in self.world.chunk_manager.loaded_chunks:
+            return False
+        
+        chunk = self.world.chunk_manager.loaded_chunks[chunk_key]
+        
+        # Get decoration at this tile position
+        decoration_data = chunk.get_decoration_at(tile_x_in_chunk, tile_y_in_chunk)
+        if not decoration_data:
+            return False
+        
+        decoration_id = decoration_data.get('decoration_id')
+        if not decoration_id:
+            return False
+        
+        # Get decoration config
+        deco_config = DecorationRegistry.get(decoration_id)
+        if not deco_config:
+            return False
+        
+        decoration = Decoration(deco_config)
+        
+        # Check if harvestable
+        if not decoration.is_harvestable():
+            return False
+        
+        # Get decoration data
+        deco_data = decoration_data.get('data', {})
+        
+        # Check if has fruit (for harvestable items)
+        if not deco_data.get('has_fruit', True):
+            return False  # Already harvested, not regrown yet
+        
+        # Roll loot table
+        loot = decoration.get_loot()
+        
+        # Add items to player inventory
+        for item_id, quantity in loot.items():
+            self.player.add_item(item_id, quantity)
+        
+        # Set regrowth timer
+        harvest_config = deco_config.get('harvest', {})
+        regrowth_config = harvest_config.get('regrowth', {})
+        import random
+        regrowth_time = random.uniform(
+            regrowth_config.get('min_time', 30.0),
+            regrowth_config.get('max_time', 180.0)
+        )
+        
+        deco_data['growth_timer'] = regrowth_time
+        deco_data['has_fruit'] = False
+        deco_data['last_interaction'] = 0.0  # Will be updated in update_tile_decorations
+        
+        # Update sprite (will be handled in rendering)
+        decoration.update_sprite('without_fruit')
+        
+        # Trigger event
+        tile = chunk.tiles[tile_y_in_chunk][tile_x_in_chunk]
+        decoration.on_harvest(self.player, tile)
+        
+        if self.diagnostics:
+            self.diagnostics.info("WorldController", f"Harvested {decoration_id} at ({tile_x}, {tile_y}), got {loot}")
+        
+        return True
+    
+    def mine_decoration(self, tile_x: int, tile_y: int, dt: float) -> bool:
+        """
+        Mine decoration at tile position (left-click hold action).
+        
+        Args:
+            tile_x: Tile X coordinate
+            tile_y: Tile Y coordinate
+            dt: Delta time for mining progress
+            
+        Returns:
+            True if mining was completed (decoration destroyed), False otherwise
+        """
+        if not self.world or not self.world.chunk_manager or not self.player:
+            return False
+        
+        try:
+            from world.decoration_registry import DecorationRegistry
+            from world.decoration import Decoration
+        except ImportError:
+            return False
+        
+        # Get chunk coordinates
+        chunk_x = tile_x // settings.CHUNK_SIZE
+        chunk_y = tile_y // settings.CHUNK_SIZE
+        
+        # Get tile coordinates within chunk
+        tile_x_in_chunk = tile_x % settings.CHUNK_SIZE
+        tile_y_in_chunk = tile_y % settings.CHUNK_SIZE
+        
+        # Check if chunk is loaded
+        chunk_key = (chunk_x, chunk_y)
+        if chunk_key not in self.world.chunk_manager.loaded_chunks:
+            return False
+        
+        chunk = self.world.chunk_manager.loaded_chunks[chunk_key]
+        
+        # Get decoration at this tile position
+        decoration_data = chunk.get_decoration_at(tile_x_in_chunk, tile_y_in_chunk)
+        if not decoration_data:
+            return False
+        
+        decoration_id = decoration_data.get('decoration_id')
+        if not decoration_id:
+            return False
+        
+        # Get decoration config
+        deco_config = DecorationRegistry.get(decoration_id)
+        if not deco_config:
+            return False
+        
+        decoration = Decoration(deco_config)
+        
+        # Check if mineable
+        if not decoration.is_mineable():
+            return False
+        
+        # Get tool (placeholder)
+        tool = self.get_equipped_tool()
+        mining_config = deco_config.get('mining', {})
+        required_tool = mining_config.get('tool_required')
+        
+        # Check tool requirement
+        if required_tool and tool.get('tool_type') != required_tool:
+            return False  # Wrong tool
+        
+        # Get decoration data
+        deco_data = decoration_data.get('data', {})
+        current_damage = deco_data.get('damage', 0.0)
+        durability = mining_config.get('durability', 100)
+        
+        # Apply mining progress
+        mining_speed = tool.get('mining_speed', 1.0)
+        new_damage = current_damage + mining_speed * dt
+        
+        # Update damage
+        deco_data['damage'] = new_damage
+        deco_data['last_interaction'] = 0.0  # Will be updated in update_tile_decorations
+        
+        # Check if mined (damage >= durability)
+        if new_damage >= durability:
+            # Roll loot table
+            loot = decoration.get_loot()
+            
+            # Add items to player inventory
+            for item_id, quantity in loot.items():
+                self.player.add_item(item_id, quantity)
+            
+            # Remove decoration
+            tile = chunk.tiles[tile_y_in_chunk][tile_x_in_chunk]
+            if 'decoration' in tile:
+                del tile['decoration']
+            chunk.set_decoration_at(tile_x_in_chunk, tile_y_in_chunk, None)
+            
+            # Trigger event
+            decoration.on_mine_complete(self.player, tile)
+            
+            if self.diagnostics:
+                self.diagnostics.info("WorldController", f"Mined {decoration_id} at ({tile_x}, {tile_y}), got {loot}")
+            
+            return True
+        
+        # Update damage sprite (for visual feedback)
+        health_percent = 1.0 - (new_damage / durability)
+        decoration.update_damage_sprite(health_percent)
+        
+        return False  # Mining in progress
+    
+    def get_equipped_tool(self) -> dict:
+        """
+        Get currently equipped tool (placeholder implementation).
+        
+        Returns:
+            Tool dictionary with tool_type and mining_speed
+        """
+        # Placeholder: Return default tool
+        # In future, this should check player's equipped tool from inventory
+        return {
+            'tool_type': 'axe',  # Default tool
+            'mining_speed': 1.0  # Default mining speed
+        }
+    
+    def update_tile_decorations(self, dt: float):
+        """
+        Update tile decorations (growth timers, regrowth, etc.).
+        
+        Args:
+            dt: Delta time in seconds
+        """
+        if not self.world or not self.world.chunk_manager:
+            return
+        
+        try:
+            from world.decoration_registry import DecorationRegistry
+            from world.decoration import Decoration
+        except ImportError:
+            return
+        
+        import time
+        current_time = time.time()
+        
+        # Update decorations in all loaded chunks
+        for chunk in self.world.chunk_manager.loaded_chunks.values():
+            if not chunk.tiles:
+                continue
+            
+            for tile_y in range(len(chunk.tiles)):
+                if not chunk.tiles[tile_y]:
+                    continue
+                for tile_x in range(len(chunk.tiles[tile_y])):
+                    tile = chunk.tiles[tile_y][tile_x]
+                    if not tile:
+                        continue
+                    
+                    decoration_data = tile.get('decoration')
+                    if not decoration_data:
+                        continue
+                    
+                    decoration_id = decoration_data.get('decoration_id')
+                    if not decoration_id:
+                        continue
+                    
+                    deco_config = DecorationRegistry.get(decoration_id)
+                    if not deco_config:
+                        continue
+                    
+                    decoration = Decoration(deco_config)
+                    deco_data = decoration_data.get('data', {})
+                    
+                    # Update last_interaction timestamp
+                    if 'last_interaction' in deco_data:
+                        deco_data['last_interaction'] = current_time
+                    
+                    # Handle harvestable items (regrowth)
+                    if decoration.is_harvestable():
+                        growth_timer = deco_data.get('growth_timer', 0.0)
+                        has_fruit = deco_data.get('has_fruit', True)
+                        
+                        if not has_fruit and growth_timer > 0.0:
+                            # Decrease growth timer
+                            growth_timer -= dt
+                            deco_data['growth_timer'] = growth_timer
+                            
+                            # Check if regrown
+                            if growth_timer <= 0.0:
+                                deco_data['has_fruit'] = True
+                                deco_data['growth_timer'] = 0.0
+                                decoration.update_sprite('with_fruit')
+                    
+                    # Handle animation updates (placeholder for Phase 6)
+                    animation_config = decoration.get_animation_config()
+                    if animation_config.get('enabled', False):
+                        # Animation updates would go here (sway, pulse, glow, etc.)
+                        pass
+    
+    def check_decoration_collision(self, x: float, y: float) -> bool:
+        """
+        Check if a position collides with any decoration.
+        
+        Args:
+            x: World X coordinate in pixels
+            y: World Y coordinate in pixels
+            
+        Returns:
+            True if collision, False otherwise
+        """
+        if not self.world or not self.world.chunk_manager:
+            return False
+        
+        try:
+            from world.decoration_registry import DecorationRegistry
+            from world.decoration import Decoration
+        except ImportError:
+            return False  # Decoration system not available
+        
+        # Convert pixel coordinates to tile coordinates
+        tile_x = int(x // settings.TILE_SIZE)
+        tile_y = int(y // settings.TILE_SIZE)
+        
+        # Get chunk coordinates
+        chunk_x = tile_x // settings.CHUNK_SIZE
+        chunk_y = tile_y // settings.CHUNK_SIZE
+        
+        # Get tile coordinates within chunk
+        tile_x_in_chunk = tile_x % settings.CHUNK_SIZE
+        tile_y_in_chunk = tile_y % settings.CHUNK_SIZE
+        
+        # Check if chunk is loaded
+        chunk_key = (chunk_x, chunk_y)
+        if chunk_key not in self.world.chunk_manager.loaded_chunks:
+            return False
+        
+        chunk = self.world.chunk_manager.loaded_chunks[chunk_key]
+        
+        # Check decoration at this tile position
+        decoration_data = chunk.get_decoration_at(tile_x_in_chunk, tile_y_in_chunk)
+        if not decoration_data:
+            return False
+        
+        decoration_id = decoration_data.get('decoration_id')
+        if not decoration_id:
+            return False
+        
+        # Get decoration config
+        deco_config = DecorationRegistry.get(decoration_id)
+        if not deco_config:
+            return False
+        
+        decoration = Decoration(deco_config)
+        
+        # Check collision
+        return decoration.check_collision(x, y, tile_x, tile_y)
     
     def _get_tile_under_mouse(self, mouse_x: int, mouse_y: int):
         """Get tile under mouse cursor if within 8 tiles of player"""

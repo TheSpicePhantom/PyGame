@@ -164,10 +164,18 @@ class IngameStateHandler(StateHandler):
             self.game_app.change_state(GameState.INVENTORY)
             return None
         
-        # Global keys (F3, F8)
+        # Global keys (F3, F5, F8)
         if symbol == key.F3:
             self.game_app.ui_controller.show_performance_stats = not self.game_app.ui_controller.show_performance_stats
             print(f"[Performance] Stats display: {'ON' if self.game_app.ui_controller.show_performance_stats else 'OFF'}")
+        elif symbol == key.F5:
+            # Hot-reload decoration registry (dev mode)
+            try:
+                from world.decoration_registry import DecorationRegistry
+                DecorationRegistry.reload()
+                print("[DecorationRegistry] Reloaded all decoration data (F5)")
+            except Exception as e:
+                print(f"[DecorationRegistry] Failed to reload: {e}")
         elif symbol == key.F8:
             self.game_app.ui_controller.debug_visualization_mode = (self.game_app.ui_controller.debug_visualization_mode + 1) % 3
             modes = ["OFF", "Chunk Boundaries", "Chunk Boundaries + Tile Grids"]

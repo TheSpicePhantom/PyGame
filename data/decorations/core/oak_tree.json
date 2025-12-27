@@ -1,0 +1,55 @@
+{
+  "decoration_id": "oak_tree",
+  "display_name": "Oak Tree",
+  "tags": ["mineable", "decorative"],
+  "collision": {
+    "enabled": true,
+    "type": "circle",
+    "radius": 0.3
+  },
+  "health": 100,
+  "sprites": {
+    "default": "oak_tree",
+    "damaged_50": "oak_tree",
+    "stump": "oak_tree"
+  },
+  "mining": {
+    "tool_required": "axe",
+    "mining_time": 3.0,
+    "durability": 100,
+    "loot_table": "oak_tree_loot",
+    "particles": {
+      "hit": "wood_particle",
+      "break": "wood_break"
+    }
+  },
+  "placement": {
+    "biomes": ["terrain:forest"],
+    "density": 0.3,
+    "noise_threshold": {
+      "min": 0.6,
+      "max": 1.0
+    },
+    "clustering": {
+      "enabled": true,
+      "cluster_size": 5,
+      "cluster_radius": 3
+    }
+  },
+  "rendering": {
+    "size": [32, 48],
+    "offset": [0, -8],
+    "layer": 10,
+    "shadow": {
+      "enabled": true,
+      "sprite": "shadow_medium",
+      "offset": [0, 0]
+    }
+  },
+  "animation": {
+    "enabled": false,
+    "type": "none",
+    "speed": 1.0,
+    "amplitude": 0.0
+  }
+}

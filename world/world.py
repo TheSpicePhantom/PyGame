@@ -5,6 +5,7 @@ import time
 from core import settings
 from world.terrain_generator import TerrainGenerator
 from world.chunk_manager import ChunkManager
+from world.decoration_registry import DecorationRegistry
 
 
 class World:
@@ -33,6 +34,16 @@ class World:
         
         # Update chunk manager to use the correct terrain generator
         self.chunk_manager.terrain_gen = self.terrain_gen
+        
+        # Load decoration registry
+        try:
+            DecorationRegistry.load_all()
+            if self.diagnostics:
+                self.diagnostics.info("World", "Decoration registry loaded successfully")
+        except Exception as e:
+            if self.diagnostics:
+                self.diagnostics.warning("World", f"Failed to load decoration registry: {e}")
+        
         if self.diagnostics:
             self.diagnostics.info("World", f"Terrain generator initialized with seed: {self.terrain_gen.seed}")
             self.diagnostics.info("World", f"ChunkManager initialized for world '{world_name}'")

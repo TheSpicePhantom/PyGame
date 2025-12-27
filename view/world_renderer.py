@@ -50,7 +50,11 @@ class WorldRenderer:
         if visible_chunks:
             self.modern_gl_renderer.render_chunks(visible_chunks, performance_monitor=self.world_controller.performance_monitor)
         
-        # Step 4: Render player
+        # Step 3.5: Render decorations (Layer 5: Shadows, Layer 10: Decorations)
+        if visible_chunks:
+            self._render_decorations(visible_chunks, camera_x, camera_y)
+        
+        # Step 4: Render player (Layer 20)
         if self.world_controller.player:
             self._render_player()
         
@@ -209,5 +213,237 @@ class WorldRenderer:
         )
         right_border.opacity = border_opacity
         right_border.draw()
+    
+    def _render_decorations(self, visible_chunks, camera_x: float, camera_y: float):
+        """
+        Render decorations from visible chunks with proper layering.
+        
+        Args:
+            visible_chunks: List of (chunk_x, chunk_y, tiles) tuples
+            camera_x: Camera X position
+            camera_y: Camera Y position
+        """
+        try:
+            from world.decoration_registry import DecorationRegistry
+            from world.decoration import Decoration
+        except ImportError:
+            return  # Decoration system not available
+        
+        import numpy as np
+        import moderngl
+        
+        tile_size = settings.TILE_SIZE
+        decoration_sprites = []  # List of (layer, x, y, width, height, color, decoration_data)
+        
+        # Collect all decorations from visible chunks
+        for chunk_x, chunk_y, tiles in visible_chunks:
+            if not tiles:
+                continue
+            
+            chunk_world_x = chunk_x * settings.CHUNK_SIZE * tile_size
+            chunk_world_y = chunk_y * settings.CHUNK_SIZE * tile_size
+            
+            for tile_y in range(len(tiles)):
+                if not tiles[tile_y]:
+                    continue
+                for tile_x in range(len(tiles[tile_y])):
+                    tile = tiles[tile_y][tile_x]
+                    if not tile:
+                        continue
+                    
+                    decoration_data = tile.get('decoration')
+                    if not decoration_data:
+                        continue
+                    
+                    decoration_id = decoration_data.get('decoration_id')
+                    if not decoration_id:
+                        continue
+                    
+                    # Get decoration config
+                    deco_config = DecorationRegistry.get(decoration_id)
+                    if not deco_config:
+                        continue
+                    
+                    decoration = Decoration(deco_config)
+                    rendering_config = decoration.get_rendering_config()
+                    
+                    # Calculate tile world position
+                    tile_world_x = chunk_world_x + tile_x * tile_size
+                    tile_world_y = chunk_world_y + tile_y * tile_size
+                    
+                    # Get rendering size and offset
+                    size = rendering_config.get('size', [tile_size, tile_size])
+                    offset = rendering_config.get('offset', [0, 0])
+                    layer = rendering_config.get('layer', 10)
+                    
+                    # Calculate decoration position (centered on tile + offset)
+                    deco_x = tile_world_x + tile_size / 2.0 + offset[0] - size[0] / 2.0
+                    deco_y = tile_world_y + tile_size / 2.0 + offset[1] - size[1] / 2.0
+                    
+                    # Get sprite color (placeholder - will use texture later)
+                    # For now, use a color based on decoration type
+                    if decoration_id == 'oak_tree':
+                        color = (34, 139, 34)  # Forest green
+                    elif decoration_id == 'berry_bush':
+                        color = (0, 100, 0)  # Dark green
+                    elif decoration_id == 'stone_rock':
+                        color = (128, 128, 128)  # Gray
+                    else:
+                        color = (100, 100, 100)  # Default gray
+                    
+                    # Add shadow if enabled (Layer 5)
+                    shadow_config = rendering_config.get('shadow', {})
+                    if shadow_config.get('enabled', False):
+                        shadow_offset = shadow_config.get('offset', [0, 0])
+                        shadow_x = tile_world_x + tile_size / 2.0 + shadow_offset[0] - size[0] / 2.0
+                        shadow_y = tile_world_y + tile_size / 2.0 + shadow_offset[1] - size[1] / 2.0
+                        shadow_size = [size[0] * 0.8, size[1] * 0.3]  # Shadow is wider but shorter
+                        decoration_sprites.append((5, shadow_x, shadow_y, shadow_size[0], shadow_size[1], (0, 0, 0), None))  # Black shadow
+                    
+                    # Add decoration (Layer 10 or from config)
+                    decoration_sprites.append((layer, deco_x, deco_y, size[0], size[1], color, decoration_data))
+        
+        # Sort by layer for proper rendering order
+        decoration_sprites.sort(key=lambda x: x[0])
+        
+        # Render decorations in batches by layer
+        current_layer = None
+        batch_vertices = []
+        
+        for layer, x, y, width, height, color, deco_data in decoration_sprites:
+            if layer != current_layer:
+                # Render previous batch
+                if batch_vertices:
+                    self._render_decoration_batch(batch_vertices)
+                    batch_vertices = []
+                current_layer = layer
+            
+            # Create vertices for decoration quad
+            r, g, b = color[:3] if len(color) >= 3 else (100, 100, 100)
+            color_index = float(self.modern_gl_renderer.tile_color_palette.get_color_index(color))
+            if color_index == 0 and color not in self.modern_gl_renderer.tile_color_palette.color_to_index:
+                color_index = float(self.modern_gl_renderer.tile_color_palette.add_color(color))
+                self.modern_gl_renderer._update_palette_uniform()
+            
+            # Add vertices for this decoration
+            batch_vertices.extend([
+                [x, y, color_index],
+                [x + width, y, color_index],
+                [x + width, y + height, color_index],
+                [x, y, color_index],
+                [x + width, y + height, color_index],
+                [x, y + height, color_index],
+            ])
+        
+        # Render final batch
+        if batch_vertices:
+            self._render_decoration_batch(batch_vertices)
+        
+        # Render mining progress bars if any decorations are being mined
+        self._render_mining_progress_bars(visible_chunks, camera_x, camera_y)
+    
+    def _render_decoration_batch(self, vertices_list):
+        """Render a batch of decoration vertices."""
+        import numpy as np
+        import moderngl
+        
+        if not vertices_list:
+            return
+        
+        vertices = np.array(vertices_list, dtype=np.float32)
+        vbo = self.modern_gl_renderer.ctx.buffer(vertices.tobytes())
+        vao = self.modern_gl_renderer.ctx.vertex_array(
+            self.modern_gl_renderer.chunk_program,
+            [(vbo, "2f 1f", "in_position", "in_color_index")]
+        )
+        
+        vao.render(moderngl.TRIANGLES)
+        
+        vao.release()
+        vbo.release()
+    
+    def _render_mining_progress_bars(self, visible_chunks, camera_x: float, camera_y: float):
+        """
+        Render mining progress bars over decorations being mined.
+        
+        Args:
+            visible_chunks: List of (chunk_x, chunk_y, tiles) tuples
+            camera_x: Camera X position
+            camera_y: Camera Y position
+        """
+        try:
+            from world.decoration_registry import DecorationRegistry
+            from world.decoration import Decoration
+        except ImportError:
+            return
+        
+        import pyglet.shapes
+        
+        tile_size = settings.TILE_SIZE
+        
+        for chunk_x, chunk_y, tiles in visible_chunks:
+            if not tiles:
+                continue
+            
+            chunk_world_x = chunk_x * settings.CHUNK_SIZE * tile_size
+            chunk_world_y = chunk_y * settings.CHUNK_SIZE * tile_size
+            
+            for tile_y in range(len(tiles)):
+                if not tiles[tile_y]:
+                    continue
+                for tile_x in range(len(tiles[tile_y])):
+                    tile = tiles[tile_y][tile_x]
+                    if not tile:
+                        continue
+                    
+                    decoration_data = tile.get('decoration')
+                    if not decoration_data:
+                        continue
+                    
+                    deco_data = decoration_data.get('data', {})
+                    damage = deco_data.get('damage', 0.0)
+                    
+                    if damage <= 0.0:
+                        continue  # Not being mined
+                    
+                    decoration_id = decoration_data.get('decoration_id')
+                    deco_config = DecorationRegistry.get(decoration_id)
+                    if not deco_config:
+                        continue
+                    
+                    mining_config = deco_config.get('mining', {})
+                    durability = mining_config.get('durability', 100)
+                    
+                    if durability <= 0:
+                        continue
+                    
+                    progress = min(damage / durability, 1.0)
+                    
+                    # Calculate tile world position
+                    tile_world_x = chunk_world_x + tile_x * tile_size
+                    tile_world_y = chunk_world_y + tile_y * tile_size
+                    
+                    # Convert to screen coordinates
+                    screen_x = (tile_world_x - camera_x) * self.world_controller.camera_zoom + self.modern_gl_renderer.screen_width / 2.0
+                    screen_y = (tile_world_y - camera_y) * self.world_controller.camera_zoom + self.modern_gl_renderer.screen_height / 2.0
+                    screen_y = self.modern_gl_renderer.screen_height - screen_y  # Flip Y
+                    
+                    # Draw progress bar
+                    bar_width = tile_size * self.world_controller.camera_zoom * 0.8
+                    bar_height = 4 * self.world_controller.camera_zoom
+                    bar_x = screen_x + (tile_size * self.world_controller.camera_zoom - bar_width) / 2.0
+                    bar_y = screen_y - tile_size * self.world_controller.camera_zoom - 8
+                    
+                    # Background (black)
+                    bg = pyglet.shapes.Rectangle(bar_x, bar_y, bar_width, bar_height, color=(0, 0, 0))
+                    bg.opacity = 200
+                    bg.draw()
+                    
+                    # Progress (yellow)
+                    progress_width = bar_width * progress
+                    if progress_width > 0:
+                        progress_bar = pyglet.shapes.Rectangle(bar_x, bar_y, progress_width, bar_height, color=(255, 255, 0))
+                        progress_bar.opacity = 255
+                        progress_bar.draw()
 
 

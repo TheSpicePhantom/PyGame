@@ -1,0 +1,48 @@
+{
+  "decoration_id": "berry_bush",
+  "display_name": "Berry Bush",
+  "tags": ["harvestable", "decorative"],
+  "collision": {
+    "enabled": false,
+    "type": "none",
+    "radius": 0.0
+  },
+  "health": 0,
+  "sprites": {
+    "with_fruit": "berry_bush_2",
+    "without_fruit": "berry_bush_1"
+  },
+  "rendering": {
+    "size": [32, 32],
+    "offset": [0, 0],
+    "layer": 10,
+    "shadow": {
+      "enabled": true,
+      "sprite": "shadow_small",
+      "offset": [0, 0]
+    }
+  },
+  "animation": {
+    "enabled": false,
+    "type": "none",
+    "speed": 1.0,
+    "amplitude": 0.0
+  },
+  "harvest": {
+    "enabled": true,
+    "loot_table": "berry_bush_loot",
+    "regrowth": {
+      "min_time": 30.0,
+      "max_time": 180.0
+    }
+  },
+  "placement": {
+    "biomes": ["terrain:forest", "terrain:plains"],
+    "density": 0.15,
+    "noise_threshold": {
+      "min": 0.3,
+      "max": 0.7
+    }
+  }
+}
+

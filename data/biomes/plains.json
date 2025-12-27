@@ -1,0 +1,44 @@
+{
+  "biome_id": "terrain:plains",
+  "display_name": "Plains",
+  "noise_range": {
+    "min": 0.2,
+    "max": 0.6
+  },
+  "decorations": [
+    {
+      "decoration_id": "berry_bush",
+      "density": 0.1,
+      "spawn_chance": 0.4,
+      "spawn_rules": [
+        {
+          "noise_range": [0.3, 0.7],
+          "density": 0.1,
+          "spawn_chance": 0.4
+        }
+      ]
+    },
+    {
+      "decoration_id": "tall_grass",
+      "density": 0.7,
+      "spawn_chance": 1.0,
+      "spawn_rules": [
+        {
+          "noise_range": [0.0, 1.0],
+          "density": 0.7,
+          "spawn_chance": 1.0
+        }
+      ]
+    }
+  ],
+  "ground_tiles": [
+    {
+      "tile_id": "grass",
+      "weight": 90
+    },
+    {
+      "tile_id": "dirt",
+      "weight": 10
+    }
+  ]
+}

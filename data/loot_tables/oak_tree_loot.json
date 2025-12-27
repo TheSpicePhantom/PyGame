@@ -1,0 +1,43 @@
+{
+  "loot_table_id": "oak_tree_loot",
+  "description": "Drops from cutting down oak trees",
+  "rolls": 1,
+  "entries": [
+    {
+      "item_id": "wood",
+      "weight": 100,
+      "quantity": {
+        "min": 3,
+        "max": 6
+      }
+    },
+    {
+      "item_id": "apple",
+      "weight": 30,
+      "quantity": {
+        "min": 1,
+        "max": 2
+      },
+      "conditions": [
+        {
+          "type": "random_chance",
+          "chance": 0.3
+        }
+      ]
+    },
+    {
+      "item_id": "stick",
+      "weight": 50,
+      "quantity": {
+        "min": 1,
+        "max": 3
+      },
+      "conditions": [
+        {
+          "type": "random_chance",
+          "chance": 0.5
+        }
+      ]
+    }
+  ]
+}

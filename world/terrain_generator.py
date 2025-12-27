@@ -862,6 +862,9 @@ class TerrainGenerator:
         # Restore original world_height
         self.world_height = old_world_height
         
+        # Generate decorations for this chunk
+        self.generate_decorations(tiles, chunk_x, chunk_y, chunk_size)
+        
         return tiles
     
     def generate_tile(self, world_x: int, world_y: int, world_height: float = None) -> dict:
@@ -924,3 +927,168 @@ class TerrainGenerator:
             self.statistics.print_statistics()
         else:
             print("Statistics collection is disabled. Initialize with collect_statistics=True.")
+    
+    def generate_decorations(self, tiles, chunk_x, chunk_y, chunk_size=None):
+        """
+        Generate decorations for a chunk based on biome and noise.
+        
+        Args:
+            tiles: 2D list of tile dictionaries (already generated)
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+            chunk_size: Tiles per chunk (defaults to settings.CHUNK_SIZE if None)
+        """
+        if chunk_size is None:
+            chunk_size = settings.CHUNK_SIZE
+        
+        try:
+            from world.decoration_registry import DecorationRegistry
+        except ImportError:
+            # DecorationRegistry not available, skip decoration generation
+            return
+        
+        # Calculate world offset for this chunk
+        try:
+            world_offset_x = chunk_x * chunk_size
+            world_offset_y = chunk_y * chunk_size
+            
+            # Track biome decorations for weighted spawn rules
+            biome_decorations = {}  # biome_id -> list of decoration configs
+            
+            # First pass: Collect all decorations for each biome in this chunk
+            for tile_y in range(chunk_size):
+                if tile_y >= len(tiles):
+                    continue
+                for tile_x in range(chunk_size):
+                    if tile_x >= len(tiles[tile_y]):
+                        continue
+                    
+                    tile = tiles[tile_y][tile_x]
+                    if not tile:
+                        continue
+                    
+                    biome_id = tile.get('biome', '')
+                    if not biome_id or biome_id.startswith('water:'):
+                        continue  # Skip water biomes
+                    
+                    # Get biome extension config
+                    if biome_id not in biome_decorations:
+                        biome_ext = DecorationRegistry.get_biome_extensions(biome_id)
+                        if biome_ext:
+                            biome_decorations[biome_id] = biome_ext.get('decorations', [])
+                        else:
+                            biome_decorations[biome_id] = []
+            
+            # Second pass: Spawn decorations based on weighted spawn rules
+            for tile_y in range(chunk_size):
+                if tile_y >= len(tiles):
+                    continue
+                for tile_x in range(chunk_size):
+                    if tile_x >= len(tiles[tile_y]):
+                        continue
+                    
+                    tile = tiles[tile_y][tile_x]
+                    if not tile:
+                        continue
+                    
+                    # Skip if tile already has decoration
+                    if tile.get('decoration'):
+                        continue
+                    
+                    biome_id = tile.get('biome', '')
+                    if not biome_id or biome_id.startswith('water:'):
+                        continue  # Skip water biomes
+                    
+                    # Skip if not traversable (e.g., water, mountains)
+                    if not tile.get('traversable', True):
+                        continue
+                    
+                    # Get decorations for this biome
+                    deco_configs = biome_decorations.get(biome_id, [])
+                    if not deco_configs:
+                        continue
+                    
+                    # Calculate world coordinates for noise
+                    world_x = world_offset_x + tile_x
+                    world_y = world_offset_y + tile_y
+                    
+                    # Get noise value for this position (use height noise for consistency)
+                    noise_value = self._get_noise_value(world_x, world_y)
+                    
+                    # Try each decoration config for this biome
+                    for deco_config in deco_configs:
+                        decoration_id = deco_config.get('decoration_id')
+                        if not decoration_id:
+                            continue
+                        
+                        spawn_rules = deco_config.get('spawn_rules', [])
+                        if not spawn_rules:
+                            continue
+                        
+                        # Check weighted spawn rules
+                        for rule in spawn_rules:
+                            noise_min = rule.get('noise_range', [0.0, 1.0])[0]
+                            noise_max = rule.get('noise_range', [0.0, 1.0])[1]
+                            
+                            # Check if noise value is in range
+                            if not (noise_min <= noise_value <= noise_max):
+                                continue
+                            
+                            density = rule.get('density', 0.1)
+                            spawn_chance = rule.get('spawn_chance', 0.5)
+                            
+                            # Density check
+                            if random.random() > density:
+                                continue
+                            
+                            # Spawn chance check
+                            if random.random() > spawn_chance:
+                                continue
+                            
+                            # Check clustering if enabled
+                            clustering = deco_config.get('clustering', {})
+                            if clustering.get('enabled', False):
+                                # Simple clustering: check nearby tiles
+                                cluster_radius = clustering.get('cluster_radius', 3)
+                                nearby_count = 0
+                                for dy in range(-cluster_radius, cluster_radius + 1):
+                                    for dx in range(-cluster_radius, cluster_radius + 1):
+                                        if dx == 0 and dy == 0:
+                                            continue
+                                        check_x = tile_x + dx
+                                        check_y = tile_y + dy
+                                        if 0 <= check_x < chunk_size and 0 <= check_y < chunk_size:
+                                            if check_y < len(tiles) and check_x < len(tiles[check_y]):
+                                                check_tile = tiles[check_y][check_x]
+                                                if check_tile and check_tile.get('decoration', {}).get('decoration_id') == decoration_id:
+                                                    nearby_count += 1
+                                
+                                # Spawn if near other decorations of same type
+                                if nearby_count == 0 and random.random() > 0.3:  # 30% chance to spawn isolated
+                                    continue
+                            
+                            # Spawn decoration
+                            decoration_data = {
+                                'decoration_id': decoration_id,
+                                'data': {
+                                    'growth_timer': 0.0,
+                                    'has_fruit': True,  # Default for harvestable items
+                                    'damage': 0.0,
+                                    'last_interaction': 0.0
+                                }
+                            }
+                            
+                            # Initialize harvestable-specific data
+                            deco_registry_config = DecorationRegistry.get(decoration_id)
+                            if deco_registry_config and deco_registry_config.get('harvest', {}).get('enabled'):
+                                decoration_data['data']['has_fruit'] = True
+                                decoration_data['data']['growth_timer'] = 0.0
+                            
+                            tile['decoration'] = decoration_data
+                            break  # Only spawn one decoration per tile
+                        
+                        if tile.get('decoration'):
+                            break  # Already spawned, move to next tile
+        except Exception:
+            # Silently fail if decoration generation has issues (e.g., missing registry)
+            pass

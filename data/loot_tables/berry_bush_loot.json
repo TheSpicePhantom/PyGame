@@ -1,0 +1,30 @@
+{
+  "loot_table_id": "berry_bush_loot",
+  "description": "Drops from harvesting berry bushes",
+  "rolls": 1,
+  "entries": [
+    {
+      "item_id": "berries",
+      "weight": 100,
+      "quantity": {
+        "min": 2,
+        "max": 4
+      },
+      "conditions": []
+    },
+    {
+      "item_id": "seeds",
+      "weight": 30,
+      "quantity": {
+        "min": 1,
+        "max": 2
+      },
+      "conditions": [
+        {
+          "type": "random_chance",
+          "chance": 0.3
+        }
+      ]
+    }
+  ]
+}

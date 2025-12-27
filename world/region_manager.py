@@ -1936,6 +1936,70 @@ class RegionManager:
         # Entity count (0 for now, future expansion)
         parts.append(struct.pack('>h', 0))  # int16 entity_count
         
+        # Decoration data (Sparse-Format with Flags)
+        # Collect all decorations from tiles
+        decorations = []
+        for tile_y in range(len(tiles)):
+            if tile_y >= len(tiles):
+                continue
+            for tile_x in range(len(tiles[tile_y])):
+                if tile_x >= len(tiles[tile_y]):
+                    continue
+                tile = tiles[tile_y][tile_x]
+                if not tile:
+                    continue
+                
+                decoration_data = tile.get('decoration')
+                if decoration_data:
+                    deco_data = decoration_data.get('data', {})
+                    
+                    # Build flags for changed data
+                    flags = 0
+                    growth_timer = deco_data.get('growth_timer', 0.0)
+                    has_fruit = deco_data.get('has_fruit', True)
+                    damage = deco_data.get('damage', 0.0)
+                    last_interaction = deco_data.get('last_interaction', 0.0)
+                    
+                    if growth_timer != 0.0:
+                        flags |= 0x01
+                    if not has_fruit:
+                        flags |= 0x02
+                    if damage != 0.0:
+                        flags |= 0x04
+                    if last_interaction != 0.0:
+                        flags |= 0x08
+                    
+                    # Only save if flags are set (sparse format)
+                    if flags != 0:
+                        decorations.append((
+                            tile_x, tile_y,
+                            decoration_data.get('decoration_id', ''),
+                            flags, growth_timer, has_fruit, damage, last_interaction
+                        ))
+        
+        # Decoration count
+        parts.append(struct.pack('B', len(decorations)))  # uint8 decoration_count
+        
+        # Decoration data (only changed data based on flags)
+        for tile_x, tile_y, decoration_id, flags, growth_timer, has_fruit, damage, last_interaction in decorations:
+            parts.append(struct.pack('B', flags))  # uint8 flags
+            parts.append(struct.pack('BB', tile_x, tile_y))  # uint8 tile_x, tile_y (0-14)
+            
+            # Decoration ID
+            deco_id_bytes = decoration_id.encode('utf-8')
+            parts.append(struct.pack('B', len(deco_id_bytes)))  # uint8 decoration_id_length
+            parts.append(deco_id_bytes)  # decoration_id string
+            
+            # Only save data based on flags
+            if flags & 0x01:
+                parts.append(struct.pack('>f', growth_timer))  # float32 growth_timer
+            if flags & 0x02:
+                parts.append(struct.pack('B', 1 if has_fruit else 0))  # uint8 has_fruit
+            if flags & 0x04:
+                parts.append(struct.pack('>f', damage))  # float32 damage
+            if flags & 0x08:
+                parts.append(struct.pack('>f', last_interaction))  # float32 last_interaction
+        
         # Join all parts at once (much faster than extend in loop)
         return b''.join(parts)
     
@@ -2104,6 +2168,79 @@ class RegionManager:
             if offset + 2 <= len(data):
                 entity_count = struct.unpack('>h', data[offset:offset+2])[0]
                 offset += 2
+            
+            # Read decoration data (if available)
+            if offset < len(data):
+                try:
+                    decoration_count = struct.unpack('B', data[offset:offset+1])[0]
+                    offset += 1
+                    
+                    # Load decorations
+                    for i in range(decoration_count):
+                        if offset >= len(data):
+                            break
+                        
+                        # Read flags
+                        flags = struct.unpack('B', data[offset:offset+1])[0]
+                        offset += 1
+                        
+                        # Read tile coordinates
+                        if offset + 2 > len(data):
+                            break
+                        tile_x, tile_y = struct.unpack('BB', data[offset:offset+2])
+                        offset += 2
+                        
+                        # Read decoration ID
+                        if offset + 1 > len(data):
+                            break
+                        deco_id_len = struct.unpack('B', data[offset:offset+1])[0]
+                        offset += 1
+                        if offset + deco_id_len > len(data):
+                            break
+                        decoration_id = data[offset:offset+deco_id_len].decode('utf-8')
+                        offset += deco_id_len
+                        
+                        # Initialize decoration data with defaults
+                        deco_data = {
+                            'growth_timer': 0.0,
+                            'has_fruit': True,
+                            'damage': 0.0,
+                            'last_interaction': 0.0
+                        }
+                        
+                        # Read data based on flags
+                        if flags & 0x01:  # growth_timer
+                            if offset + 4 > len(data):
+                                break
+                            deco_data['growth_timer'] = struct.unpack('>f', data[offset:offset+4])[0]
+                            offset += 4
+                        if flags & 0x02:  # has_fruit
+                            if offset + 1 > len(data):
+                                break
+                            deco_data['has_fruit'] = bool(struct.unpack('B', data[offset:offset+1])[0])
+                            offset += 1
+                        if flags & 0x04:  # damage
+                            if offset + 4 > len(data):
+                                break
+                            deco_data['damage'] = struct.unpack('>f', data[offset:offset+4])[0]
+                            offset += 4
+                        if flags & 0x08:  # last_interaction
+                            if offset + 4 > len(data):
+                                break
+                            deco_data['last_interaction'] = struct.unpack('>f', data[offset:offset+4])[0]
+                            offset += 4
+                        
+                        # Add decoration to tile
+                        if 0 <= tile_y < len(tiles) and 0 <= tile_x < len(tiles[tile_y]):
+                            tile = tiles[tile_y][tile_x]
+                            if tile:
+                                tile['decoration'] = {
+                                    'decoration_id': decoration_id,
+                                    'data': deco_data
+                                }
+                except Exception:
+                    # Silently ignore decoration loading errors (backward compatibility)
+                    pass
             
             return {
                 'chunk_x': chunk_x,

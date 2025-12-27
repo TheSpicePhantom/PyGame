@@ -42,6 +42,13 @@ class Chunk:
         
         # Debug flags for chunk state tracking
         self.render_state = None  # "rendering", "rendered", "visible", "active", "inactive"
+        
+        # Decoration lookup optimization: (tile_x, tile_y) -> decoration_index
+        # This allows fast lookup of decorations at specific tile positions
+        self.decoration_lookup = {}  # Dict[Tuple[int, int], None] - None is placeholder, actual decoration is in tile['decoration']
+        
+        # Build initial decoration lookup from tiles
+        self._rebuild_decoration_lookup()
 
     def get_world_position(self):
         """Get top-left world position in pixels"""
@@ -66,6 +73,62 @@ class Chunk:
         # Surface caching was for Pygame blitting, but ModernGL renders directly from tile data
         self.surface_dirty = False
         return None
+    
+    def _rebuild_decoration_lookup(self):
+        """Rebuild decoration lookup dictionary from tiles."""
+        self.decoration_lookup.clear()
+        if not self.tiles:
+            return
+        
+        for tile_y in range(len(self.tiles)):
+            if not self.tiles[tile_y]:
+                continue
+            for tile_x in range(len(self.tiles[tile_y])):
+                tile = self.tiles[tile_y][tile_x]
+                if tile and tile.get('decoration'):
+                    self.decoration_lookup[(tile_x, tile_y)] = None  # Decoration is stored in tile['decoration']
+    
+    def get_decoration_at(self, tile_x: int, tile_y: int):
+        """
+        Fast lookup for decoration at tile position.
+        
+        Args:
+            tile_x: Tile X coordinate within chunk (0-14)
+            tile_y: Tile Y coordinate within chunk (0-14)
+            
+        Returns:
+            Decoration dict from tile or None if no decoration
+        """
+        if (tile_x, tile_y) in self.decoration_lookup:
+            if tile_y < len(self.tiles) and tile_x < len(self.tiles[tile_y]):
+                tile = self.tiles[tile_y][tile_x]
+                if tile:
+                    return tile.get('decoration')
+        return None
+    
+    def set_decoration_at(self, tile_x: int, tile_y: int, decoration_data: dict):
+        """
+        Set decoration at tile position and update lookup.
+        
+        Args:
+            tile_x: Tile X coordinate within chunk (0-14)
+            tile_y: Tile Y coordinate within chunk (0-14)
+            decoration_data: Decoration data dict or None to remove
+        """
+        if tile_y >= len(self.tiles) or tile_x >= len(self.tiles[tile_y]):
+            return
+        
+        tile = self.tiles[tile_y][tile_x]
+        if not tile:
+            return
+        
+        if decoration_data:
+            tile['decoration'] = decoration_data
+            self.decoration_lookup[(tile_x, tile_y)] = None
+        else:
+            if 'decoration' in tile:
+                del tile['decoration']
+            self.decoration_lookup.pop((tile_x, tile_y), None)
 
 
 class ChunkManager:

@@ -1,0 +1,50 @@
+{
+  "decoration_id": "stone_rock",
+  "display_name": "Stone Rock",
+  "tags": ["mineable", "resource"],
+  "collision": {
+    "enabled": true,
+    "type": "circle",
+    "radius": 0.4
+  },
+  "health": 50,
+  "sprites": {
+    "default": "stone_rock",
+    "medium": "stone_rock",
+    "small": "stone_rock"
+  },
+  "mining": {
+    "tool_required": "pickaxe",
+    "mining_time": 2.0,
+    "durability": 50,
+    "loot_table": "stone_rock_loot",
+    "particles": {
+      "hit": "stone_particle",
+      "break": "stone_break"
+    }
+  },
+  "placement": {
+    "biomes": ["terrain:rocky", "terrain:mountains"],
+    "density": 0.4,
+    "noise_threshold": {
+      "min": -1.0,
+      "max": -0.3
+    }
+  },
+  "rendering": {
+    "size": [32, 32],
+    "offset": [0, 0],
+    "layer": 10,
+    "shadow": {
+      "enabled": true,
+      "sprite": "shadow_small",
+      "offset": [0, 0]
+    }
+  },
+  "animation": {
+    "enabled": false,
+    "type": "none",
+    "speed": 1.0,
+    "amplitude": 0.0
+  }
+}

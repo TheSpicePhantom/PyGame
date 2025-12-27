@@ -9,7 +9,7 @@ class Player(Sprite):
     """Spieler-Charakter mit Top-Down-Bewegung"""
     
     def __init__(self, pos, input_handler, *groups, performance_monitor=None, terrain_gen=None, 
-                 sprint_multiplier=1.2, sneak_multiplier=0.8):
+                 sprint_multiplier=1.2, sneak_multiplier=0.8, world_controller=None):
         super().__init__(
             pos=pos,
             size=(settings.TILE_SIZE, settings.TILE_SIZE),
@@ -21,6 +21,7 @@ class Player(Sprite):
         self._layer = settings.LAYER_PLAYER
         self.performance_monitor = performance_monitor
         self.terrain_gen = terrain_gen  # TerrainGenerator for traversability checks
+        self.world_controller = world_controller  # WorldController for decoration collision checking
         
         # Sprint and sneak multipliers (can be modified by research/equipment)
         self.sprint_multiplier = sprint_multiplier  # Default: 1.2x speed
@@ -107,6 +108,9 @@ class Player(Sprite):
             current_center_x = self.rect.x + self.rect.width / 2.0
             current_center_y = self.rect.y + self.rect.height / 2.0
             
+            # Get world_controller for decoration collision checking (if available)
+            world_controller = getattr(self, 'world_controller', None)
+            
             # Reset movement, then check each direction separately
             final_move_x = 0
             final_move_y = 0
@@ -115,13 +119,21 @@ class Player(Sprite):
                 # Check if X movement is allowed (check center of player at new X position, keep Y same)
                 new_center_x = current_center_x + move_x
                 if self._is_position_traversable(new_center_x, current_center_y):
-                    final_move_x = move_x
+                    # Also check decoration collision if world_controller is available
+                    if world_controller and world_controller.check_decoration_collision(new_center_x, current_center_y):
+                        pass  # Collision detected, don't move
+                    else:
+                        final_move_x = move_x
             
             if move_y != 0:
                 # Check if Y movement is allowed (check center of player at new Y position, keep X same)
                 new_center_y = current_center_y + move_y
                 if self._is_position_traversable(current_center_x, new_center_y):
-                    final_move_y = move_y
+                    # Also check decoration collision if world_controller is available
+                    if world_controller and world_controller.check_decoration_collision(current_center_x, new_center_y):
+                        pass  # Collision detected, don't move
+                    else:
+                        final_move_y = move_y
         
         # Apply movement if any direction is allowed
         if final_move_x != 0 or final_move_y != 0:
