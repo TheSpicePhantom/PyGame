@@ -455,10 +455,11 @@ class ModernGLRenderer:
                 else:
                     self._shader_zoom_debug_counter = 0
                 
-                if self._shader_zoom_debug_counter % 60 == 0 and self.diagnostics:  # Log every 60 frames
-                    self.diagnostics.debug("ModernGLRenderer", 
-                        f"Shader zoom uniform set: zoom={zoom:.2f}, "
-                        f"shader_zoom_value={self.chunk_program['zoom'].value}")
+                # Debug output disabled
+                # if self._shader_zoom_debug_counter % 60 == 0 and self.diagnostics:  # Log every 60 frames
+                #     self.diagnostics.debug("ModernGLRenderer", 
+                #         f"Shader zoom uniform set: zoom={zoom:.2f}, "
+                #         f"shader_zoom_value={self.chunk_program['zoom'].value}")
         
         # Sprite shader still uses view matrix
         if self.sprite_program and 'view' in self.sprite_program:
@@ -791,14 +792,15 @@ class ModernGLRenderer:
         else:
             self._stats_log_counter = 0
         
-        if self._stats_log_counter % 300 == 0:  # Alle 5 Sekunden
-            stats = self.chunk_vbo_pool.get_stats()
-            self.diagnostics.info(
-                "ModernGLRenderer",
-                f"VBO Pool: {stats['in_use']}/{stats['current_pool_size']} "
-                f"(peak: {stats['peak_usage']}, target: {stats['target_size']}, "
-                f"efficiency: {stats['efficiency']:.1%}, expansions: {stats['expansion_count']})"
-            )
+        # Debug output disabled
+        # if self._stats_log_counter % 300 == 0:  # Alle 5 Sekunden
+        #     stats = self.chunk_vbo_pool.get_stats()
+        #     self.diagnostics.info(
+        #         "ModernGLRenderer",
+        #         f"VBO Pool: {stats['in_use']}/{stats['current_pool_size']} "
+        #         f"(peak: {stats['peak_usage']}, target: {stats['target_size']}, "
+        #         f"efficiency: {stats['efficiency']:.1%}, expansions: {stats['expansion_count']})"
+        #     )
         
         chunk_render_time = time.perf_counter() - chunk_render_start
         if performance_monitor:

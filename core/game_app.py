@@ -110,6 +110,13 @@ class GameApp:
             self.ui_controller.hide_pause_menu()
         elif state == GameState.SETTINGS:
             self.ui_controller.hide_settings_menu()
+        elif state == GameState.INGAME:
+            # Reset mining timer when leaving ingame state (e.g., when pausing)
+            if self.world_controller and self.world_controller._mining_decoration:
+                tile_x, tile_y = self.world_controller._mining_decoration
+                self.world_controller._reset_mining_timer(tile_x, tile_y)
+                self.world_controller._mining_decoration = None
+                self.world_controller._mining_start_time = 0.0
     
     def start_new_world(self, world_name: str, seed: Optional[int] = None):
         """

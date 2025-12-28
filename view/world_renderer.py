@@ -50,13 +50,9 @@ class WorldRenderer:
         if visible_chunks:
             self.modern_gl_renderer.render_chunks(visible_chunks, performance_monitor=self.world_controller.performance_monitor)
         
-        # Step 3.5: Render decorations (Layer 5: Shadows, Layer 10: Decorations)
+        # Step 3.5: Render decorations and player (sorted by Y-position for depth)
         if visible_chunks:
-            self._render_decorations(visible_chunks, camera_x, camera_y)
-        
-        # Step 4: Render player (Layer 20)
-        if self.world_controller.player:
-            self._render_player()
+            self._render_decorations_and_player(visible_chunks, camera_x, camera_y)
         
         # Store chunks_data for debug visualization
         self._last_chunks_data = visible_chunks if visible_chunks else []
@@ -66,12 +62,9 @@ class WorldRenderer:
         return getattr(self, '_last_chunks_data', [])
     
     def _render_player(self):
-        """Render player as yellow quad (1 tile wide, 2 tiles tall)"""
+        """Render player as yellow quad (1 tile wide, 2 tiles tall) - legacy method"""
         if not self.world_controller.player:
             return
-        
-        import numpy as np
-        import moderngl
         
         tile_size = settings.TILE_SIZE
         player_width = tile_size
@@ -82,16 +75,26 @@ class WorldRenderer:
         
         world_x0 = player_world_x - player_width / 2.0
         world_y0 = player_world_y - player_height / 2.0
-        world_x1 = world_x0 + player_width
-        world_y1 = world_y0 + player_height
+        
+        yellow_color = (255, 255, 0)
+        self._render_player_at_position(world_x0, world_y0, player_width, player_height, yellow_color)
+    
+    def _render_player_at_position(self, x: float, y: float, width: float, height: float, color: tuple):
+        """Render player at specific position (used for depth-sorted rendering)"""
+        import numpy as np
+        import moderngl
+        
+        world_x0 = x
+        world_y0 = y
+        world_x1 = world_x0 + width
+        world_y1 = world_y0 + height
         
         # Get color index for yellow (255, 255, 0) from palette
-        yellow_color = (255, 255, 0)
-        color_index = float(self.modern_gl_renderer.tile_color_palette.get_color_index(yellow_color))
+        color_index = float(self.modern_gl_renderer.tile_color_palette.get_color_index(color))
         
-        # If yellow not in palette, add it
-        if color_index == 0 and yellow_color not in self.modern_gl_renderer.tile_color_palette.color_to_index:
-            color_index = float(self.modern_gl_renderer.tile_color_palette.add_color(yellow_color))
+        # If color not in palette, add it
+        if color_index == 0 and color not in self.modern_gl_renderer.tile_color_palette.color_to_index:
+            color_index = float(self.modern_gl_renderer.tile_color_palette.add_color(color))
             # Update palette uniform in shader
             self.modern_gl_renderer._update_palette_uniform()
         
@@ -356,9 +359,10 @@ class WorldRenderer:
         right_border.opacity = border_opacity
         right_border.draw()
     
-    def _render_decorations(self, visible_chunks, camera_x: float, camera_y: float):
+    def _render_decorations_and_player(self, visible_chunks, camera_x: float, camera_y: float):
         """
-        Render decorations from visible chunks with proper layering.
+        Render decorations and player, sorted by Y-position for proper depth ordering.
+        Objects with higher Y (further down on screen) are rendered first.
         
         Args:
             visible_chunks: List of (chunk_x, chunk_y, tiles) tuples
@@ -369,13 +373,17 @@ class WorldRenderer:
             from world.decoration_registry import DecorationRegistry
             from world.decoration import Decoration
         except ImportError:
-            return  # Decoration system not available
+            # If decoration system not available, just render player
+            if self.world_controller.player:
+                self._render_player()
+            return
         
         import numpy as np
         import moderngl
         
         tile_size = settings.TILE_SIZE
-        decoration_sprites = []  # List of (layer, x, y, width, height, color, decoration_data)
+        # List of (y_position, is_player, layer, x, y, width, height, color, decoration_data, sprite_name, mod_id)
+        renderable_objects = []
         
         # Collect all decorations from visible chunks
         for chunk_x, chunk_y, tiles in visible_chunks:
@@ -465,20 +473,57 @@ class WorldRenderer:
                         shadow_y = tile_world_y + tile_size / 2.0 + shadow_offset[1] - size[1] / 2.0
                         shadow_size = [size[0] * 0.8, size[1] * 0.3]  # Shadow is wider but shorter
                         shadow_sprite_name = shadow_config.get('sprite', 'shadow_small')
-                        decoration_sprites.append((5, shadow_x, shadow_y, shadow_size[0], shadow_size[1], (0, 0, 0), None, shadow_sprite_name, mod_id))  # Black shadow
+                        # Use bottom Y position for sorting (shadow_y + shadow_size[1])
+                        renderable_objects.append((shadow_y + shadow_size[1], False, 5, shadow_x, shadow_y, shadow_size[0], shadow_size[1], (0, 0, 0), None, shadow_sprite_name, mod_id))
                     
                     # Add decoration (Layer 10 or from config) with sprite info
-                    decoration_sprites.append((layer, deco_x, deco_y, size[0], size[1], color, decoration_data, sprite_name, mod_id))
+                    # Use bottom Y position for sorting (deco_y + size[1])
+                    renderable_objects.append((deco_y + size[1], False, layer, deco_x, deco_y, size[0], size[1], color, decoration_data, sprite_name, mod_id))
         
-        # Sort by layer for proper rendering order
-        decoration_sprites.sort(key=lambda x: x[0])
+        # Add player to renderable objects
+        if self.world_controller.player:
+            player_world_x = self.world_controller.player.rect.center[0]
+            player_world_y = self.world_controller.player.rect.center[1]
+            player_width = tile_size
+            player_height = tile_size * 2
+            player_x = player_world_x - player_width / 2.0
+            player_y = player_world_y - player_height / 2.0
+            # Use bottom Y position for sorting (player_y + player_height)
+            # Player uses layer 20, but sorting by Y takes precedence
+            yellow_color = (255, 255, 0)
+            renderable_objects.append((player_y + player_height, True, 20, player_x, player_y, player_width, player_height, yellow_color, None, None, None))
         
-        # Render decorations with textures
-        if self.modern_gl_renderer.decoration_texture_manager:
-            self._render_decorations_with_textures(decoration_sprites, camera_x, camera_y)
-        else:
-            # Fallback to color rendering
-            self._render_decorations_with_colors(decoration_sprites)
+        # Sort by Y-position (bottom Y coordinate) - higher Y = rendered first (behind)
+        # Then by layer as secondary sort key
+        renderable_objects.sort(key=lambda x: (x[0], x[2]))
+        
+        # Render objects in sorted order (depth-sorted rendering)
+        # Separate into batches: decorations (textured) and player (colored)
+        # We need to render them in order, so we'll collect decorations and render player when needed
+        decoration_batch = []
+        
+        for y_pos, is_player, layer, x, y, width, height, color, deco_data, sprite_name, mod_id in renderable_objects:
+            if is_player:
+                # Render accumulated decorations before player
+                if decoration_batch:
+                    if self.modern_gl_renderer.decoration_texture_manager:
+                        self._render_decorations_with_textures(decoration_batch, camera_x, camera_y)
+                    else:
+                        self._render_decorations_with_colors(decoration_batch)
+                    decoration_batch = []
+                
+                # Render player at this depth position
+                self._render_player_at_position(x, y, width, height, color)
+            else:
+                # Add decoration to batch
+                decoration_batch.append((layer, x, y, width, height, color, deco_data, sprite_name, mod_id))
+        
+        # Render remaining decorations after player
+        if decoration_batch:
+            if self.modern_gl_renderer.decoration_texture_manager:
+                self._render_decorations_with_textures(decoration_batch, camera_x, camera_y)
+            else:
+                self._render_decorations_with_colors(decoration_batch)
     
     def _render_decorations_with_textures(self, decoration_sprites, camera_x: float, camera_y: float):
         """Render decorations using texture atlas (batched rendering for performance)."""
@@ -595,8 +640,34 @@ class WorldRenderer:
             ])
             
             # Collect regrowth and mining progress bar data to render after ModernGL
+            # Regrowth progress bar only shows on hover (to reduce rendering load)
+            is_hovered = False
             if regrowth_progress is not None and regrowth_progress < 1.0:
-                progress_bars.append(('regrowth', x, y, width, height, regrowth_progress))
+                # Check if mouse is hovering over this decoration
+                mouse_x = self.world_controller.mouse_x
+                mouse_y = self.world_controller.mouse_y
+                screen_width = self.modern_gl_renderer.screen_width
+                screen_height = self.modern_gl_renderer.screen_height
+                zoom = self.world_controller.camera_zoom
+                
+                # Convert decoration world position to screen coordinates
+                screen_deco_x = (x - camera_x) * zoom + screen_width / 2.0
+                screen_deco_y = (y - camera_y) * zoom + screen_height / 2.0
+                screen_deco_y = screen_height - screen_deco_y  # Flip Y for pyglet
+                
+                # Scale decoration size by zoom
+                screen_deco_width = width * zoom
+                screen_deco_height = height * zoom
+                
+                # Check if mouse is within decoration bounds
+                is_hovered = (screen_deco_x <= mouse_x <= screen_deco_x + screen_deco_width and
+                            screen_deco_y - screen_deco_height <= mouse_y <= screen_deco_y)
+                
+                # Only add regrowth progress bar if hovered
+                if is_hovered:
+                    progress_bars.append(('regrowth', x, y, width, height, regrowth_progress))
+            
+            # Mining progress bar always shows (active mining is visible)
             if mining_progress is not None and mining_progress < 1.0:
                 progress_bars.append(('mining', x, y, width, height, mining_progress))
         

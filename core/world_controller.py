@@ -305,12 +305,27 @@ class WorldController:
         # Handle continuous mining if mouse is held down on decoration
         if self._mining_decoration:
             tile_x, tile_y = self._mining_decoration
-            # Continue mining
-            mining_completed = self.mine_decoration(tile_x, tile_y, dt)
-            if mining_completed:
-                # Mining finished, stop mining
+            # Verify decoration still exists and is still mineable
+            tile_info = self._get_tile_under_mouse(self.mouse_x, self.mouse_y)
+            if not tile_info or len(tile_info) < 4:
+                # Decoration no longer exists or mouse moved away
+                self._reset_mining_timer(tile_x, tile_y)
                 self._mining_decoration = None
                 self._mining_start_time = 0.0
+            else:
+                current_tile_x, current_tile_y, tile_data, clicked_decoration = tile_info
+                if current_tile_x != tile_x or current_tile_y != tile_y or not clicked_decoration:
+                    # Mouse moved to different tile or decoration
+                    self._reset_mining_timer(tile_x, tile_y)
+                    self._mining_decoration = None
+                    self._mining_start_time = 0.0
+                else:
+                    # Continue mining
+                    mining_completed = self.mine_decoration(tile_x, tile_y, dt)
+                    if mining_completed:
+                        # Mining finished, stop mining
+                        self._mining_decoration = None
+                        self._mining_start_time = 0.0
         
         # Process chunks that finished loading asynchronously
         if self.world and self.world.chunk_manager:
@@ -658,25 +673,26 @@ class WorldController:
             self._unload_debug_counter = 0
         self._unload_debug_counter += 1
         
-        if self._unload_debug_counter % 60 == 0 and self.modern_gl_renderer and self.modern_gl_renderer.diagnostics and self.enable_debug_output:
-            # Verify that camera chunk is within load range
-            camera_in_load_range = (min_chunk_x <= camera_chunk_x < max_chunk_x and 
-                                   min_chunk_y <= camera_chunk_y < max_chunk_y)
-            camera_in_unload_range = (unload_min_chunk_x <= camera_chunk_x < unload_max_chunk_x and 
-                                     unload_min_chunk_y <= camera_chunk_y < unload_max_chunk_y)
-            
-            self.modern_gl_renderer.diagnostics.debug("WorldController", 
-                f"Unload range: X=[{unload_min_chunk_x}..{unload_max_chunk_x}], "
-                f"Y=[{unload_min_chunk_y}..{unload_max_chunk_y}], "
-                f"Load range: X=[{min_chunk_x}..{max_chunk_x}], Y=[{min_chunk_y}..{max_chunk_y}], "
-                f"Camera chunk: ({camera_chunk_x}, {camera_chunk_y}), "
-                f"camera_in_load_range: {camera_in_load_range}, "
-                f"camera_in_unload_range: {camera_in_unload_range}")
-            
-            if not camera_in_load_range:
-                self.modern_gl_renderer.diagnostics.warning("WorldController", 
-                    f"WARNING: Camera chunk ({camera_chunk_x}, {camera_chunk_y}) is OUTSIDE load range "
-                    f"X=[{min_chunk_x}..{max_chunk_x}], Y=[{min_chunk_y}..{max_chunk_y}]")
+        # Debug output disabled
+        # if self._unload_debug_counter % 60 == 0 and self.modern_gl_renderer and self.modern_gl_renderer.diagnostics and self.enable_debug_output:
+        #     # Verify that camera chunk is within load range
+        #     camera_in_load_range = (min_chunk_x <= camera_chunk_x < max_chunk_x and 
+        #                            min_chunk_y <= camera_chunk_y < max_chunk_y)
+        #     camera_in_unload_range = (unload_min_chunk_x <= camera_chunk_x < unload_max_chunk_x and 
+        #                              unload_min_chunk_y <= camera_chunk_y < unload_max_chunk_y)
+        #     
+        #     self.modern_gl_renderer.diagnostics.debug("WorldController", 
+        #         f"Unload range: X=[{unload_min_chunk_x}..{unload_max_chunk_x}], "
+        #         f"Y=[{unload_min_chunk_y}..{unload_max_chunk_y}], "
+        #         f"Load range: X=[{min_chunk_x}..{max_chunk_x}], Y=[{min_chunk_y}..{max_chunk_y}], "
+        #         f"Camera chunk: ({camera_chunk_x}, {camera_chunk_y}), "
+        #         f"camera_in_load_range: {camera_in_load_range}, "
+        #         f"camera_in_unload_range: {camera_in_unload_range}")
+        #     
+        #     if not camera_in_load_range:
+        #         self.modern_gl_renderer.diagnostics.warning("WorldController", 
+        #             f"WARNING: Camera chunk ({camera_chunk_x}, {camera_chunk_y}) is OUTSIDE load range "
+        #             f"X=[{min_chunk_x}..{max_chunk_x}], Y=[{min_chunk_y}..{max_chunk_y}]")
         
         for chunk_key, chunk in list(self.world.chunk_manager.loaded_chunks.items()):
             chunk_x, chunk_y = chunk_key
@@ -698,25 +714,26 @@ class WorldController:
                 if time_since_load >= self.world.chunk_manager.chunk_unload_cooldown:
                     chunks_to_unload.append(chunk_key)
                     
-                    # Debug: Log ALL chunks being unloaded (for debugging)
-                    if self.modern_gl_renderer and self.modern_gl_renderer.diagnostics and self.enable_debug_output:
-                        distance_from_camera = ((chunk_x - camera_chunk_x)**2 + (chunk_y - camera_chunk_y)**2)**0.5
-                        self.modern_gl_renderer.diagnostics.warning("WorldController", 
-                            f"UNLOADING chunk ({chunk_x}, {chunk_y}) - "
-                            f"distance from camera: {distance_from_camera:.1f} chunks, "
-                            f"camera_chunk: ({camera_chunk_x}, {camera_chunk_y}), "
-                            f"unload_range: X=[{unload_min_chunk_x}..{unload_max_chunk_x}], Y=[{unload_min_chunk_y}..{unload_max_chunk_y}], "
-                            f"is_inside: {is_inside_unload_range}")
+                    # Debug output disabled
+                    # if self.modern_gl_renderer and self.modern_gl_renderer.diagnostics and self.enable_debug_output:
+                    #     distance_from_camera = ((chunk_x - camera_chunk_x)**2 + (chunk_y - camera_chunk_y)**2)**0.5
+                    #     self.modern_gl_renderer.diagnostics.warning("WorldController", 
+                    #         f"UNLOADING chunk ({chunk_x}, {chunk_y}) - "
+                    #         f"distance from camera: {distance_from_camera:.1f} chunks, "
+                    #         f"camera_chunk: ({camera_chunk_x}, {camera_chunk_y}), "
+                    #         f"unload_range: X=[{unload_min_chunk_x}..{unload_max_chunk_x}], Y=[{unload_min_chunk_y}..{unload_max_chunk_y}], "
+                    #         f"is_inside: {is_inside_unload_range}")
         
         # Unload chunks (limit to avoid frame drops - reduced from 10 to 3 per frame)
-        if chunks_to_unload and self.modern_gl_renderer and self.modern_gl_renderer.diagnostics and self.enable_debug_output:
-            # Log which chunks are being unloaded (only occasionally)
-            if self._unload_debug_counter % 60 == 0:
-                chunks_to_unload_sorted = sorted(chunks_to_unload, 
-                    key=lambda k: ((k[0] - camera_chunk_x)**2 + (k[1] - camera_chunk_y)**2)**0.5)
-                closest_unload = chunks_to_unload_sorted[:5]  # Show 5 closest chunks being unloaded
-                self.modern_gl_renderer.diagnostics.debug("WorldController", 
-                    f"Unloading {len(chunks_to_unload)} chunks. Closest 5: {closest_unload}")
+        # Debug output disabled
+        # if chunks_to_unload and self.modern_gl_renderer and self.modern_gl_renderer.diagnostics and self.enable_debug_output:
+        #     # Log which chunks are being unloaded (only occasionally)
+        #     if self._unload_debug_counter % 60 == 0:
+        #         chunks_to_unload_sorted = sorted(chunks_to_unload, 
+        #             key=lambda k: ((k[0] - camera_chunk_x)**2 + (k[1] - camera_chunk_y)**2)**0.5)
+        #         closest_unload = chunks_to_unload_sorted[:5]  # Show 5 closest chunks being unloaded
+        #         self.modern_gl_renderer.diagnostics.debug("WorldController", 
+        #             f"Unloading {len(chunks_to_unload)} chunks. Closest 5: {closest_unload}")
         
         for chunk_key in chunks_to_unload[:3]:  # Unload max 3 chunks per frame
             self.world.chunk_manager.unload_chunk(chunk_key[0], chunk_key[1])
@@ -963,6 +980,10 @@ class WorldController:
     def handle_mouse_release(self, x: int, y: int, button: int, modifiers: int):
         """Handle mouse release - stop mining if left button released"""
         if button == 1:  # Left click released
+            # Reset mining timer when mouse button is released
+            if self._mining_decoration:
+                tile_x, tile_y = self._mining_decoration
+                self._reset_mining_timer(tile_x, tile_y)
             self._mining_decoration = None
             self._mining_start_time = 0.0
     
@@ -981,11 +1002,15 @@ class WorldController:
             # 2. Different tile
             # 3. Not on decoration anymore
             if not tile_info or len(tile_info) < 4:
+                # Reset mining timer when leaving decoration
+                self._reset_mining_timer(tile_x, tile_y)
                 self._mining_decoration = None
                 self._mining_start_time = 0.0
             else:
                 current_tile_x, current_tile_y, tile_data, clicked_decoration = tile_info
                 if current_tile_x != tile_x or current_tile_y != tile_y or not clicked_decoration:
+                    # Reset mining timer when leaving decoration
+                    self._reset_mining_timer(tile_x, tile_y)
                     self._mining_decoration = None
                     self._mining_start_time = 0.0
     
@@ -1700,6 +1725,60 @@ class WorldController:
             return False
         
         return True
+    
+    def _reset_mining_timer(self, tile_x: int, tile_y: int):
+        """
+        Reset mining timer for a decoration at the given tile position.
+        Called when mining is aborted (mouse moved away, button released, etc.).
+        
+        Args:
+            tile_x: Tile X coordinate
+            tile_y: Tile Y coordinate
+        """
+        if not self.world or not self.world.chunk_manager:
+            return
+        
+        try:
+            # Get chunk coordinates
+            chunk_x = tile_x // settings.CHUNK_SIZE
+            chunk_y = tile_y // settings.CHUNK_SIZE
+            
+            # Get tile coordinates within chunk
+            tile_x_in_chunk = tile_x % settings.CHUNK_SIZE
+            tile_y_in_chunk = tile_y % settings.CHUNK_SIZE
+            
+            # Check if chunk is loaded
+            chunk_key = (chunk_x, chunk_y)
+            if chunk_key not in self.world.chunk_manager.loaded_chunks:
+                return
+            
+            chunk = self.world.chunk_manager.loaded_chunks[chunk_key]
+            
+            # Get decoration at this tile position
+            decoration_data = chunk.get_decoration_at(tile_x_in_chunk, tile_y_in_chunk)
+            if not decoration_data:
+                return
+            
+            # Reset elapsed_time in decoration data
+            if 'data' not in decoration_data:
+                decoration_data['data'] = {}
+            deco_data = decoration_data['data']
+            
+            # Reset mining progress
+            if 'elapsed_time' in deco_data:
+                deco_data['elapsed_time'] = 0.0
+            
+            # Reset sprite state if it was set during mining
+            if 'sprite_state' in deco_data and deco_data.get('sprite_state') in ['damaged_50', 'stump']:
+                # Only reset if not a stump (stumps should remain until timer expires)
+                if not deco_data.get('is_stump', False):
+                    deco_data['sprite_state'] = None
+                    # Remove sprite_state key if it's None
+                    if deco_data.get('sprite_state') is None:
+                        deco_data.pop('sprite_state', None)
+        except Exception as e:
+            if self.diagnostics and self.enable_debug_output:
+                self.diagnostics.warning("WorldController", f"Error resetting mining timer at ({tile_x}, {tile_y}): {e}")
     
     def cleanup(self):
         """Cleanup resources"""
