@@ -11,12 +11,14 @@
   "health": 100,
   "sprites": {
     "default": "oak_tree_1",
-    "damaged_50": "oak_tree",
-    "stump": "oak_tree"
+    "damaged_50": "oak_tree_2",
+    "stump": "tree_stump_1"
   },
   "mining": {
-    "tool_required": "axe",
+    "tool_required": null,
+    "hardness": "wood",
     "mining_time": 3.0,
+    "hardness_multiplier": 1.0,
     "durability": 100,
     "loot_table": "oak_tree_loot",
     "particles": {

@@ -1,0 +1,11 @@
+{
+  "item_id": "core:reinforced_steel_axe",
+  "display_name": "Reinforced Steel Axe",
+  "description": "An advanced reinforced steel axe with exceptional durability. Can mine reinforced_steel, steel, iron, copper, wood, and stone resources.",
+  "sprite": "reinforced_steel_axe",
+  "max_stack_size": 1,
+  "category": "tool",
+  "tags": ["tool", "axe", "mining"],
+  "tool_type": "axe",
+  "tool_tier": "reinforced_steel"
+}

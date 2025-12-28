@@ -17,12 +17,12 @@ class TileTextureManager:
     """
     Verwaltet Texturen für Tiles basierend auf tile_id.
     
-    Lädt Texturen aus assets/tiles/ basierend auf tile_id:
-    - core:rainforest -> assets/tiles/rainforest.png
-    - terrain:plains -> assets/tiles/grass.png (oder plains.png falls vorhanden)
+    Lädt Texturen aus assets/tiles/core/ basierend auf tile_id:
+    - core:rainforest -> assets/tiles/core/rainforest.png
+    - terrain:plains -> assets/tiles/core/grass.png (oder plains.png falls vorhanden)
     """
     
-    def __init__(self, ctx: moderngl.Context, base_path: str = "assets/tiles", mapping_file: str = "data/textures/texture_mapping.json", diagnostics=None):
+    def __init__(self, ctx: moderngl.Context, base_path: str = "assets/tiles/core", mapping_file: str = "data/textures/texture_mapping.json", diagnostics=None):
         """
         Initialize Texture Manager with dynamic texture atlas and variant support
         
@@ -298,7 +298,7 @@ class TileTextureManager:
             texture_paths = [
                 base_path / f"{overlay_name}.png",
                 base_path / f"{overlay_name}",
-                Path("assets/tiles") / f"{overlay_name}.png",
+                Path("assets/tiles/core") / f"{overlay_name}.png",
             ]
             
             source_img = None
@@ -686,7 +686,7 @@ class TileTextureManager:
                 continue
             
             mapping = self.texture_mapping[biome_name]
-            base_path_str = mapping.get("base_path", "assets/tiles")
+            base_path_str = mapping.get("base_path", "assets/tiles/core")
             base_path_obj = Path(base_path_str)
             base_texture = mapping.get("base_texture", "")
             
@@ -697,7 +697,7 @@ class TileTextureManager:
             texture_paths = [
                 base_path_obj / f"{base_texture}.png",
                 base_path_obj / f"{base_texture}",
-                Path("assets/tiles") / f"{base_texture}.png",
+                Path("assets/tiles/core") / f"{base_texture}.png",
             ]
             
             source_img = None
@@ -738,7 +738,7 @@ class TileTextureManager:
         
         # Load base textures from mapping file
         for tile_id, mapping in self.texture_mapping.items():
-            base_path_str = mapping.get("base_path", "assets/tiles")
+            base_path_str = mapping.get("base_path", "assets/tiles/core")
             base_path_obj = Path(base_path_str)
             base_texture = mapping.get("base_texture", "")
             
@@ -752,7 +752,7 @@ class TileTextureManager:
             texture_paths = [
                 base_path_obj / f"{base_texture}.png",
                 base_path_obj / f"{base_texture}",
-                Path("assets/tiles") / f"{base_texture}.png",
+                Path("assets/tiles/core") / f"{base_texture}.png",
             ]
             
             img = None
@@ -787,7 +787,7 @@ class TileTextureManager:
                         self._generate_rotations(tile_name, img)
         
         # Also check assets/tiles for additional textures
-        tiles_path = Path("assets/tiles")
+        tiles_path = Path("assets/tiles/core")
         if tiles_path.exists():
             for texture_file in tiles_path.glob("*.png"):
                 if "_scaled" in texture_file.name:

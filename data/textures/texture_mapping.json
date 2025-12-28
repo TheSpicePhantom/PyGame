@@ -2,7 +2,7 @@
   "texture_mappings": {
     "terrain:plains": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles",
+      "base_path": "assets/tiles/core",
       "variance_system": {
         "mode": "organic_growth",
         "rotation_enabled": true,

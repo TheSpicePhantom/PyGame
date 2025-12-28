@@ -1959,6 +1959,7 @@ class RegionManager:
                     has_fruit = deco_data.get('has_fruit', True)
                     damage = deco_data.get('damage', 0.0)
                     last_interaction = deco_data.get('last_interaction', 0.0)
+                    initial_growth_time = deco_data.get('initial_growth_time', 0.0)
                     
                     if growth_timer != 0.0:
                         flags |= 0x01
@@ -1968,20 +1969,22 @@ class RegionManager:
                         flags |= 0x04
                     if last_interaction != 0.0:
                         flags |= 0x08
+                    if initial_growth_time != 0.0:
+                        flags |= 0x10
                     
                     # Only save if flags are set (sparse format)
                     if flags != 0:
                         decorations.append((
                             tile_x, tile_y,
                             decoration_data.get('decoration_id', ''),
-                            flags, growth_timer, has_fruit, damage, last_interaction
+                            flags, growth_timer, has_fruit, damage, last_interaction, initial_growth_time
                         ))
         
         # Decoration count
         parts.append(struct.pack('B', len(decorations)))  # uint8 decoration_count
         
         # Decoration data (only changed data based on flags)
-        for tile_x, tile_y, decoration_id, flags, growth_timer, has_fruit, damage, last_interaction in decorations:
+        for tile_x, tile_y, decoration_id, flags, growth_timer, has_fruit, damage, last_interaction, initial_growth_time in decorations:
             parts.append(struct.pack('B', flags))  # uint8 flags
             parts.append(struct.pack('BB', tile_x, tile_y))  # uint8 tile_x, tile_y (0-14)
             
@@ -1999,6 +2002,8 @@ class RegionManager:
                 parts.append(struct.pack('>f', damage))  # float32 damage
             if flags & 0x08:
                 parts.append(struct.pack('>f', last_interaction))  # float32 last_interaction
+            if flags & 0x10:
+                parts.append(struct.pack('>f', initial_growth_time))  # float32 initial_growth_time
         
         # Join all parts at once (much faster than extend in loop)
         return b''.join(parts)
@@ -2205,7 +2210,8 @@ class RegionManager:
                             'growth_timer': 0.0,
                             'has_fruit': True,
                             'damage': 0.0,
-                            'last_interaction': 0.0
+                            'last_interaction': 0.0,
+                            'initial_growth_time': 0.0
                         }
                         
                         # Read data based on flags
@@ -2228,6 +2234,11 @@ class RegionManager:
                             if offset + 4 > len(data):
                                 break
                             deco_data['last_interaction'] = struct.unpack('>f', data[offset:offset+4])[0]
+                            offset += 4
+                        if flags & 0x10:  # initial_growth_time
+                            if offset + 4 > len(data):
+                                break
+                            deco_data['initial_growth_time'] = struct.unpack('>f', data[offset:offset+4])[0]
                             offset += 4
                         
                         # Add decoration to tile

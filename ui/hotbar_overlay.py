@@ -9,13 +9,14 @@ from typing import Optional, Dict, Tuple
 class HotbarOverlay:
     """Permanent hotbar overlay displayed at bottom of screen"""
     
-    def __init__(self, window_width: int, window_height: int):
+    def __init__(self, window_width: int, window_height: int, item_texture_manager=None):
         """
         Initialize Hotbar Overlay
         
         Args:
             window_width: Window width in pixels
             window_height: Window height in pixels
+            item_texture_manager: ItemTextureManager instance for rendering item sprites
         """
         self.window_width = window_width
         self.window_height = window_height
@@ -40,12 +41,16 @@ class HotbarOverlay:
         # Reference to inventory menu (will be set externally)
         self.inventory_menu = None
         
+        # Item texture manager for rendering item sprites
+        self.item_texture_manager = item_texture_manager
+        
         # Fonts
         self.slot_font_name = "Arial"
         self.amount_font_size = 14
         
         # Item rendering settings
         self.item_icon_padding = 4
+        self.item_sprite_size = 32  # Fixed size for all item sprites (same as inventory)
         self.amount_offset_x = 2
         self.amount_offset_y = 2
     
@@ -207,20 +212,52 @@ class HotbarOverlay:
                 item_id = slot.get('item_id', 'unknown')
                 amount = slot.get('amount', 0)
                 
-                # Calculate icon area with padding
-                icon_x = slot_x + self.item_icon_padding
-                icon_y = slot_y + self.item_icon_padding
-                icon_size = self.slot_size - (2 * self.item_icon_padding)
+                # Calculate icon area - all items rendered as 32x32 pixels with 4px padding
+                item_padding = 4  # Padding around item (slot is 64x64, item is 32x32)
+                icon_x = slot_x + item_padding  # 4px padding from left
+                icon_y = slot_y + item_padding  # 4px padding from bottom
                 
-                # Draw item icon (placeholder: colored rectangle)
-                # TODO: Replace with actual item sprites/icons
-                item_color = self._get_item_color(item_id)
-                item_rect = pyglet.shapes.Rectangle(
-                    icon_x, icon_y,
-                    icon_size, icon_size,
-                    color=item_color
-                )
-                item_rect.draw()
+                # Draw item sprite if available, otherwise fallback to colored rectangle
+                if self.item_texture_manager:
+                    try:
+                        pyglet_img = self.item_texture_manager.get_pyglet_image(item_id)
+                        if pyglet_img:
+                            # Create sprite from pyglet image
+                            sprite = pyglet.sprite.Sprite(pyglet_img, x=icon_x, y=icon_y)
+                            # Scale to target size (32x32) - uses NEAREST filtering for pixel-perfect scaling
+                            tex_width = pyglet_img.width
+                            tex_height = pyglet_img.height
+                            # Scale based on the larger dimension to ensure the sprite fits within target size
+                            scale = self.item_sprite_size / max(tex_width, tex_height)
+                            sprite.scale = scale
+                            sprite.draw()
+                        else:
+                            # No image available, use fallback
+                            item_color = self._get_item_color(item_id)
+                            item_rect = pyglet.shapes.Rectangle(
+                                icon_x, icon_y,
+                                self.item_sprite_size, self.item_sprite_size,
+                                color=item_color
+                            )
+                            item_rect.draw()
+                    except Exception as e:
+                        # Error loading texture, use fallback
+                        item_color = self._get_item_color(item_id)
+                        item_rect = pyglet.shapes.Rectangle(
+                            icon_x, icon_y,
+                            self.item_sprite_size, self.item_sprite_size,
+                            color=item_color
+                        )
+                        item_rect.draw()
+                else:
+                    # No texture manager available, use fallback
+                    item_color = self._get_item_color(item_id)
+                    item_rect = pyglet.shapes.Rectangle(
+                        icon_x, icon_y,
+                        self.item_sprite_size, self.item_sprite_size,
+                        color=item_color
+                    )
+                    item_rect.draw()
                 
                 # Draw amount text (bottom-right corner, white)
                 if amount > 1:

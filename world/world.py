@@ -37,6 +37,17 @@ class World:
             if self.diagnostics:
                 self.diagnostics.warning("World", f"Failed to load item registry: {e}")
         
+        # Load tool mapping registry
+        try:
+            from world.tool_mapping_registry import ToolMappingRegistry
+            ToolMappingRegistry.set_diagnostics(self.diagnostics)
+            ToolMappingRegistry.load_all()
+            if self.diagnostics:
+                self.diagnostics.info("World", "Tool mapping registry loaded successfully")
+        except Exception as e:
+            if self.diagnostics:
+                self.diagnostics.warning("World", f"Failed to load tool mapping registry: {e}")
+        
         # Initialize chunk manager (to check if world already exists)
         # We'll create a temporary terrain generator, then update it with the correct seed
         temp_terrain_gen = TerrainGenerator(seed=None)  # Temporary, will be replaced

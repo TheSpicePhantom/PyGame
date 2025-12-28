@@ -1,0 +1,11 @@
+{
+  "item_id": "core:wooden_axe",
+  "display_name": "Wooden Axe",
+  "description": "A basic wooden axe for chopping wood. Can mine wood and stone resources.",
+  "sprite": "wooden_axe",
+  "max_stack_size": 1,
+  "category": "tool",
+  "tags": ["tool", "axe", "mining"],
+  "tool_type": "axe",
+  "tool_tier": "wood"
+}

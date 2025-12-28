@@ -1,0 +1,72 @@
+{
+  "tool_tiers": {
+    "reinforced_steel": {
+      "tier": 5,
+      "mining_speed_multiplier": 1.5,
+      "tools": ["core:reinforced_steel_axe", "core:reinforced_steel_pickaxe"],
+      "can_mine": ["reinforced_steel", "steel", "iron", "copper", "bronze", "wood", "stone"]
+    },
+    "steel": {
+      "tier": 4,
+      "mining_speed_multiplier": 1.2,
+      "tools": ["core:steel_axe", "core:steel_pickaxe"],
+      "can_mine": ["steel", "iron", "copper", "bronze", "wood", "stone"]
+    },
+    "iron": {
+      "tier": 3,
+      "mining_speed_multiplier": 1.0,
+      "tools": ["core:iron_axe", "core:iron_pickaxe"],
+      "can_mine": ["iron", "copper", "bronze", "wood", "stone"]
+    },
+    "bronze": {
+      "tier": 2,
+      "mining_speed_multiplier": 0.75,
+      "tools": ["core:bronze_axe", "core:bronze_pickaxe"],
+      "can_mine": ["bronze", "wood", "stone"]
+    },
+    "wood": {
+      "tier": 1,
+      "mining_speed_multiplier": 0.5,
+      "tools": ["core:wooden_axe", "core:wooden_pickaxe"],
+      "can_mine": ["wood", "stone"]
+    },
+    "primal": {
+      "tier": 0,
+      "mining_speed_multiplier": 0.4,
+      "tools": ["core:primal_axe", "core:primal_pickaxe"],
+      "can_mine": ["wood"]
+    },
+    "hand": {
+      "tier": 0,
+      "mining_speed_multiplier": 0.3,
+      "tools": [],
+      "can_mine": ["wood"]
+    }
+  },
+  "hardness_levels": {
+    "reinforced_steel": {
+      "tier": 5,
+      "display_name": "Reinforced Steel"
+    },
+    "steel": {
+      "tier": 4,
+      "display_name": "Steel"
+    },
+    "iron": {
+      "tier": 3,
+      "display_name": "Iron"
+    },
+    "bronze": {
+      "tier": 2,
+      "display_name": "Bronze"
+    },
+    "stone": {
+      "tier": 2,
+      "display_name": "Stone"
+    },
+    "wood": {
+      "tier": 1,
+      "display_name": "Wood"
+    }
+  }
+}

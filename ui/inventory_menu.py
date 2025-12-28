@@ -42,7 +42,7 @@ class InventoryMenu:
         ]
         
         # UI layout
-        self.slot_size = 64  # Size of each slot in pixels
+        self.slot_size = 40  # Size of each slot in pixels (32x32 item + 4px padding on all sides)
         self.slot_spacing = 4  # Spacing between slots
         self.panel_padding = 20  # Padding around inventory panel
         
@@ -97,11 +97,11 @@ class InventoryMenu:
         self.title_font_name = "Arial"
         self.title_font_size = 32
         self.slot_font_name = "Arial"
-        self.slot_font_size = 14  # Consistent font size for item amounts
+        self.slot_font_size = 9  # Consistent font size for item amounts
         
         # Item rendering settings
         self.item_icon_padding = 4  # Padding around item icon within slot
-        self.amount_font_size = 14  # Font size for amount display
+        self.amount_font_size = 9  # Font size for amount display
         self.amount_offset_x = 2  # Offset from right edge for amount text
         self.amount_offset_y = 2  # Offset from bottom edge for amount text
         
@@ -542,10 +542,11 @@ class InventoryMenu:
             item_id = slot.get('item_id', 'unknown')
             amount = slot.get('amount', 0)
             
-            # Calculate icon area with padding
-            icon_x = slot_x + self.item_icon_padding
-            icon_y = slot_y + self.item_icon_padding
-            icon_size = self.slot_size - (2 * self.item_icon_padding)
+            # Calculate icon area - all items rendered as 32x32 pixels with 4px padding
+            item_sprite_size = 32  # Fixed size for all item sprites
+            item_padding = 4  # Padding around item (slot is 40x40, item is 32x32)
+            icon_x = slot_x + item_padding  # 4px padding from left
+            icon_y = slot_y + item_padding  # 4px padding from bottom
             
             # Draw item sprite if available, otherwise fallback to colored rectangle
             if self.item_texture_manager:
@@ -554,10 +555,11 @@ class InventoryMenu:
                     if pyglet_img:
                         # Create sprite from pyglet image
                         sprite = pyglet.sprite.Sprite(pyglet_img, x=icon_x, y=icon_y)
-                        # Scale to fit icon_size
+                        # Scale to target size (32x32) - uses NEAREST filtering for pixel-perfect scaling
                         tex_width = pyglet_img.width
                         tex_height = pyglet_img.height
-                        scale = min(icon_size / tex_width, icon_size / tex_height)
+                        # Scale based on the larger dimension to ensure the sprite fits within target size
+                        scale = item_sprite_size / max(tex_width, tex_height)
                         sprite.scale = scale
                         sprite.draw()
                     else:
@@ -565,7 +567,7 @@ class InventoryMenu:
                         item_color = self._get_item_color(item_id)
                         item_rect = pyglet.shapes.Rectangle(
                             icon_x, icon_y,
-                            icon_size, icon_size,
+                            item_sprite_size, item_sprite_size,
                             color=item_color
                         )
                         item_rect.draw()
@@ -574,7 +576,7 @@ class InventoryMenu:
                     item_color = self._get_item_color(item_id)
                     item_rect = pyglet.shapes.Rectangle(
                         icon_x, icon_y,
-                        icon_size, icon_size,
+                        item_sprite_size, item_sprite_size,
                         color=item_color
                     )
                     item_rect.draw()
@@ -583,7 +585,7 @@ class InventoryMenu:
                 item_color = self._get_item_color(item_id)
                 item_rect = pyglet.shapes.Rectangle(
                     icon_x, icon_y,
-                    icon_size, icon_size,
+                    item_sprite_size, item_sprite_size,
                     color=item_color
                 )
                 item_rect.draw()

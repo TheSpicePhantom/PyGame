@@ -1,0 +1,11 @@
+{
+  "item_id": "core:steel_axe",
+  "display_name": "Steel Axe",
+  "description": "A superior steel axe for fast wood chopping. Can mine steel, iron, copper, wood, and stone resources.",
+  "sprite": "steel_axe",
+  "max_stack_size": 1,
+  "category": "tool",
+  "tags": ["tool", "axe", "mining"],
+  "tool_type": "axe",
+  "tool_tier": "steel"
+}

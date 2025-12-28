@@ -30,8 +30,11 @@ class Decoration:
         return 'harvest' in self.config and self.config['harvest'].get('enabled', False)
     
     def is_mineable(self) -> bool:
-        """Check if this decoration can be mined (left-click with tool)."""
-        return 'mining' in self.config
+        """
+        Check if this decoration can be mined (left-click with tool).
+        All decorations are mineable - if no mining config exists, default values will be used.
+        """
+        return True  # All decorations are mineable
     
     def has_collision(self) -> bool:
         """Check if this decoration has collision enabled."""
@@ -139,13 +142,17 @@ class Decoration:
         Returns:
             Dictionary mapping item IDs to quantities
         """
+        loot_table_id = None
+        
+        # Check harvest loot table first (for harvestable items)
         if self.is_harvestable():
             loot_table_id = self.config['harvest'].get('loot_table')
-        elif self.is_mineable():
-            loot_table_id = self.config['mining'].get('loot_table')
-        else:
-            return {}
         
+        # Check mining loot table (for mineable items)
+        if not loot_table_id and 'mining' in self.config:
+            loot_table_id = self.config['mining'].get('loot_table')
+        
+        # If no loot table, return empty dict (no loot)
         if not loot_table_id:
             return {}
         

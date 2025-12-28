@@ -2,7 +2,7 @@
   "decoration_id": "berry_bush",
   "display_name": "Berry Bush",
   "mod_id": "core",
-  "tags": ["harvestable", "decorative"],
+  "tags": ["harvestable", "decorative", "mineable"],
   "collision": {
     "enabled": false,
     "type": "none",
@@ -12,6 +12,18 @@
   "sprites": {
     "with_fruit": "berry_bush_2",
     "without_fruit": "berry_bush_1"
+  },
+  "mining": {
+    "tool_required": null,
+    "hardness": "wood",
+    "mining_time": 1.0,
+    "hardness_multiplier": 1.0,
+    "durability": 20,
+    "loot_table": "berry_bush_loot",
+    "particles": {
+      "hit": "leaf_particle",
+      "break": "wood_break"
+    }
   },
   "rendering": {
     "size": [32, 32],

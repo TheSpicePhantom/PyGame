@@ -1,0 +1,11 @@
+{
+  "item_id": "core:primal_axe",
+  "display_name": "Primal Axe",
+  "description": "A primitive axe made from basic materials. Can mine wood resources.",
+  "sprite": "primal_axe",
+  "max_stack_size": 1,
+  "category": "tool",
+  "tags": ["tool", "axe", "mining"],
+  "tool_type": "axe",
+  "tool_tier": "primal"
+}

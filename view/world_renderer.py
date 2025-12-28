@@ -428,11 +428,20 @@ class WorldRenderer:
                     
                     # Determine current sprite based on state
                     sprite_name = None
-                    if decoration.is_harvestable():
-                        has_fruit = deco_data_dict.get('has_fruit', True)
-                        sprite_name = deco_config['sprites'].get('with_fruit' if has_fruit else 'without_fruit')
-                    else:
-                        sprite_name = deco_config['sprites'].get('default')
+                    
+                    # Check for sprite_state (set during mining or stump phase)
+                    sprite_state = deco_data_dict.get('sprite_state')
+                    if sprite_state:
+                        # Use sprite_state if available (default, damaged_50, stump)
+                        sprite_name = deco_config['sprites'].get(sprite_state)
+                    
+                    # Fallback to harvestable state or default
+                    if not sprite_name:
+                        if decoration.is_harvestable():
+                            has_fruit = deco_data_dict.get('has_fruit', True)
+                            sprite_name = deco_config['sprites'].get('with_fruit' if has_fruit else 'without_fruit')
+                        else:
+                            sprite_name = deco_config['sprites'].get('default')
                     
                     # Fallback to color if texture not available
                     if not sprite_name:
@@ -522,6 +531,7 @@ class WorldRenderer:
             
             # Get regrowth progress for progress bar (if harvestable and harvested)
             regrowth_progress = None
+            mining_progress = None
             if deco_data:
                 deco_data_dict = deco_data.get('data', {})
                 has_fruit = deco_data_dict.get('has_fruit', True)
@@ -536,6 +546,39 @@ class WorldRenderer:
                     if initial_growth_time > 0 and growth_timer >= 0:
                         elapsed = initial_growth_time - growth_timer
                         regrowth_progress = max(0.0, min(1.0, elapsed / initial_growth_time))
+                
+                # Calculate mining progress (if being mined)
+                elapsed_time = deco_data_dict.get('elapsed_time', 0.0)
+                if elapsed_time > 0.0:
+                    from world.decoration_registry import DecorationRegistry
+                    decoration_id = deco_data.get('decoration_id')
+                    if decoration_id:
+                        deco_config = DecorationRegistry.get(decoration_id)
+                        if deco_config:
+                            mining_config = deco_config.get('mining', {})
+                            if mining_config:
+                                mining_time = mining_config.get('mining_time', 3.0)
+                                hardness_multiplier = mining_config.get('hardness_multiplier', 1.0)
+                                resource_hardness = mining_config.get('hardness', 'wood')
+                                
+                                # Get tool for mining speed multiplier
+                                tool = self.world_controller.get_equipped_tool()
+                                tool_id = tool.get('tool_id') if tool else None
+                                
+                                # Get mining speed multiplier from ToolMappingRegistry
+                                try:
+                                    from world.tool_mapping_registry import ToolMappingRegistry
+                                    if tool_id:
+                                        mining_speed_multiplier = ToolMappingRegistry.get_mining_speed_multiplier(tool_id)
+                                    else:
+                                        mining_speed_multiplier = ToolMappingRegistry.get_mining_speed_multiplier('hand')
+                                except ImportError:
+                                    mining_speed_multiplier = 0.3  # Hand speed
+                                
+                                # Calculate time to mine
+                                time_to_mine = (mining_time * hardness_multiplier) / mining_speed_multiplier
+                                if time_to_mine > 0:
+                                    mining_progress = min(elapsed_time / time_to_mine, 1.0)
             
             # Create quad vertices with atlas UV coordinates
             # Format: position (2f), color_index (1f), texcoord (2f), use_texture (1f)
@@ -551,9 +594,11 @@ class WorldRenderer:
                 [x, y, 0.0, u0, v0, 1.0],  # Top-left (world: y, tex: v0)
             ])
             
-            # Collect regrowth progress bar data to render after ModernGL
+            # Collect regrowth and mining progress bar data to render after ModernGL
             if regrowth_progress is not None and regrowth_progress < 1.0:
-                progress_bars.append((x, y, width, height, regrowth_progress))
+                progress_bars.append(('regrowth', x, y, width, height, regrowth_progress))
+            if mining_progress is not None and mining_progress < 1.0:
+                progress_bars.append(('mining', x, y, width, height, mining_progress))
         
         # Render all decorations in one batch using atlas
         if all_vertices:
@@ -580,8 +625,11 @@ class WorldRenderer:
         
         # Render progress bars after ModernGL rendering (using pyglet.shapes)
         if progress_bars:
-            for x, y, width, height, progress in progress_bars:
-                self._render_regrowth_progress_bar(x, y, width, height, progress, camera_x, camera_y)
+            for bar_type, x, y, width, height, progress in progress_bars:
+                if bar_type == 'regrowth':
+                    self._render_regrowth_progress_bar(x, y, width, height, progress, camera_x, camera_y)
+                elif bar_type == 'mining':
+                    self._render_mining_progress_bar(x, y, width, height, progress, camera_x, camera_y)
     
     def _render_decorations_with_textures_legacy(self, decoration_sprites, camera_x: float, camera_y: float):
         """Legacy rendering method using separate textures (fallback if atlas not available)."""
@@ -797,9 +845,6 @@ class WorldRenderer:
         # Render final batch
         if batch_vertices:
             self._render_decoration_batch(batch_vertices)
-        
-        # Render mining progress bars if any decorations are being mined
-        self._render_mining_progress_bars(visible_chunks, camera_x, camera_y)
     
     def _render_decoration_batch(self, vertices_list):
         """Render a batch of decoration vertices."""
@@ -821,88 +866,64 @@ class WorldRenderer:
         vao.release()
         vbo.release()
     
-    def _render_mining_progress_bars(self, visible_chunks, camera_x: float, camera_y: float):
-        """
-        Render mining progress bars over decorations being mined.
-        
-        Args:
-            visible_chunks: List of (chunk_x, chunk_y, tiles) tuples
-            camera_x: Camera X position
-            camera_y: Camera Y position
-        """
-        try:
-            from world.decoration_registry import DecorationRegistry
-            from world.decoration import Decoration
-        except ImportError:
-            return
-        
+    def _render_mining_progress_bar(self, deco_x: float, deco_y: float, deco_width: float, deco_height: float,
+                                    progress: float, camera_x: float, camera_y: float):
+        """Render a small progress bar above decoration showing mining progress."""
         import pyglet.shapes
         
-        tile_size = settings.TILE_SIZE
+        if not self.world_controller.camera:
+            return
         
-        for chunk_x, chunk_y, tiles in visible_chunks:
-            if not tiles:
-                continue
-            
-            chunk_world_x = chunk_x * settings.CHUNK_SIZE * tile_size
-            chunk_world_y = chunk_y * settings.CHUNK_SIZE * tile_size
-            
-            for tile_y in range(len(tiles)):
-                if not tiles[tile_y]:
-                    continue
-                for tile_x in range(len(tiles[tile_y])):
-                    tile = tiles[tile_y][tile_x]
-                    if not tile:
-                        continue
-                    
-                    decoration_data = tile.get('decoration')
-                    if not decoration_data:
-                        continue
-                    
-                    deco_data = decoration_data.get('data', {})
-                    damage = deco_data.get('damage', 0.0)
-                    
-                    if damage <= 0.0:
-                        continue  # Not being mined
-                    
-                    decoration_id = decoration_data.get('decoration_id')
-                    deco_config = DecorationRegistry.get(decoration_id)
-                    if not deco_config:
-                        continue
-                    
-                    mining_config = deco_config.get('mining', {})
-                    durability = mining_config.get('durability', 100)
-                    
-                    if durability <= 0:
-                        continue
-                    
-                    progress = min(damage / durability, 1.0)
-                    
-                    # Calculate tile world position
-                    tile_world_x = chunk_world_x + tile_x * tile_size
-                    tile_world_y = chunk_world_y + tile_y * tile_size
-                    
-                    # Convert to screen coordinates
-                    screen_x = (tile_world_x - camera_x) * self.world_controller.camera_zoom + self.modern_gl_renderer.screen_width / 2.0
-                    screen_y = (tile_world_y - camera_y) * self.world_controller.camera_zoom + self.modern_gl_renderer.screen_height / 2.0
-                    screen_y = self.modern_gl_renderer.screen_height - screen_y  # Flip Y
-                    
-                    # Draw progress bar
-                    bar_width = tile_size * self.world_controller.camera_zoom * 0.8
-                    bar_height = 4 * self.world_controller.camera_zoom
-                    bar_x = screen_x + (tile_size * self.world_controller.camera_zoom - bar_width) / 2.0
-                    bar_y = screen_y - tile_size * self.world_controller.camera_zoom - 8
-                    
-                    # Background (black)
-                    bg = pyglet.shapes.Rectangle(bar_x, bar_y, bar_width, bar_height, color=(0, 0, 0))
-                    bg.opacity = 200
-                    bg.draw()
-                    
-                    # Progress (yellow)
-                    progress_width = bar_width * progress
-                    if progress_width > 0:
-                        progress_bar = pyglet.shapes.Rectangle(bar_x, bar_y, progress_width, bar_height, color=(255, 255, 0))
-                        progress_bar.opacity = 255
-                        progress_bar.draw()
+        # Calculate screen position
+        screen_width = self.modern_gl_renderer.screen_width
+        screen_height = self.modern_gl_renderer.screen_height
+        zoom = self.world_controller.camera_zoom
+        
+        # Progress bar position: above decoration, centered
+        bar_width = deco_width * 0.8  # 80% of decoration width
+        bar_height = 3  # 3 pixels high
+        bar_x = deco_x + (deco_width - bar_width) / 2.0
+        bar_y = deco_y + deco_height + 2  # 2 pixels above decoration
+        
+        # Convert to screen coordinates (same transformation as regrowth timer)
+        screen_bar_x = (bar_x - camera_x) * zoom + screen_width / 2.0
+        screen_bar_y = (bar_y - camera_y) * zoom + screen_height / 2.0
+        
+        # In pyglet, Y=0 is at bottom, so we need to adjust
+        screen_bar_y = screen_height - screen_bar_y
+        
+        # Scale by zoom
+        bar_width_scaled = bar_width * zoom
+        bar_height_scaled = bar_height * zoom
+        
+        # Ensure minimum size for visibility
+        if bar_width_scaled < 1:
+            bar_width_scaled = 1
+        if bar_height_scaled < 1:
+            bar_height_scaled = 1
+        
+        # Draw background (dark gray)
+        bg_bar = pyglet.shapes.Rectangle(
+            int(screen_bar_x),
+            int(screen_bar_y - bar_height_scaled),
+            int(bar_width_scaled),
+            int(bar_height_scaled),
+            color=(40, 40, 40)  # Dark gray background
+        )
+        bg_bar.opacity = 200
+        bg_bar.draw()
+        
+        # Draw progress (red, from 100% to 0%)
+        progress_width = bar_width_scaled * progress
+        if progress > 0 and progress_width >= 1:
+            progress_bar = pyglet.shapes.Rectangle(
+                int(screen_bar_x),
+                int(screen_bar_y - bar_height_scaled),
+                int(progress_width),
+                int(bar_height_scaled),
+                color=(255, 0, 0)  # Red
+            )
+            progress_bar.opacity = 255
+            progress_bar.draw()
 
 

@@ -1,0 +1,11 @@
+{
+  "item_id": "core:iron_axe",
+  "display_name": "Iron Axe",
+  "description": "A sturdy iron axe for chopping wood efficiently. Can mine wood, stone, copper, and iron resources.",
+  "sprite": "iron_axe",
+  "max_stack_size": 1,
+  "category": "tool",
+  "tags": ["tool", "axe", "mining"],
+  "tool_type": "axe",
+  "tool_tier": "iron"
+}

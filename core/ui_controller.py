@@ -33,10 +33,10 @@ class UIController:
         # Menüs
         self.world_select_menu = WorldSelectMenu(width, height, modern_gl_renderer)
         self.create_world_menu = CreateWorldMenu(width, height, modern_gl_renderer)
-        # Pass item_texture_manager to inventory menu if available
+        # Pass item_texture_manager to inventory menu and hotbar overlay if available
         item_texture_manager = modern_gl_renderer.item_texture_manager if modern_gl_renderer else None
         self.inventory_menu = InventoryMenu(width, height, inventory_size=45, item_texture_manager=item_texture_manager)
-        self.hotbar_overlay = HotbarOverlay(width, height)
+        self.hotbar_overlay = HotbarOverlay(width, height, item_texture_manager=item_texture_manager)
         self.hotbar_overlay.set_inventory_menu(self.inventory_menu)
         self.pause_menu = PauseMenu(width, height)  # Initialize pause menu
         self.settings_menu: Optional[SettingsMenu] = None  # Will be initialized when needed

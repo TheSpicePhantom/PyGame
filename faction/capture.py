@@ -107,21 +107,3 @@ class CaptureManager:
         """Aktualisiert alle Eroberungspunkte"""
         for cp in self.capture_points:
             cp.update(dt)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

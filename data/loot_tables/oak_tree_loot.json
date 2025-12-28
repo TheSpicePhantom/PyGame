@@ -12,10 +12,10 @@
       }
     },
     {
-      "item_id": "apple",
+      "item_id": "oak_sapling",
       "weight": 30,
       "quantity": {
-        "min": 1,
+        "min": 0,
         "max": 2
       },
       "conditions": [

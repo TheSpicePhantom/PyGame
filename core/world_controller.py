@@ -15,6 +15,11 @@ from world.auto_save import AutoSaveSystem
 from combat.player import Player
 from analytics.performance_monitor import PerformanceMonitor
 
+# Default mining values for decorations without mining config
+DEFAULT_MINING_DURABILITY = 50
+DEFAULT_MINING_TOOL_REQUIRED = None  # Can be mined with hand
+DEFAULT_MINING_SPEED = 10.0  # Increased for faster mining (was 1.0)
+
 
 class WorldController:
     """Verwaltet World, Player und Camera"""
@@ -948,6 +953,10 @@ class WorldController:
                                         # Start mining
                                         self._mining_decoration = (tile_x, tile_y)
                                         self._mining_start_time = time.time()
+                                    elif self.diagnostics and self.enable_debug_output:
+                                        self.diagnostics.warning("WorldController", f"Decoration {decoration_id} is not mineable")
+                                elif self.diagnostics and self.enable_debug_output:
+                                    self.diagnostics.warning("WorldController", f"Decoration config not found for {decoration_id}")
                         except ImportError:
                             pass
     
@@ -1228,6 +1237,8 @@ class WorldController:
         # Get decoration at this tile position
         decoration_data = chunk.get_decoration_at(tile_x_in_chunk, tile_y_in_chunk)
         if not decoration_data:
+            if self.diagnostics and self.enable_debug_output:
+                self.diagnostics.warning("WorldController", f"No decoration found at ({tile_x}, {tile_y}) in chunk ({chunk_x}, {chunk_y})")
             return False
         
         decoration_id = decoration_data.get('decoration_id')
@@ -1241,39 +1252,81 @@ class WorldController:
         
         decoration = Decoration(deco_config)
         
-        # Check if mineable
+        # Check if mineable (now always returns True, but keep check for consistency)
         if not decoration.is_mineable():
             return False
         
         # Get tool (placeholder)
         tool = self.get_equipped_tool()
         mining_config = deco_config.get('mining', {})
+        
+        # Use default values if no mining config exists
+        if not mining_config:
+            # Create temporary mining config with defaults
+            mining_config = {
+                'hardness': 'wood',
+                'mining_time': 3.0,
+                'hardness_multiplier': 1.0,
+                'tool_required': DEFAULT_MINING_TOOL_REQUIRED,
+                'loot_table': None  # No loot by default
+            }
+        
+        # Get resource hardness (default: wood)
+        resource_hardness = mining_config.get('hardness', 'wood')
+        
+        # Get tool ID for hardness checking
+        tool_id = tool.get('tool_id') if tool else None
+        
+        # Check if tool can mine this resource (using ToolMappingRegistry)
+        from world.tool_mapping_registry import ToolMappingRegistry
+        if tool_id and not ToolMappingRegistry.can_mine(tool_id, resource_hardness):
+            if self.diagnostics and self.enable_debug_output:
+                tool_level = ToolMappingRegistry.get_tool_level(tool_id)
+                self.diagnostics.warning("WorldController", f"Tool {tool_id} (tier: {tool_level}) cannot mine {decoration_id} (hardness: {resource_hardness})")
+            return False  # Tool too weak
+        
+        # Legacy tool_required check (for backwards compatibility)
         required_tool = mining_config.get('tool_required')
+        if required_tool:
+            tool_type = tool.get('tool_type') if tool else None
+            if tool_type != required_tool:
+                if self.diagnostics and self.enable_debug_output:
+                    self.diagnostics.warning("WorldController", f"Wrong tool for {decoration_id}: required {required_tool}, got {tool_type}")
+                return False  # Wrong tool
         
-        # Check tool requirement
-        if required_tool and tool.get('tool_type') != required_tool:
-            return False  # Wrong tool
+        # Get decoration data - ensure 'data' key exists
+        if 'data' not in decoration_data:
+            decoration_data['data'] = {}
+        deco_data = decoration_data['data']
         
-        # Get decoration data
-        deco_data = decoration_data.get('data', {})
-        current_damage = deco_data.get('damage', 0.0)
-        durability = mining_config.get('durability', 100)
+        # Initialize elapsed_time if not present (new system)
+        if 'elapsed_time' not in deco_data:
+            deco_data['elapsed_time'] = 0.0
         
-        # Apply mining progress
-        mining_speed = tool.get('mining_speed', 1.0)
-        new_damage = current_damage + mining_speed * dt
+        # Get mining time configuration
+        mining_time = mining_config.get('mining_time', 3.0)
+        hardness_multiplier = mining_config.get('hardness_multiplier', 1.0)
         
-        # Update damage
-        deco_data['damage'] = new_damage
+        # Get mining speed multiplier from tool
+        if tool_id:
+            mining_speed_multiplier = ToolMappingRegistry.get_mining_speed_multiplier(tool_id)
+        else:
+            # Default to hand speed if no tool
+            mining_speed_multiplier = ToolMappingRegistry.get_mining_speed_multiplier('hand')
+        
+        # Calculate time to mine
+        time_to_mine = (mining_time * hardness_multiplier) / mining_speed_multiplier
+        
+        # Accumulate elapsed time
+        elapsed_time = deco_data.get('elapsed_time', 0.0)
+        elapsed_time += dt
+        deco_data['elapsed_time'] = elapsed_time
         deco_data['last_interaction'] = 0.0  # Will be updated in update_tile_decorations
         
-        # Check if mined (damage >= durability)
-        if new_damage >= durability:
+        # Check if mined (elapsed_time >= time_to_mine)
+        if elapsed_time >= time_to_mine:
             # Roll loot table
             loot = decoration.get_loot()
-            
-            if self.diagnostics and self.enable_debug_output:
-                self.diagnostics.info("WorldController", f"Mine loot: {loot}")
             
             # Add items to inventory menu (if available) or fallback to player.add_item
             if self.game_app and self.game_app.ui_controller and self.game_app.ui_controller.inventory_menu:
@@ -1293,23 +1346,35 @@ class WorldController:
                 for item_id, quantity in loot.items():
                     self.player.add_item(item_id, quantity)
             
-            # Remove decoration
+            # Get tile reference before removing decoration
             tile = chunk.tiles[tile_y_in_chunk][tile_x_in_chunk]
-            if 'decoration' in tile:
-                del tile['decoration']
-            chunk.set_decoration_at(tile_x_in_chunk, tile_y_in_chunk, None)
             
-            # Trigger event
+            # Set stump sprite and start removal timer (2-3 seconds)
+            import random
+            stump_duration = random.uniform(2.0, 3.0)  # 2-3 seconds
+            deco_data['sprite_state'] = 'stump'
+            deco_data['stump_timer'] = stump_duration
+            deco_data['is_stump'] = True  # Flag to indicate this is a stump waiting for removal
+            
+            # Trigger event (before removing decoration, so tile is still valid)
             decoration.on_mine_complete(self.player, tile)
             
-            if self.diagnostics and self.enable_debug_output:
-                self.diagnostics.info("WorldController", f"Mined {decoration_id} at ({tile_x}, {tile_y}), got {loot}")
+            # Don't remove decoration yet - let stump timer handle it
+            # The decoration will be removed in update_tile_decorations() when stump_timer expires
             
             return True
         
-        # Update damage sprite (for visual feedback)
-        health_percent = 1.0 - (new_damage / durability)
-        decoration.update_damage_sprite(health_percent)
+        # Update damage sprite (for visual feedback during mining)
+        # Calculate health percent based on elapsed time
+        health_percent = 1.0 - (elapsed_time / time_to_mine) if time_to_mine > 0 else 1.0
+        if health_percent < 1.0:  # Only update if mining in progress
+            # Store sprite state in deco_data for rendering
+            if health_percent > 0.5:
+                deco_data['sprite_state'] = 'default'
+            elif health_percent > 0.1:
+                deco_data['sprite_state'] = 'damaged_50'
+            else:
+                deco_data['sprite_state'] = 'stump'
         
         return False  # Mining in progress
     
@@ -1318,13 +1383,14 @@ class WorldController:
         Get currently equipped tool (placeholder implementation).
         
         Returns:
-            Tool dictionary with tool_type and mining_speed
+            Tool dictionary with tool_type, tool_id, and mining_speed
         """
-        # Placeholder: Return default tool
+        # Placeholder: Return default tool (hand)
         # In future, this should check player's equipped tool from inventory
         return {
-            'tool_type': 'axe',  # Default tool
-            'mining_speed': 1.0  # Default mining speed
+            'tool_type': 'hand',  # Default tool type
+            'tool_id': None,  # No tool equipped (hand mining)
+            'mining_speed': 10.0  # Legacy field, not used in new system
         }
     
     def update_tile_decorations(self, dt: float):
@@ -1382,6 +1448,13 @@ class WorldController:
                     if decoration.is_harvestable():
                         growth_timer = deco_data.get('growth_timer', 0.0)
                         has_fruit = deco_data.get('has_fruit', True)
+                        initial_growth_time = deco_data.get('initial_growth_time', 0.0)
+                        
+                        # Fallback: if initial_growth_time is missing but timer is running,
+                        # set it to current growth_timer (for old save files)
+                        if not has_fruit and growth_timer > 0.0 and initial_growth_time == 0.0:
+                            deco_data['initial_growth_time'] = growth_timer
+                            initial_growth_time = growth_timer
                         
                         if not has_fruit and growth_timer > 0.0:
                             # Decrease growth timer
@@ -1392,7 +1465,25 @@ class WorldController:
                             if growth_timer <= 0.0:
                                 deco_data['has_fruit'] = True
                                 deco_data['growth_timer'] = 0.0
+                                deco_data['initial_growth_time'] = 0.0
                                 decoration.update_sprite('with_fruit')
+                    
+                    # Handle stump removal timer (after mining complete)
+                    if deco_data.get('is_stump', False):
+                        stump_timer = deco_data.get('stump_timer', 0.0)
+                        if stump_timer > 0.0:
+                            stump_timer -= dt
+                            deco_data['stump_timer'] = stump_timer
+                            
+                            # Remove decoration when timer expires
+                            if stump_timer <= 0.0:
+                                # Remove decoration
+                                chunk.set_decoration_at(tile_x, tile_y, None)
+                                if 'decoration' in tile:
+                                    del tile['decoration']
+                                # Rebuild decoration lookup after removal
+                                chunk._rebuild_decoration_lookup()
+                                continue  # Skip to next tile
                     
                     # Handle animation updates (placeholder for Phase 6)
                     animation_config = decoration.get_animation_config()

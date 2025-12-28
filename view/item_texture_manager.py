@@ -6,16 +6,18 @@ from pathlib import Path
 from typing import Dict, Optional
 import moderngl
 from PIL import Image
+from PIL.Image import FLIP_TOP_BOTTOM
 from core import settings
 
 
 class ItemTextureManager:
     """
     Manages textures for items.
+    Supports mod folders (e.g., assets/items/{mod_id}/sprite.png)
     
-    Loads textures from assets/items/ based on sprite names:
-    - "wood" -> assets/items/wood.png
-    - "berries" -> assets/items/berries.png
+    Loads textures from assets/items/{mod_id}/ based on sprite names:
+    - "wood" with mod_id="core" -> assets/items/core/wood.png
+    - "berries" with mod_id="core" -> assets/items/core/berries.png
     """
     
     def __init__(self, ctx: moderngl.Context, base_path: str = "assets/items", diagnostics=None):
@@ -92,7 +94,7 @@ class ItemTextureManager:
         if item_id in self.textures:
             return self.textures[item_id]
         
-        # Get sprite path from ItemRegistry
+        # Get sprite path from ItemRegistry (includes mod_id)
         from world.item_registry import ItemRegistry
         sprite_path_str = ItemRegistry.get_sprite_path(item_id)
         
@@ -104,6 +106,33 @@ class ItemTextureManager:
             return self.missing_texture
         
         sprite_path = Path(sprite_path_str)
+        
+        # Ensure .png extension is added if not present
+        if not sprite_path.suffix:
+            sprite_path = sprite_path.with_suffix('.png')
+        
+        # Fallback: try to construct path from item config if path doesn't exist
+        if not sprite_path.exists():
+            item_config = ItemRegistry.get(item_id)
+            if item_config:
+                sprite_name = item_config.get('sprite')
+                mod_id = item_config.get('mod_id', 'core')
+                
+                # Remove .png from sprite_name if present (we'll add it)
+                if sprite_name.endswith('.png'):
+                    sprite_name = sprite_name[:-4]
+                
+                # Try alternative paths with .png extension
+                search_paths = [
+                    self.base_path / mod_id / f"{sprite_name}.png",  # assets/items/{mod_id}/{sprite}.png
+                    self.base_path / mod_id / sprite_name,  # assets/items/{mod_id}/{sprite} (without extension)
+                    self.base_path / f"{sprite_name}.png",  # assets/items/{sprite}.png (fallback)
+                    Path("assets/items") / mod_id / f"{sprite_name}.png",  # Absolute path
+                ]
+                for path in search_paths:
+                    if path.exists():
+                        sprite_path = path
+                        break
         
         if not sprite_path.exists():
             # Only warn once per missing texture
@@ -152,37 +181,57 @@ class ItemTextureManager:
     def get_pyglet_image(self, item_id: str):
         """
         Get pyglet Image for item (for UI rendering).
+        Uses NEAREST filtering for pixel-perfect scaling (pixel art).
         
         Args:
             item_id: Item identifier
             
         Returns:
-            pyglet.image.ImageData or None if not found
+            pyglet.image.AbstractImage or None if not found
         """
+        import pyglet
+        import pyglet.gl as gl
+        
         # Check if already loaded
         if item_id in self.texture_images:
             img = self.texture_images[item_id]
             # Convert PIL Image to pyglet ImageData
-            import pyglet.image
+            # PIL images are top-to-bottom, pyglet expects bottom-to-top
+            # So we need to flip vertically
+            # Flip image vertically (PIL top-to-bottom -> pyglet bottom-to-top)
+            flipped_img = img.transpose(FLIP_TOP_BOTTOM)
             # PIL image is RGBA, convert to bytes
-            img_data = img.tobytes()
-            return pyglet.image.ImageData(
+            img_data = flipped_img.tobytes()
+            image_data = pyglet.image.ImageData(
                 img.width, img.height,
                 'RGBA', img_data,
                 pitch=img.width * 4
             )
+            # Get texture and set NEAREST filtering for pixel-perfect scaling
+            texture = image_data.get_texture()
+            if texture:
+                texture.min_filter = gl.GL_NEAREST
+                texture.mag_filter = gl.GL_NEAREST
+            return image_data
         
         # Try to load
         self.load_item_sprite(item_id)
         if item_id in self.texture_images:
             img = self.texture_images[item_id]
-            import pyglet.image
-            img_data = img.tobytes()
-            return pyglet.image.ImageData(
+            # Flip image vertically (PIL top-to-bottom -> pyglet bottom-to-top)
+            flipped_img = img.transpose(FLIP_TOP_BOTTOM)
+            img_data = flipped_img.tobytes()
+            image_data = pyglet.image.ImageData(
                 img.width, img.height,
                 'RGBA', img_data,
                 pitch=img.width * 4
             )
+            # Get texture and set NEAREST filtering for pixel-perfect scaling
+            texture = image_data.get_texture()
+            if texture:
+                texture.min_filter = gl.GL_NEAREST
+                texture.mag_filter = gl.GL_NEAREST
+            return image_data
         
         # Return None if not found (caller should handle fallback)
         return None

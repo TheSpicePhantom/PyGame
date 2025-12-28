@@ -1,0 +1,11 @@
+{
+  "item_id": "core:bronze_axe",
+  "display_name": "Bronze Axe",
+  "description": "A bronze axe for efficient wood chopping. Can mine bronze, wood, and stone resources.",
+  "sprite": "bronze_axe",
+  "max_stack_size": 1,
+  "category": "tool",
+  "tags": ["tool", "axe", "mining"],
+  "tool_type": "axe",
+  "tool_tier": "bronze"
+}

@@ -186,6 +186,12 @@ class IngameStateHandler(StateHandler):
                 print("[ItemRegistry] Reloaded all item data (F5)")
             except Exception as e:
                 print(f"[ItemRegistry] Failed to reload: {e}")
+            try:
+                from world.tool_mapping_registry import ToolMappingRegistry
+                ToolMappingRegistry.reload()
+                print("[ToolMappingRegistry] Reloaded all tool mapping data (F5)")
+            except Exception as e:
+                print(f"[ToolMappingRegistry] Failed to reload: {e}")
         elif symbol == key.F8:
             self.game_app.ui_controller.debug_visualization_mode = (self.game_app.ui_controller.debug_visualization_mode + 1) % 3
             modes = ["OFF", "Chunk Boundaries", "Chunk Boundaries + Tile Grids"]

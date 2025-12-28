@@ -13,10 +13,10 @@
       "conditions": []
     },
     {
-      "item_id": "berry_seeds",
+      "item_id": "berry_seed",
       "weight": 30,
       "quantity": {
-        "min": 1,
+        "min": 0,
         "max": 2
       },
       "conditions": [
