@@ -947,6 +947,12 @@ class TerrainGenerator:
             # DecorationRegistry not available, skip decoration generation
             return
         
+        # Debug: Check if DecorationRegistry has biome extensions loaded
+        if not hasattr(self, '_deco_registry_checked'):
+            self._deco_registry_checked = True
+            biome_count = len(DecorationRegistry._biomes) if hasattr(DecorationRegistry, '_biomes') else 0
+            print(f"[TerrainGen] DecorationRegistry has {biome_count} biome extensions loaded")
+        
         # Calculate world offset for this chunk
         try:
             world_offset_x = chunk_x * chunk_size
@@ -1013,7 +1019,9 @@ class TerrainGenerator:
                     world_y = world_offset_y + tile_y
                     
                     # Get noise value for this position (use height noise for consistency)
-                    noise_value = self._get_noise_value(world_x, world_y)
+                    # _get_noise_value returns [-1, 1], normalize to [0, 1] for spawn_rules
+                    raw_noise = self._get_noise_value(world_x, world_y)
+                    noise_value = (raw_noise + 1.0) / 2.0  # Normalize from [-1, 1] to [0, 1]
                     
                     # Try each decoration config for this biome
                     for deco_config in deco_configs:
@@ -1063,9 +1071,14 @@ class TerrainGenerator:
                                                 if check_tile and check_tile.get('decoration', {}).get('decoration_id') == decoration_id:
                                                     nearby_count += 1
                                 
-                                # Spawn if near other decorations of same type
-                                if nearby_count == 0 and random.random() > 0.3:  # 30% chance to spawn isolated
-                                    continue
+                                # Clustering logic: prefer spawning near other decorations, but allow isolated spawns
+                                # If no nearby decorations, use a higher chance to spawn isolated (70% instead of 30%)
+                                # This allows initial clusters to form while still preferring clustering
+                                if nearby_count == 0:
+                                    isolated_spawn_chance = clustering.get('isolated_spawn_chance', 0.7)  # Default 70% chance
+                                    if random.random() > isolated_spawn_chance:
+                                        continue
+                                # If nearby decorations exist, always allow spawn (clustering preference)
                             
                             # Spawn decoration
                             decoration_data = {

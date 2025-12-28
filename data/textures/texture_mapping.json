@@ -2,7 +2,7 @@
   "texture_mappings": {
     "terrain:plains": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/core/tiles",
+      "base_path": "assets/tiles",
       "variance_system": {
         "mode": "organic_growth",
         "rotation_enabled": true,
@@ -64,55 +64,55 @@
     },
     "terrain:forest": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     },
     "terrain:rainforest": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     },
     "terrain:desert": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     },
     "terrain:beach": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     },
     "terrain:tundra": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     },
     "terrain:taiga": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     },
     "terrain:savanna": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     },
     "terrain:steppe": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     },
     "terrain:chaparral": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     },
     "terrain:mountains": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     },
     "terrain:snow": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     },
     "water:shallow": {
       "base_texture": "shallow",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     },
     "water:deep": {
       "base_texture": "deep",
-      "base_path": "assets/core/tiles"
+      "base_path": "assets/tiles"
     }
   }
 }

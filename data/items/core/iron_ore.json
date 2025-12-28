@@ -1,0 +1,10 @@
+{
+  "item_id": "iron_ore",
+  "display_name": "Iron Ore",
+  "description": "Raw iron ore from mining",
+  "sprite": "iron_ore.png",
+  "max_stack_size": 100,
+  "category": "resource",
+  "tags": ["smeltable"]
+}
+

@@ -199,6 +199,10 @@ class DebugRenderer:
         if debug_visualization_mode >= 1:
             self._draw_chunk_overlays(chunks_data)
             self._draw_chunk_labels(chunks_data)
+        
+        # Draw decoration bounding boxes (mode >= 1)
+        if debug_visualization_mode >= 1:
+            self._draw_decoration_bounding_boxes(chunks_data)
     
     def draw_performance_stats(self, current_state: GameState):
         """Draw performance statistics overlay"""
@@ -491,4 +495,113 @@ class DebugRenderer:
                         color=(255, 255, 255, 255)
                     )
                     label.draw()
+    
+    def _draw_decoration_bounding_boxes(self, chunks_data: list):
+        """Draw decoration bounding boxes as yellow lines for debugging"""
+        if not chunks_data or not self.world_controller.world:
+            return
+        
+        try:
+            from world.decoration_registry import DecorationRegistry
+            from world.decoration import Decoration
+        except ImportError:
+            return  # Decoration system not available
+        
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        tile_size_pixels = settings.TILE_SIZE
+        
+        # Collect all decoration bounding boxes
+        bbox_lines = []  # List of [x1, y1, x2, y2, r, g, b]
+        
+        for chunk_x, chunk_y, tiles in chunks_data:
+            if not tiles:
+                continue
+            
+            chunk_world_x = chunk_x * chunk_size_pixels
+            chunk_world_y = chunk_y * chunk_size_pixels
+            
+            for tile_y in range(len(tiles)):
+                if not tiles[tile_y]:
+                    continue
+                for tile_x in range(len(tiles[tile_y])):
+                    tile = tiles[tile_y][tile_x]
+                    if not tile:
+                        continue
+                    
+                    decoration_data = tile.get('decoration')
+                    if not decoration_data:
+                        continue
+                    
+                    decoration_id = decoration_data.get('decoration_id')
+                    if not decoration_id:
+                        continue
+                    
+                    deco_config = DecorationRegistry.get(decoration_id)
+                    if not deco_config:
+                        continue
+                    
+                    decoration = Decoration(deco_config)
+                    rendering_config = decoration.get_rendering_config()
+                    
+                    # Get custom bounding box if available, otherwise use rendering size
+                    bounding_box = rendering_config.get('bounding_box')
+                    if bounding_box:
+                        bbox_width, bbox_height = bounding_box[0], bounding_box[1]
+                    else:
+                        size = rendering_config.get('size', [tile_size_pixels, tile_size_pixels])
+                        bbox_width, bbox_height = size[0], size[1]
+                    
+                    offset = rendering_config.get('offset', [0, 0])
+                    
+                    # Calculate decoration bounding box in world coordinates
+                    tile_world_x = chunk_world_x + tile_x * tile_size_pixels
+                    tile_world_y = chunk_world_y + tile_y * tile_size_pixels
+                    tile_center_x = tile_world_x + tile_size_pixels / 2.0
+                    tile_center_y = tile_world_y + tile_size_pixels / 2.0
+                    
+                    # Bounding box position (centered on tile + offset)
+                    bbox_x = tile_center_x + offset[0] - bbox_width / 2.0
+                    bbox_y = tile_center_y + offset[1] - bbox_height / 2.0
+                    bbox_max_x = bbox_x + bbox_width
+                    bbox_max_y = bbox_y + bbox_height
+                    
+                    # Yellow lines for decoration bounding boxes (RGB: 1.0, 1.0, 0.0)
+                    bbox_lines.append([bbox_x, bbox_y, bbox_max_x, bbox_y, 1.0, 1.0, 0.0])  # Bottom
+                    bbox_lines.append([bbox_x, bbox_max_y, bbox_max_x, bbox_max_y, 1.0, 1.0, 0.0])  # Top
+                    bbox_lines.append([bbox_x, bbox_y, bbox_x, bbox_max_y, 1.0, 1.0, 0.0])  # Left
+                    bbox_lines.append([bbox_max_x, bbox_y, bbox_max_x, bbox_max_y, 1.0, 1.0, 0.0])  # Right
+        
+        if bbox_lines:
+            # Render bounding box lines using the same system as chunk boundaries
+            vertices = []
+            for x1, y1, x2, y2, r, g, b in bbox_lines:
+                # Convert RGB to color index
+                rgb_color = (int(r * 255), int(g * 255), int(b * 255))
+                color_index = float(self.modern_gl_renderer.tile_color_palette.get_color_index(rgb_color))
+                
+                # If color not in palette, add it
+                if color_index == 0 and rgb_color not in self.modern_gl_renderer.tile_color_palette.color_to_index:
+                    color_index = float(self.modern_gl_renderer.tile_color_palette.add_color(rgb_color))
+                    # Update palette uniform in shader
+                    self.modern_gl_renderer._update_palette_uniform()
+                
+                vertices.extend([
+                    [x1, y1, color_index],
+                    [x2, y2, color_index]
+                ])
+            
+            if vertices:
+                vertices_array = np.array(vertices, dtype=np.float32)
+                vbo = self.modern_gl_renderer.ctx.buffer(vertices_array.tobytes())
+                vao = self.modern_gl_renderer.ctx.vertex_array(
+                    self.modern_gl_renderer.chunk_program,
+                    [(vbo, "2f 1f", "in_position", "in_color_index")]
+                )
+                
+                # Render
+                vao.render(moderngl.LINES)
+                
+                # Cleanup
+                vao.release()
+                vbo.release()
 

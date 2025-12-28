@@ -200,6 +200,11 @@ class GameApp:
         handler = self.get_current_handler()
         handler.handle_mouse_scroll(x, y, scroll_x, scroll_y, modifiers)
     
+    def handle_mouse_release(self, x: int, y: int, button: int, modifiers: int):
+        """Handle mouse release events - delegates to current state handler"""
+        handler = self.get_current_handler()
+        handler.handle_mouse_release(x, y, button, modifiers)
+    
     def draw(self):
         """Draw everything based on current state - now handled by renderers in main_pyglet.py"""
         # Rendering is now handled by WorldRenderer, UIRenderer, and DebugRenderer

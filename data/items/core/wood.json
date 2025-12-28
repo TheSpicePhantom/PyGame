@@ -1,0 +1,10 @@
+{
+  "item_id": "wood",
+  "display_name": "Wood",
+  "description": "Basic building material from trees",
+  "sprite": "wood.png",
+  "max_stack_size": 64,
+  "category": "resource",
+  "tags": ["burnable", "craftable"]
+}
+

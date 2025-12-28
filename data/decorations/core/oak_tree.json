@@ -1,15 +1,16 @@
 {
   "decoration_id": "oak_tree",
   "display_name": "Oak Tree",
+  "mod_id": "core",
   "tags": ["mineable", "decorative"],
   "collision": {
     "enabled": true,
     "type": "circle",
-    "radius": 0.3
+    "radius": 0.4
   },
   "health": 100,
   "sprites": {
-    "default": "oak_tree",
+    "default": "oak_tree_1",
     "damaged_50": "oak_tree",
     "stump": "oak_tree"
   },
@@ -25,7 +26,7 @@
   },
   "placement": {
     "biomes": ["terrain:forest"],
-    "density": 0.3,
+    "density": 0.5,
     "noise_threshold": {
       "min": 0.6,
       "max": 1.0

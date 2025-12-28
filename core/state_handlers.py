@@ -36,6 +36,10 @@ class StateHandler(ABC):
     def handle_mouse_scroll(self, x: int, y: int, scroll_x: float, scroll_y: float, modifiers: int):
         """Handle mouse scroll events."""
         pass
+    
+    def handle_mouse_release(self, x: int, y: int, button: int, modifiers: int):
+        """Handle mouse release events. Default implementation does nothing."""
+        pass
 
 
 class WorldSelectStateHandler(StateHandler):
@@ -169,13 +173,19 @@ class IngameStateHandler(StateHandler):
             self.game_app.ui_controller.show_performance_stats = not self.game_app.ui_controller.show_performance_stats
             print(f"[Performance] Stats display: {'ON' if self.game_app.ui_controller.show_performance_stats else 'OFF'}")
         elif symbol == key.F5:
-            # Hot-reload decoration registry (dev mode)
+            # Hot-reload decoration registry and item registry (dev mode)
             try:
                 from world.decoration_registry import DecorationRegistry
                 DecorationRegistry.reload()
                 print("[DecorationRegistry] Reloaded all decoration data (F5)")
             except Exception as e:
                 print(f"[DecorationRegistry] Failed to reload: {e}")
+            try:
+                from world.item_registry import ItemRegistry
+                ItemRegistry.reload()
+                print("[ItemRegistry] Reloaded all item data (F5)")
+            except Exception as e:
+                print(f"[ItemRegistry] Failed to reload: {e}")
         elif symbol == key.F8:
             self.game_app.ui_controller.debug_visualization_mode = (self.game_app.ui_controller.debug_visualization_mode + 1) % 3
             modes = ["OFF", "Chunk Boundaries", "Chunk Boundaries + Tile Grids"]
@@ -198,6 +208,11 @@ class IngameStateHandler(StateHandler):
         # Delegate to UI controller for hotbar, then to world controller for zoom
         self.game_app.ui_controller.handle_mouse_scroll(x, y, scroll_x, scroll_y, modifiers, GameState.INGAME)
         self.game_app.world_controller.handle_mouse_scroll(x, y, scroll_x, scroll_y, modifiers)
+    
+    def handle_mouse_release(self, x: int, y: int, button: int, modifiers: int):
+        """Handle mouse release in ingame"""
+        # Delegate to world controller to stop mining
+        self.game_app.world_controller.handle_mouse_release(x, y, button, modifiers)
 
 
 class PausedStateHandler(StateHandler):

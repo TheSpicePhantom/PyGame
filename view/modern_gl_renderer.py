@@ -49,6 +49,34 @@ class ModernGLRenderer:
                 traceback.print_exc()
             self.tile_texture_manager = None
         
+        # Initialize decoration texture manager
+        try:
+            from view.decoration_texture_manager import DecorationTextureManager
+            self.decoration_texture_manager = DecorationTextureManager(ctx, diagnostics=self.diagnostics)
+            if self.diagnostics:
+                self.diagnostics.info("ModernGLRenderer", "Decoration texture manager initialized")
+        except Exception as e:
+            if self.diagnostics:
+                self.diagnostics.warning("ModernGLRenderer", f"Failed to initialize decoration texture manager: {e}")
+            else:
+                import traceback
+                traceback.print_exc()
+            self.decoration_texture_manager = None
+        
+        # Initialize item texture manager
+        try:
+            from view.item_texture_manager import ItemTextureManager
+            self.item_texture_manager = ItemTextureManager(ctx, diagnostics=self.diagnostics)
+            if self.diagnostics:
+                self.diagnostics.info("ModernGLRenderer", "Item texture manager initialized")
+        except Exception as e:
+            if self.diagnostics:
+                self.diagnostics.warning("ModernGLRenderer", f"Failed to initialize item texture manager: {e}")
+            else:
+                import traceback
+                traceback.print_exc()
+            self.item_texture_manager = None
+        
         # No projection matrix needed - vertices are converted to NDC directly
         # self._setup_projection(use_pyglet=use_pyglet)  # DISABLED: Simplified shader doesn't use matrices
         

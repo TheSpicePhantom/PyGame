@@ -169,11 +169,26 @@ class LifecycleManager:
             sprint_multiplier = getattr(self.world_controller.player, 'sprint_multiplier', 1.2)
             sneak_multiplier = getattr(self.world_controller.player, 'sneak_multiplier', 0.8)
             
+            # Get inventory from inventory menu if available (new slot-based format)
+            inventory = {}
+            inventory_size = None
+            if self.world_controller.game_app and self.world_controller.game_app.ui_controller:
+                if self.world_controller.game_app.ui_controller.inventory_menu:
+                    inventory_data = self.world_controller.game_app.ui_controller.inventory_menu.get_inventory_data()
+                    inventory = inventory_data  # Pass full dict with 'slots' and 'inventory_size'
+                    inventory_size = inventory_data.get('inventory_size', 45)
+            # Fallback to old player.inventory format if inventory menu not available
+            if not inventory or (isinstance(inventory, dict) and 'slots' not in inventory):
+                old_inventory = getattr(self.world_controller.player, 'inventory', {})
+                if old_inventory:
+                    inventory = old_inventory
+            
             # Save player data
             self.world_controller.player_data_manager.save_player(
                 position=(self.world_controller.player.rect.x, self.world_controller.player.rect.y),
-                inventory=getattr(self.world_controller.player, 'inventory', {}),
+                inventory=inventory,
                 faction_data=getattr(self.world_controller.player, 'faction', {'policies': [], 'allies': [], 'enemies': []}),
+                inventory_size=inventory_size,
                 sprint_multiplier=sprint_multiplier,
                 sneak_multiplier=sneak_multiplier
             )

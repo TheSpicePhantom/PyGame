@@ -86,6 +86,13 @@ class DecorationRegistry:
             print(f"[DecorationRegistry] Warning: Loot tables path does not exist: {path}")
             return
         
+        # Try to import ItemRegistry for validation
+        try:
+            from world.item_registry import ItemRegistry
+            item_registry_available = True
+        except ImportError:
+            item_registry_available = False
+        
         for file in os.listdir(path):
             if file.endswith('.json'):
                 filepath = os.path.join(path, file)
@@ -94,6 +101,14 @@ class DecorationRegistry:
                         data = json.load(f)
                         loot_table_id = data.get('loot_table_id')
                         if loot_table_id:
+                            # Validate item_ids in entries if ItemRegistry is available
+                            if item_registry_available:
+                                entries = data.get('entries', [])
+                                for entry in entries:
+                                    item_id = entry.get('item_id')
+                                    if item_id and not ItemRegistry.get(item_id):
+                                        print(f"  Warning: {filepath} references unknown item_id '{item_id}' in loot table '{loot_table_id}'")
+                            
                             cls._loot_tables[loot_table_id] = data
                         else:
                             print(f"  Warning: {filepath} missing 'loot_table_id' field")
@@ -138,6 +153,7 @@ class DecorationRegistry:
                         biome_id = data.get('biome_id')
                         if biome_id:
                             cls._biomes[biome_id] = data
+                            print(f"  Loaded biome extension: {biome_id} from {file}")
                         else:
                             print(f"  Warning: {filepath} missing 'biome_id' field")
                 except Exception as e:
@@ -155,6 +171,16 @@ class DecorationRegistry:
             Decoration config dict or None if not found
         """
         return cls._decorations.get(decoration_id)
+    
+    @classmethod
+    def get_all(cls) -> Dict[str, dict]:
+        """
+        Get all decoration configs.
+        
+        Returns:
+            Dictionary mapping decoration_id to config dict
+        """
+        return cls._decorations.copy()
     
     @classmethod
     def create(cls, decoration_id: str):

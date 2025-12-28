@@ -17,12 +17,12 @@ class TileTextureManager:
     """
     Verwaltet Texturen für Tiles basierend auf tile_id.
     
-    Lädt Texturen aus assets/core/tiles/ basierend auf tile_id:
-    - core:rainforest -> assets/core/tiles/rainforest.png
-    - terrain:plains -> assets/core/tiles/grass.png (oder plains.png falls vorhanden)
+    Lädt Texturen aus assets/tiles/ basierend auf tile_id:
+    - core:rainforest -> assets/tiles/rainforest.png
+    - terrain:plains -> assets/tiles/grass.png (oder plains.png falls vorhanden)
     """
     
-    def __init__(self, ctx: moderngl.Context, base_path: str = "assets/core/tiles", mapping_file: str = "data/textures/texture_mapping.json", diagnostics=None):
+    def __init__(self, ctx: moderngl.Context, base_path: str = "assets/tiles", mapping_file: str = "data/textures/texture_mapping.json", diagnostics=None):
         """
         Initialize Texture Manager with dynamic texture atlas and variant support
         
@@ -64,7 +64,10 @@ class TileTextureManager:
         # Generate colorized textures for all biomes
         self.add_colorized_biome_textures()
         
-        # Build texture atlas (includes original and colorized textures)
+        # Load decoration textures into atlas (if decoration system available)
+        self._load_decoration_textures()
+        
+        # Build texture atlas (includes original, colorized, and decoration textures)
         self._build_texture_atlas()
     
     def _log(self, level: str, message: str, **kwargs):
@@ -290,15 +293,12 @@ class TileTextureManager:
             base_path: Base path für Texturen
             target_color: [R, G, B] Zielfarbe für Colorization
         """
-        self._log("debug", f"_load_overlay_textures: Loading {len(overlay_names)} overlays for {biome_name}")
         for overlay_name in overlay_names:
-            self._log("debug", f"_load_overlay_textures: Processing overlay '{overlay_name}' for {biome_name}")
             # Lade Source-Textur
             texture_paths = [
                 base_path / f"{overlay_name}.png",
                 base_path / f"{overlay_name}",
                 Path("assets/tiles") / f"{overlay_name}.png",
-                Path("assets/core/tiles") / f"{overlay_name}.png",
             ]
             
             source_img = None
@@ -310,8 +310,6 @@ class TileTextureManager:
             if not source_img:
                 self._log("warning", f"Could not load source texture for overlay {overlay_name}, skipping colorization")
                 continue
-            
-            self._log("debug", f"_load_overlay_textures: Successfully loaded '{overlay_name}', colorizing...")
             
             # Unterscheide zwischen Basis und Overlay
             if overlay_name.endswith('_1') or overlay_name == 'plains_grass_1':
@@ -326,11 +324,9 @@ class TileTextureManager:
             
             # Füge zu texture_images hinzu
             self.texture_images[colorized_name] = colorized_img
-            self._log("debug", f"Colorized texture: {colorized_name} with color {target_color}")
             
             # Generiere 4 Rotations-Varianten
             self._generate_rotations(colorized_name, colorized_img)
-            self._log("debug", f"Generated rotations for {colorized_name}")
     
     def _multi_octave_noise(self, x: float, y: float, octaves: int = 3, seed_offset: int = 0) -> float:
         """
@@ -421,7 +417,9 @@ class TileTextureManager:
             radial_factor = math.exp(-distance / (cluster_size * 2.0))
             
             # Kombiniere: center_noise * radial_factor * cluster_density
-            # Erhöhter Multiplikator (10.0 statt 5.0) für bessere Sichtbarkeit
+            # Multiplikator so anpassen, dass der maximale Wert (bei center_noise=1.0, radial_factor=1.0) 
+            # mindestens 1.0 ist, damit Thresholds bis 0.75 erreicht werden können
+            # Bei cluster_density=0.05: 1.0 * 1.0 * 0.05 * 20.0 = 1.0
             cluster_value = center_noise * radial_factor * cluster_density * 10.0
             
         elif spread_bias == "directional":
@@ -447,7 +445,8 @@ class TileTextureManager:
             )
             
             # Cluster-Dichte anwenden
-            # Erhöhter Multiplikator (10.0 statt 5.0) für bessere Sichtbarkeit
+            # Multiplikator so anpassen, dass der maximale Wert (bei noise_value=1.0) 
+            # mindestens 1.0 ist, damit Thresholds bis 0.75 erreicht werden können
             cluster_value = noise_value * cluster_density * 10.0
             
         else:  # uniform
@@ -458,10 +457,129 @@ class TileTextureManager:
             noise_value = self.overlay_noise.noise2(noise_x, noise_y)
             normalized_noise = (noise_value + 1.0) / 2.0
             
-            # Erhöhter Multiplikator (10.0 statt 5.0) für bessere Sichtbarkeit
+            # Multiplikator so anpassen, dass der maximale Wert (bei normalized_noise=1.0) 
+            # mindestens 1.0 ist, damit Thresholds bis 0.75 erreicht werden können
             cluster_value = normalized_noise * cluster_density * 10.0
         
         return max(0.0, min(1.0, cluster_value))  # Clip auf [0, 1]
+    
+    def _load_decoration_textures(self):
+        """Load all decoration textures and add them to texture_images for atlas building."""
+        try:
+            from world.decoration_registry import DecorationRegistry
+        except ImportError:
+            self._log("debug", "DecorationRegistry not available, skipping decoration texture loading")
+            return
+        
+        # Get all decoration configs
+        decorations = DecorationRegistry.get_all()
+        if not decorations:
+            return
+        
+        decoration_base_path = Path("assets/decorations")
+        loaded_count = 0
+        
+        for decoration_id, deco_config in decorations.items():
+            mod_id = deco_config.get('mod_id', 'core')
+            sprites = deco_config.get('sprites', {})
+            
+            # Load all sprites from this decoration
+            for sprite_key, sprite_name in sprites.items():
+                if not sprite_name:
+                    continue
+                
+                # Try to load sprite image
+                sprite_paths = [
+                    decoration_base_path / mod_id / f"{sprite_name}.png",
+                    decoration_base_path / f"{sprite_name}.png",
+                    Path("assets/decorations") / mod_id / f"{sprite_name}.png",
+                    Path("assets/decorations") / f"{sprite_name}.png",
+                ]
+                
+                sprite_img = None
+                for path in sprite_paths:
+                    if path.exists():
+                        try:
+                            sprite_img = Image.open(path).convert("RGBA")
+                            # Don't resize - decorations can have custom sizes
+                            break
+                        except Exception as e:
+                            self._log("debug", f"Error loading decoration texture {path}: {e}")
+                            continue
+                
+                if sprite_img:
+                    # Store with decoration prefix: "decoration:{mod_id}/{sprite_name}"
+                    atlas_name = f"decoration:{mod_id}/{sprite_name}"
+                    self.texture_images[atlas_name] = sprite_img
+                    loaded_count += 1
+                    self._log("debug", f"Loaded decoration texture: {atlas_name} ({sprite_img.size[0]}x{sprite_img.size[1]})")
+            
+            # Load shadow sprite if enabled
+            rendering = deco_config.get('rendering', {})
+            shadow = rendering.get('shadow', {})
+            if shadow.get('enabled', False):
+                shadow_sprite = shadow.get('sprite')
+                if shadow_sprite:
+                    shadow_paths = [
+                        decoration_base_path / mod_id / f"{shadow_sprite}.png",
+                        decoration_base_path / f"{shadow_sprite}.png",
+                    ]
+                    
+                    shadow_img = None
+                    for path in shadow_paths:
+                        if path.exists():
+                            try:
+                                shadow_img = Image.open(path).convert("RGBA")
+                                # Don't resize - shadows can have custom sizes
+                                break
+                            except Exception as e:
+                                self._log("debug", f"Error loading shadow texture {path}: {e}")
+                                continue
+                    
+                    if shadow_img:
+                        atlas_name = f"decoration:{mod_id}/{shadow_sprite}"
+                        self.texture_images[atlas_name] = shadow_img
+                        loaded_count += 1
+        
+        if loaded_count > 0:
+            self._log("info", f"Loaded {loaded_count} decoration textures for atlas")
+    
+    def reload_decoration_textures_and_rebuild_atlas(self):
+        """
+        Reload decoration textures and rebuild atlas.
+        This should be called after DecorationRegistry is loaded.
+        """
+        # Load decoration textures
+        self._load_decoration_textures()
+        
+        # Release old atlas if it exists
+        if self.texture_atlas:
+            self.texture_atlas.release()
+            self.texture_atlas = None
+        
+        # Clear texture_coords and variant_coords to force rebuild
+        # (They will be rebuilt in _build_texture_atlas)
+        self.texture_coords.clear()
+        self.variant_coords.clear()
+        
+        # Rebuild atlas with decoration textures
+        self._build_texture_atlas()
+    
+    def get_decoration_texture_coords(self, sprite_name: str, mod_id: str = "core") -> Optional[tuple]:
+        """
+        Get UV coordinates for a decoration sprite in the texture atlas.
+        
+        Args:
+            sprite_name: Sprite name (e.g., "berry_bush_2")
+            mod_id: Mod identifier (default: "core")
+            
+        Returns:
+            (u0, v0, u1, v1) tuple or None if not found
+        """
+        atlas_name = f"decoration:{mod_id}/{sprite_name}"
+        if atlas_name in self.texture_coords:
+            return self.texture_coords[atlas_name]
+        return None
     
     def _get_rotated_texture_coords(self, base_name: str, world_x: int, world_y: int, rotation_enabled: bool = True) -> Optional[tuple]:
         """
@@ -476,24 +594,33 @@ class TileTextureManager:
         Returns:
             (u0, v0, u1, v1) tuple oder None
         """
-        if not rotation_enabled or world_x is None or world_y is None:
-            # Keine Rotation, suche nach Basis-Textur
-            if base_name in self.texture_coords:
-                return self.texture_coords[base_name]
-            return None
+        # First, try to find base texture (always check this first)
+        if base_name in self.texture_coords:
+            base_coords = self.texture_coords[base_name]
+        else:
+            base_coords = None
         
-        # Berechne Rotation: rotation = (world_x * 374761393 + world_y * 668265263) % 4
+        # If rotation is disabled or world coordinates are None, return base texture
+        if not rotation_enabled or world_x is None or world_y is None:
+            return base_coords
+        
+        # Calculate rotation: rotation = (world_x * 374761393 + world_y * 668265263) % 4
         rotation = (world_x * 374761393 + world_y * 668265263) % 4
         rotation_degrees = rotation * 90
         
-        # Suche nach rotierter Variante
+        # Try to find rotated variant
         rotation_key = f"{base_name}_r{rotation_degrees}"
         if rotation_key in self.texture_coords:
             return self.texture_coords[rotation_key]
         
-        # Fallback auf Original-Variante
+        # Fallback to base texture (0° rotation)
         if base_name in self.texture_coords:
             return self.texture_coords[base_name]
+        
+        # Final fallback: try r0 rotation key
+        r0_key = f"{base_name}_r0"
+        if r0_key in self.texture_coords:
+            return self.texture_coords[r0_key]
         
         return None
     
@@ -559,7 +686,7 @@ class TileTextureManager:
                 continue
             
             mapping = self.texture_mapping[biome_name]
-            base_path_str = mapping.get("base_path", "assets/core/tiles")
+            base_path_str = mapping.get("base_path", "assets/tiles")
             base_path_obj = Path(base_path_str)
             base_texture = mapping.get("base_texture", "")
             
@@ -571,7 +698,6 @@ class TileTextureManager:
                 base_path_obj / f"{base_texture}.png",
                 base_path_obj / f"{base_texture}",
                 Path("assets/tiles") / f"{base_texture}.png",
-                Path("assets/core/tiles") / f"{base_texture}.png",
             ]
             
             source_img = None
@@ -593,21 +719,16 @@ class TileTextureManager:
             
             # Extrahiere Overlay-Namen aus variance_system
             overlay_names = self._extract_overlay_names(mapping)
-            self._log("debug", f"Biome {biome_name}: Found {len(overlay_names)} overlay names: {overlay_names}")
             
             # Entferne base_texture aus overlay_names (wurde bereits verarbeitet)
             if base_texture in overlay_names:
                 overlay_names.remove(base_texture)
-                self._log("debug", f"Biome {biome_name}: Removed base_texture from overlay list, remaining: {overlay_names}")
             
             # Lade und colorisiere alle Overlays
             if overlay_names:
-                self._log("debug", f"Biome {biome_name}: Loading {len(overlay_names)} overlays...")
                 self._load_overlay_textures(biome_name, overlay_names, base_path_obj, target_color)
                 # Zähle: Jede Overlay-Textur + 4 Rotationen = 5 Texturen pro Overlay
                 colorized_count += len(overlay_names) * 5
-            else:
-                self._log("debug", f"Biome {biome_name}: No overlays to load!")
         
         self._log("info", f"Generated {colorized_count} colorized textures for biomes")
     
@@ -617,7 +738,7 @@ class TileTextureManager:
         
         # Load base textures from mapping file
         for tile_id, mapping in self.texture_mapping.items():
-            base_path_str = mapping.get("base_path", "assets/core/tiles")
+            base_path_str = mapping.get("base_path", "assets/tiles")
             base_path_obj = Path(base_path_str)
             base_texture = mapping.get("base_texture", "")
             
@@ -632,7 +753,6 @@ class TileTextureManager:
                 base_path_obj / f"{base_texture}.png",
                 base_path_obj / f"{base_texture}",
                 Path("assets/tiles") / f"{base_texture}.png",
-                Path("assets/core/tiles") / f"{base_texture}.png",
             ]
             
             img = None
@@ -685,49 +805,79 @@ class TileTextureManager:
                         self._generate_rotations(tile_name, img)
     
     def _build_texture_atlas(self):
-        """Build a dynamic texture atlas from all loaded textures (including colorized textures)"""
+        """Build a dynamic texture atlas from all loaded textures (including colorized textures and decorations)"""
         if not self.texture_images:
             self._log("warning", "No textures to build atlas from")
             return
         
-        # Include all textures: both original (without :) and colorized (with :)
-        all_textures = {}
+        # Separate tiles and decorations (decorations can have variable sizes)
+        tile_textures = {}  # Standard tile textures (16x16)
+        decoration_textures = {}  # Decoration textures (variable sizes)
+        
         for name, img in self.texture_images.items():
-            all_textures[name] = img
+            if name.startswith("decoration:"):
+                decoration_textures[name] = img
+            else:
+                tile_textures[name] = img
         
-        num_textures = len(all_textures)
-        if num_textures == 0:
-            self._log("warning", "No textures found for atlas")
-            return
-        
-        # Calculate grid dimensions (square grid, rounded up)
+        # Build atlas: first pack tiles, then decorations
         import math
-        grid_size = math.ceil(math.sqrt(num_textures))
-        atlas_width = grid_size * self.tile_size
-        atlas_height = grid_size * self.tile_size
+        
+        # Calculate tile section size
+        num_tiles = len(tile_textures)
+        if num_tiles > 0:
+            tile_grid_size = math.ceil(math.sqrt(num_tiles))
+            tile_section_width = tile_grid_size * self.tile_size
+            tile_section_height = tile_grid_size * self.tile_size
+        else:
+            tile_grid_size = 0
+            tile_section_width = 0
+            tile_section_height = 0
+        
+        # Calculate decoration section size (use max decoration size, default 64x64)
+        max_decoration_size = 64  # Maximum expected decoration size
+        num_decorations = len(decoration_textures)
+        if num_decorations > 0:
+            decoration_grid_size = math.ceil(math.sqrt(num_decorations))
+            decoration_section_width = decoration_grid_size * max_decoration_size
+            decoration_section_height = decoration_grid_size * max_decoration_size
+        else:
+            decoration_grid_size = 0
+            decoration_section_width = 0
+            decoration_section_height = 0
+        
+        # Calculate total atlas size
+        total_width = max(tile_section_width, decoration_section_width)
+        total_height = tile_section_height + decoration_section_height
         
         # Round up to nearest power of 2 for better GPU performance
         def next_power_of_2(n):
+            if n <= 0:
+                return 1
             return 2 ** math.ceil(math.log2(n))
         
-        atlas_width = next_power_of_2(atlas_width)
-        atlas_height = next_power_of_2(atlas_height)
+        atlas_width = next_power_of_2(total_width) if total_width > 0 else 256
+        atlas_height = next_power_of_2(total_height) if total_height > 0 else 256
         
         self.atlas_size = max(atlas_width, atlas_height)
         
         # Create atlas image
         atlas_img = Image.new("RGBA", (self.atlas_size, self.atlas_size), (0, 0, 0, 0))
         
-        # Pack textures into atlas and calculate UV coordinates
-        texture_list = list(all_textures.items())
+        # Pack tile textures (top section)
+        texture_list = list(tile_textures.items())
         for idx, (tile_name, img) in enumerate(texture_list):
             # Calculate grid position
-            grid_x = idx % grid_size
-            grid_y = idx // grid_size
+            grid_x = idx % tile_grid_size if tile_grid_size > 0 else 0
+            grid_y = idx // tile_grid_size if tile_grid_size > 0 else 0
             
             # Calculate pixel position in atlas
             atlas_x = grid_x * self.tile_size
             atlas_y = grid_y * self.tile_size
+            
+            # Resize if needed (shouldn't happen for tiles, but just in case)
+            if img.size != (self.tile_size, self.tile_size):
+                img = img.resize((self.tile_size, self.tile_size), Image.Resampling.NEAREST)
             
             # Paste texture into atlas
             atlas_img.paste(img, (atlas_x, atlas_y))
@@ -740,12 +890,57 @@ class TileTextureManager:
             u1 = (atlas_x + self.tile_size - offset) / self.atlas_size
             v1 = (atlas_y + self.tile_size - offset) / self.atlas_size
             
-            # Store UV coordinates for this texture (both original and colorized)
+            # Store UV coordinates for this texture
             self.texture_coords[tile_name] = (u0, v0, u1, v1)
+        
+        # Pack decoration textures (bottom section)
+        decoration_list = list(decoration_textures.items())
+        decoration_start_y = tile_section_height  # Start decorations after tiles
+        
+        for idx, (decoration_name, img) in enumerate(decoration_list):
+            # Calculate grid position
+            grid_x = idx % decoration_grid_size if decoration_grid_size > 0 else 0
+            grid_y = idx // decoration_grid_size if decoration_grid_size > 0 else 0
+            
+            # Calculate pixel position in atlas (in decoration section)
+            atlas_x = grid_x * max_decoration_size
+            atlas_y = decoration_start_y + grid_y * max_decoration_size
+            
+            # Resize decoration to fit in slot (center it if smaller)
+            img_width, img_height = img.size
+            if img_width > max_decoration_size or img_height > max_decoration_size:
+                # Scale down if too large
+                scale = min(max_decoration_size / img_width, max_decoration_size / img_height)
+                new_width = int(img_width * scale)
+                new_height = int(img_height * scale)
+                img = img.resize((new_width, new_height), Image.Resampling.NEAREST)
+                img_width, img_height = img.size
+            
+            # Center decoration in slot
+            offset_x = (max_decoration_size - img_width) // 2
+            offset_y = (max_decoration_size - img_height) // 2
+            
+            # Paste texture into atlas (centered in slot)
+            atlas_img.paste(img, (atlas_x + offset_x, atlas_y + offset_y), img if img.mode == 'RGBA' else None)
+            
+            # Calculate UV coordinates (normalized 0.0-1.0) for actual image bounds
+            # Note: V coordinates are NOT flipped here - they are flipped in world_renderer.py
+            # when creating the vertex data (similar to how tiles are handled)
+            offset = 0.5 / self.atlas_size
+            u0 = (atlas_x + offset_x + offset) / self.atlas_size
+            v0 = (atlas_y + offset_y + offset) / self.atlas_size
+            u1 = (atlas_x + offset_x + img_width - offset) / self.atlas_size
+            v1 = (atlas_y + offset_y + img_height - offset) / self.atlas_size
+            
+            # Store UV coordinates for this decoration (V will be flipped in renderer)
+            self.texture_coords[decoration_name] = (u0, v0, u1, v1)
         
         # Build variant mappings: extract from variance_system.growth_patterns
         for tile_id, mapping in self.texture_mapping.items():
             overlay_names = self._extract_overlay_names(mapping)
+            
+            if not overlay_names:
+                continue  # No variants for this biome
             
             variant_coords_list = []
             for overlay_name in overlay_names:
@@ -767,6 +962,8 @@ class TileTextureManager:
         # No mipmaps to avoid blurry transitions
         self.texture_atlas.filter = (moderngl.NEAREST, moderngl.NEAREST)
         
+        # Count total textures in atlas
+        num_textures = len(self.texture_coords)
         self._log("info", f"Built texture atlas: {self.atlas_size}x{self.atlas_size} with {num_textures} textures")
         self._log("info", f"Variant mappings: {len(self.variant_coords)} biomes with variants")
     
@@ -791,12 +988,36 @@ class TileTextureManager:
         variance_system = mapping.get("variance_system", {})
         rotation_enabled = variance_system.get("rotation_enabled", True)
         growth_patterns = variance_system.get("growth_patterns", [])
-        use_organic_growth = variance_system.get("mode") == "organic_growth" and len(growth_patterns) > 0
+        variance_mode = variance_system.get("mode", "")
+        use_organic_growth = variance_mode == "organic_growth" and len(growth_patterns) > 0
         
-        if not use_organic_growth or world_x is None or world_y is None:
-            # Fallback: base_texture mit Rotation
+        # Check if organic growth should be used
+        if not use_organic_growth:
+            # No organic growth configured, use base texture
             colorized_name = f"{tile_id}:{base_texture}"
-            return self._get_rotated_texture_coords(colorized_name, world_x, world_y, rotation_enabled)
+            coords = self._get_rotated_texture_coords(colorized_name, world_x, world_y, rotation_enabled)
+            if coords is None:
+                # Debug: Log missing texture
+                self._log("warning", f"Texture not found for {colorized_name} (tile_id={tile_id}, base_texture={base_texture})")
+                # Try fallback to non-colorized base texture
+                if base_texture in self.texture_coords:
+                    self._log("debug", f"Using fallback non-colorized texture: {base_texture}")
+                    return self._get_rotated_texture_coords(base_texture, world_x, world_y, rotation_enabled)
+            return coords
+        
+        # Organic growth requires world coordinates
+        if world_x is None or world_y is None:
+            # Fallback: base_texture mit Rotation (no world coords available)
+            colorized_name = f"{tile_id}:{base_texture}"
+            coords = self._get_rotated_texture_coords(colorized_name, world_x, world_y, rotation_enabled)
+            if coords is None:
+                # Debug: Log missing texture
+                self._log("warning", f"Texture not found for {colorized_name} (tile_id={tile_id}, base_texture={base_texture}, world_x={world_x}, world_y={world_y})")
+                # Try fallback to non-colorized base texture
+                if base_texture in self.texture_coords:
+                    self._log("debug", f"Using fallback non-colorized texture: {base_texture}")
+                    return self._get_rotated_texture_coords(base_texture, world_x, world_y, rotation_enabled)
+            return coords
         
         # Organic Growth System: Prüfe jedes Pattern
         # Sortiere Patterns nach noise_threshold absteigend, damit seltene Patterns zuerst geprüft werden
@@ -821,6 +1042,22 @@ class TileTextureManager:
                 coords = self._get_rotated_texture_coords(colorized_name, world_x, world_y, rotation_enabled)
                 if coords:
                     return coords
+                else:
+                    # Variant texture not found in atlas - try direct lookup without rotation
+                    if colorized_name in self.texture_coords:
+                        # Found base variant without rotation, use it
+                        return self.texture_coords[colorized_name]
+                    elif overlay_texture_name in self.texture_coords:
+                        # Found non-colorized variant, use it
+                        return self.texture_coords[overlay_texture_name]
+                    else:
+                        # Variant texture not found in atlas
+                        if not hasattr(self, '_variant_missing_counter'):
+                            self._variant_missing_counter = 0
+                        self._variant_missing_counter += 1
+                        
+                        if self._variant_missing_counter % 100 == 0:
+                            self._log("warning", f"Variant texture {colorized_name} not found in atlas for {tile_id} at ({world_x}, {world_y})")
         
         # Kein Pattern matched: Verwende base_texture mit Rotation
         colorized_name = f"{tile_id}:{base_texture}"
@@ -938,7 +1175,24 @@ class TileTextureManager:
     
     def has_texture(self, tile_id: str) -> bool:
         """Check if texture exists for tile_id"""
-        return self.get_texture_coords(tile_id) is not None
+        if tile_id not in self.texture_mapping:
+            return False
+        
+        mapping = self.texture_mapping[tile_id]
+        base_texture = mapping.get("base_texture", "")
+        if not base_texture:
+            return False
+        
+        # Check if colorized texture exists in atlas
+        colorized_name = f"{tile_id}:{base_texture}"
+        if colorized_name in self.texture_coords:
+            return True
+        
+        # Fallback: check if base texture exists
+        if base_texture in self.texture_coords:
+            return True
+        
+        return False
     
     def cleanup(self):
         """Release all textures"""

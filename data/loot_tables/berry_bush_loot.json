@@ -4,7 +4,7 @@
   "rolls": 1,
   "entries": [
     {
-      "item_id": "berries",
+      "item_id": "berry",
       "weight": 100,
       "quantity": {
         "min": 2,
@@ -13,7 +13,7 @@
       "conditions": []
     },
     {
-      "item_id": "seeds",
+      "item_id": "berry_seeds",
       "weight": 30,
       "quantity": {
         "min": 1,

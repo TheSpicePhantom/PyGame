@@ -1,6 +1,7 @@
 {
   "decoration_id": "berry_bush",
   "display_name": "Berry Bush",
+  "mod_id": "core",
   "tags": ["harvestable", "decorative"],
   "collision": {
     "enabled": false,
@@ -16,6 +17,7 @@
     "size": [32, 32],
     "offset": [0, 0],
     "layer": 10,
+    "bounding_box": [16, 16],
     "shadow": {
       "enabled": true,
       "sprite": "shadow_small",
@@ -38,7 +40,7 @@
   },
   "placement": {
     "biomes": ["terrain:forest", "terrain:plains"],
-    "density": 0.15,
+    "density": 0.5,
     "noise_threshold": {
       "min": 0.3,
       "max": 0.7

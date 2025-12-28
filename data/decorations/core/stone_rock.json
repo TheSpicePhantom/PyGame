@@ -1,6 +1,7 @@
 {
   "decoration_id": "stone_rock",
   "display_name": "Stone Rock",
+  "mod_id": "core",
   "tags": ["mineable", "resource"],
   "collision": {
     "enabled": true,

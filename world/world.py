@@ -17,7 +17,27 @@ class World:
         self.world_name = world_name
         self.diagnostics = diagnostics  # Store diagnostics service for logging
         
-        # Initialize chunk manager first (to check if world already exists)
+        # Load decoration registry FIRST (before chunk generation)
+        # This ensures biome extensions are available when chunks are generated
+        try:
+            DecorationRegistry.load_all()
+            if self.diagnostics:
+                self.diagnostics.info("World", "Decoration registry loaded successfully")
+        except Exception as e:
+            if self.diagnostics:
+                self.diagnostics.warning("World", f"Failed to load decoration registry: {e}")
+        
+        # Load item registry
+        try:
+            from world.item_registry import ItemRegistry
+            ItemRegistry.load_all()
+            if self.diagnostics:
+                self.diagnostics.info("World", "Item registry loaded successfully")
+        except Exception as e:
+            if self.diagnostics:
+                self.diagnostics.warning("World", f"Failed to load item registry: {e}")
+        
+        # Initialize chunk manager (to check if world already exists)
         # We'll create a temporary terrain generator, then update it with the correct seed
         temp_terrain_gen = TerrainGenerator(seed=None)  # Temporary, will be replaced
         self.chunk_manager = ChunkManager(world_name, temp_terrain_gen, performance_monitor=performance_monitor, diagnostics=diagnostics)
@@ -34,15 +54,6 @@ class World:
         
         # Update chunk manager to use the correct terrain generator
         self.chunk_manager.terrain_gen = self.terrain_gen
-        
-        # Load decoration registry
-        try:
-            DecorationRegistry.load_all()
-            if self.diagnostics:
-                self.diagnostics.info("World", "Decoration registry loaded successfully")
-        except Exception as e:
-            if self.diagnostics:
-                self.diagnostics.warning("World", f"Failed to load decoration registry: {e}")
         
         if self.diagnostics:
             self.diagnostics.info("World", f"Terrain generator initialized with seed: {self.terrain_gen.seed}")

@@ -781,17 +781,7 @@ class ChunkManager:
                 if time_since_load >= self.chunk_unload_cooldown:
                     chunks_to_unload.append(chunk_key)
                     
-                    # Debug: Log ALL chunks being unloaded (for debugging)
-                    if self.diagnostics:
-                        camera_chunk_x = int((camera_x / (settings.CHUNK_SIZE * settings.TILE_SIZE)))
-                        camera_chunk_y = int((camera_y / (settings.CHUNK_SIZE * settings.TILE_SIZE)))
-                        distance_from_camera = ((chunk_x - camera_chunk_x)**2 + (chunk_y - camera_chunk_y)**2)**0.5
-                        self.diagnostics.warning("ChunkManager", 
-                            f"UNLOADING chunk ({chunk_x}, {chunk_y}) - "
-                            f"distance from camera: {distance_from_camera:.1f} chunks, "
-                            f"camera_chunk: ({camera_chunk_x}, {camera_chunk_y}), "
-                            f"visible_range: X=[{min_chunk_x}..{max_chunk_x}], Y=[{min_chunk_y}..{max_chunk_y}], "
-                            f"is_inside: {is_inside_visible_range}")
+                    # Chunk will be unloaded (no debug output needed)
         
         # Unload chunks (limit to avoid frame drops)
         for chunk_key in chunks_to_unload[:max_unloads_per_call]:

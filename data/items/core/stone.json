@@ -1,0 +1,10 @@
+{
+  "item_id": "stone",
+  "display_name": "Stone",
+  "description": "Common stone from mining",
+  "sprite": "stone.png",
+  "max_stack_size": 64,
+  "category": "resource",
+  "tags": ["craftable"]
+}
+

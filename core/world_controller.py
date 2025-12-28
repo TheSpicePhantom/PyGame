@@ -20,7 +20,7 @@ class WorldController:
     """Verwaltet World, Player und Camera"""
     
     def __init__(self, input_handler: InputHandler, performance_monitor: PerformanceMonitor,
-                 modern_gl_renderer, width: int, height: int, diagnostics=None):
+                 modern_gl_renderer, width: int, height: int, diagnostics=None, game_app=None):
         """
         Args:
             input_handler: InputHandler instance
@@ -35,6 +35,10 @@ class WorldController:
         self.width = width
         self.height = height
         self.diagnostics = diagnostics  # Store diagnostics service for logging
+        self.game_app = game_app  # Store reference to game_app for accessing UI controller
+        
+        # Debug output control
+        self.enable_debug_output = True  # Set to True to enable debug logging
         
         # Game components
         self.world: Optional[World] = None
@@ -52,6 +56,10 @@ class WorldController:
         # Mouse position tracking
         self.mouse_x = 0
         self.mouse_y = 0
+        
+        # Mining state (for continuous mining on decoration)
+        self._mining_decoration = None  # (tile_x, tile_y) of decoration being mined
+        self._mining_start_time = 0.0  # Time when mining started
         
         # Game state
         self.game_initialized = False
@@ -89,6 +97,16 @@ class WorldController:
             diagnostics=self.diagnostics
         )
         
+        # Reload decoration textures and rebuild atlas (DecorationRegistry is now loaded)
+        if self.modern_gl_renderer and self.modern_gl_renderer.tile_texture_manager:
+            try:
+                self.modern_gl_renderer.tile_texture_manager.reload_decoration_textures_and_rebuild_atlas()
+                if self.diagnostics:
+                    self.diagnostics.info("WorldController", "Reloaded decoration textures and rebuilt atlas")
+            except Exception as e:
+                if self.diagnostics:
+                    self.diagnostics.warning("WorldController", f"Failed to reload decoration textures: {e}")
+        
         # Set world name in metadata (use original name, not sanitized)
         self.world.chunk_manager.set_world_name(world_name)
         
@@ -100,7 +118,7 @@ class WorldController:
         
         if not player_data:
             # No save exists - create initial save at world center
-            if self.diagnostics:
+            if self.diagnostics and self.enable_debug_output:
                 self.diagnostics.info("WorldController", f"No existing player data found for world '{world_name}', creating initial save...")
             world_size_pixels = settings.WORLD_SIZE_CHUNKS * settings.CHUNK_SIZE * settings.TILE_SIZE
             initial_x = world_size_pixels / 2.0
@@ -130,7 +148,7 @@ class WorldController:
         
         # Update spawn position if it was changed
         if (start_world_x, start_world_y) != spawn_pos:
-            if self.diagnostics:
+            if self.diagnostics and self.enable_debug_output:
                 self.diagnostics.info("WorldController", f"Spawn position adjusted from {spawn_pos} to ({start_world_x:.0f}, {start_world_y:.0f}) - original was not traversable")
             # Update saved position to traversable position
             inventory_size = player_data.get('inventory_size', None)
@@ -148,7 +166,7 @@ class WorldController:
         player_inventory = player_data.get('inventory', {})
         player_faction = player_data.get('faction', {'policies': [], 'allies': [], 'enemies': []})
         
-        if self.diagnostics:
+        if self.diagnostics and self.enable_debug_output:
             self.diagnostics.info("WorldController", f"Loaded player data from world '{world_name}'")
             self.diagnostics.info("WorldController", f"Player spawn position: ({start_world_x:.0f}, {start_world_y:.0f})")
         
@@ -201,7 +219,7 @@ class WorldController:
         # Mark game as initialized
         self.game_initialized = True
         
-        if self.diagnostics:
+        if self.diagnostics and self.enable_debug_output:
             self.diagnostics.info("WorldController", f"Game initialized - Player spawned at ({start_world_x:.0f}, {start_world_y:.0f})")
         
         # Pre-load visible chunks around spawn position
@@ -239,12 +257,12 @@ class WorldController:
                             # Found traversable tile - return center position
                             found_x = check_tile_x * settings.TILE_SIZE + settings.TILE_SIZE / 2.0
                             found_y = check_tile_y * settings.TILE_SIZE + settings.TILE_SIZE / 2.0
-                            if self.diagnostics:
+                            if self.diagnostics and self.enable_debug_output:
                                 self.diagnostics.info("WorldController", f"Found traversable spawn position at ({found_x:.0f}, {found_y:.0f})")
                             return (found_x, found_y)
         
         # If no traversable tile found, return original position
-        if self.diagnostics:
+        if self.diagnostics and self.enable_debug_output:
             self.diagnostics.warning("WorldController", f"Could not find traversable spawn position, using original ({start_x:.0f}, {start_y:.0f})")
         return (start_x, start_y)
     
@@ -279,6 +297,16 @@ class WorldController:
                 movement_dir=movement_dir
             )
         
+        # Handle continuous mining if mouse is held down on decoration
+        if self._mining_decoration:
+            tile_x, tile_y = self._mining_decoration
+            # Continue mining
+            mining_completed = self.mine_decoration(tile_x, tile_y, dt)
+            if mining_completed:
+                # Mining finished, stop mining
+                self._mining_decoration = None
+                self._mining_start_time = 0.0
+        
         # Process chunks that finished loading asynchronously
         if self.world and self.world.chunk_manager:
             self.world.chunk_manager.process_loaded_chunks(
@@ -299,20 +327,33 @@ class WorldController:
                 # Also save player data when auto-save triggers
                 if self._auto_save_player_data_manager and self._auto_save_player:
                     try:
+                        # Get inventory from inventory menu if available (new slot-based format)
+                        inventory = {}
+                        inventory_size = None
+                        if self.game_app and self.game_app.ui_controller:
+                            if self.game_app.ui_controller.inventory_menu:
+                                inventory_data = self.game_app.ui_controller.inventory_menu.get_inventory_data()
+                                inventory = inventory_data  # Pass full dict with 'slots' and 'inventory_size'
+                                inventory_size = inventory_data.get('inventory_size', 45)
+                        # Fallback to old player.inventory format if inventory menu not available
+                        if not inventory or (isinstance(inventory, dict) and 'slots' not in inventory):
+                            old_inventory = getattr(self._auto_save_player, 'inventory', {})
+                            if old_inventory:
+                                inventory = old_inventory
                         sprint_multiplier = getattr(self._auto_save_player, 'sprint_multiplier', 1.2)
                         sneak_multiplier = getattr(self._auto_save_player, 'sneak_multiplier', 0.8)
                         self._auto_save_player_data_manager.save_player(
                             position=(self._auto_save_player.rect.x, self._auto_save_player.rect.y),
-                            inventory=getattr(self._auto_save_player, 'inventory', {}),
+                            inventory=inventory,
                             faction_data=getattr(self._auto_save_player, 'faction', {'policies': [], 'allies': [], 'enemies': []}),
-                            inventory_size=None,
+                            inventory_size=inventory_size,
                             sprint_multiplier=sprint_multiplier,
                             sneak_multiplier=sneak_multiplier
                         )
-                        if self.diagnostics:
+                        if self.diagnostics and self.enable_debug_output:
                             self.diagnostics.info("WorldController", "Player data saved during auto-save")
                     except Exception as e:
-                        if self.diagnostics:
+                        if self.diagnostics and self.enable_debug_output:
                             self.diagnostics.error("WorldController", f"Error saving player data during auto-save: {e}")
         
         self.performance_monitor.end_update()
@@ -594,7 +635,7 @@ class WorldController:
             ]
             if chunks_with_vbos:
                 self.modern_gl_renderer.release_chunk_buffers(chunks_with_vbos)
-                if self.modern_gl_renderer.diagnostics:
+                if self.modern_gl_renderer.diagnostics and self.enable_debug_output:
                     self.modern_gl_renderer.diagnostics.debug("WorldController", 
                         f"Released {len(chunks_with_vbos)} VBOs for chunks outside unload range "
                         f"(unload_range: {unload_min_chunk_x}-{unload_max_chunk_x}, "
@@ -612,7 +653,7 @@ class WorldController:
             self._unload_debug_counter = 0
         self._unload_debug_counter += 1
         
-        if self._unload_debug_counter % 60 == 0 and self.modern_gl_renderer and self.modern_gl_renderer.diagnostics:
+        if self._unload_debug_counter % 60 == 0 and self.modern_gl_renderer and self.modern_gl_renderer.diagnostics and self.enable_debug_output:
             # Verify that camera chunk is within load range
             camera_in_load_range = (min_chunk_x <= camera_chunk_x < max_chunk_x and 
                                    min_chunk_y <= camera_chunk_y < max_chunk_y)
@@ -653,7 +694,7 @@ class WorldController:
                     chunks_to_unload.append(chunk_key)
                     
                     # Debug: Log ALL chunks being unloaded (for debugging)
-                    if self.modern_gl_renderer and self.modern_gl_renderer.diagnostics:
+                    if self.modern_gl_renderer and self.modern_gl_renderer.diagnostics and self.enable_debug_output:
                         distance_from_camera = ((chunk_x - camera_chunk_x)**2 + (chunk_y - camera_chunk_y)**2)**0.5
                         self.modern_gl_renderer.diagnostics.warning("WorldController", 
                             f"UNLOADING chunk ({chunk_x}, {chunk_y}) - "
@@ -663,7 +704,7 @@ class WorldController:
                             f"is_inside: {is_inside_unload_range}")
         
         # Unload chunks (limit to avoid frame drops - reduced from 10 to 3 per frame)
-        if chunks_to_unload and self.modern_gl_renderer and self.modern_gl_renderer.diagnostics:
+        if chunks_to_unload and self.modern_gl_renderer and self.modern_gl_renderer.diagnostics and self.enable_debug_output:
             # Log which chunks are being unloaded (only occasionally)
             if self._unload_debug_counter % 60 == 0:
                 chunks_to_unload_sorted = sorted(chunks_to_unload, 
@@ -883,12 +924,61 @@ class WorldController:
         if not self.game_initialized or not self.player or not self.world:
             return
         
+        import time
         self._handle_tile_click(x, y, button)
+        
+        # If left-click on decoration, start mining
+        if button == 1:  # Left click
+            tile_info = self._get_tile_under_mouse(x, y)
+            if tile_info and len(tile_info) == 4:
+                tile_x, tile_y, tile_data, clicked_decoration = tile_info
+                if clicked_decoration:
+                    decoration_data = tile_data.get('decoration')
+                    if decoration_data:
+                        try:
+                            from world.decoration_registry import DecorationRegistry
+                            from world.decoration import Decoration
+                            
+                            decoration_id = decoration_data.get('decoration_id')
+                            if decoration_id:
+                                deco_config = DecorationRegistry.get(decoration_id)
+                                if deco_config:
+                                    decoration = Decoration(deco_config)
+                                    if decoration.is_mineable():
+                                        # Start mining
+                                        self._mining_decoration = (tile_x, tile_y)
+                                        self._mining_start_time = time.time()
+                        except ImportError:
+                            pass
+    
+    def handle_mouse_release(self, x: int, y: int, button: int, modifiers: int):
+        """Handle mouse release - stop mining if left button released"""
+        if button == 1:  # Left click released
+            self._mining_decoration = None
+            self._mining_start_time = 0.0
     
     def handle_mouse_motion(self, x: int, y: int, dx: int, dy: int):
         """Handle mouse motion"""
         self.mouse_x = x
         self.mouse_y = y
+        
+        # If mining, check if mouse is still over the same decoration
+        if self._mining_decoration:
+            tile_x, tile_y = self._mining_decoration
+            tile_info = self._get_tile_under_mouse(x, y)
+            
+            # Stop mining if:
+            # 1. No tile under mouse
+            # 2. Different tile
+            # 3. Not on decoration anymore
+            if not tile_info or len(tile_info) < 4:
+                self._mining_decoration = None
+                self._mining_start_time = 0.0
+            else:
+                current_tile_x, current_tile_y, tile_data, clicked_decoration = tile_info
+                if current_tile_x != tile_x or current_tile_y != tile_y or not clicked_decoration:
+                    self._mining_decoration = None
+                    self._mining_start_time = 0.0
     
     def handle_mouse_scroll(self, x: int, y: int, scroll_x: float, scroll_y: float, modifiers: int):
         """Handle mouse scroll for camera zoom"""
@@ -924,34 +1014,49 @@ class WorldController:
         if not tile_info:
             return
         
-        tile_x, tile_y, tile_data = tile_info
+        # Unpack tile info (now includes clicked_decoration flag)
+        if len(tile_info) == 4:
+            tile_x, tile_y, tile_data, clicked_decoration = tile_info
+        else:
+            # Backward compatibility
+            tile_x, tile_y, tile_data = tile_info[:3]
+            clicked_decoration = False
+        
         biome = tile_data.get('biome', 'unknown')
         tile_id = tile_data.get('tileid', '') or tile_data.get('tile_id', 'unknown')
         
-        # Check for decoration interactions
+        # Check for decoration interactions (only if mouse is on decoration bounding box)
         decoration_data = tile_data.get('decoration')
-        if decoration_data:
+        if decoration_data and clicked_decoration:
             if button == 4:  # Right click - Harvest
-                self.harvest_decoration(tile_x, tile_y)
+                if self.diagnostics and self.enable_debug_output:
+                    self.diagnostics.info("WorldController", f"Attempting to harvest decoration at ({tile_x}, {tile_y})")
+                success = self.harvest_decoration(tile_x, tile_y)
+                if success:
+                    if self.diagnostics and self.enable_debug_output:
+                        self.diagnostics.info("WorldController", f"Successfully harvested decoration at ({tile_x}, {tile_y})")
+                else:
+                    if self.diagnostics and self.enable_debug_output:
+                        self.diagnostics.warning("WorldController", f"Failed to harvest decoration at ({tile_x}, {tile_y})")
                 return
-            elif button == 1:  # Left click - Start mining (hold for progress)
-                # Mining is handled via continuous mouse press, not single click
-                # This is a placeholder - actual mining happens in handle_mouse_press with hold detection
-                pass
+            elif button == 1:  # Left click - Start mining (handled in handle_mouse_press for continuous mining)
+                # Mining is started in handle_mouse_press and continues in update() while mouse is held
+                # Just return here to prevent tile interaction
+                return
         
-        # Fallback to debug output for non-decoration tiles
+        # Fallback to tile interactions (mouse is on tile, not decoration)
         if button == 1:  # Left click
             traversable = tile_data.get('traversable', False)
             if traversable:
                 destroyable = self._is_tile_destroyable(tile_data)
-                if self.diagnostics:
+                if self.diagnostics and self.enable_debug_output:
                     self.diagnostics.info("WorldController", f"Left click on tile ({tile_x}, {tile_y}): destroyable={destroyable} (Biome: {biome}, Tile-ID: {tile_id})")
             else:
-                if self.diagnostics:
+                if self.diagnostics and self.enable_debug_output:
                     self.diagnostics.info("WorldController", f"Left click on tile ({tile_x}, {tile_y}): nicht zerstörbar (nicht traversable, Biome: {biome}, Tile-ID: {tile_id})")
         elif button == 4:  # Right click
             can_build = self._can_build_on_tile(tile_data)
-            if self.diagnostics:
+            if self.diagnostics and self.enable_debug_output:
                 if can_build:
                     self.diagnostics.info("WorldController", f"Right click on tile ({tile_x}, {tile_y}): can_build={can_build} (Biome: {biome}, Tile-ID: {tile_id})")
                 else:
@@ -992,8 +1097,13 @@ class WorldController:
         
         chunk = self.world.chunk_manager.loaded_chunks[chunk_key]
         
-        # Get decoration at this tile position
-        decoration_data = chunk.get_decoration_at(tile_x_in_chunk, tile_y_in_chunk)
+        # Get tile directly to ensure we're working with the actual tile data
+        tile = chunk.tiles[tile_y_in_chunk][tile_x_in_chunk]
+        if not tile:
+            return False
+        
+        # Get decoration from tile directly
+        decoration_data = tile.get('decoration')
         if not decoration_data:
             return False
         
@@ -1012,19 +1122,43 @@ class WorldController:
         if not decoration.is_harvestable():
             return False
         
-        # Get decoration data
-        deco_data = decoration_data.get('data', {})
+        # Get decoration data - ensure 'data' key exists
+        if 'data' not in decoration_data:
+            decoration_data['data'] = {}
+        deco_data = decoration_data['data']
         
         # Check if has fruit (for harvestable items)
-        if not deco_data.get('has_fruit', True):
+        has_fruit = deco_data.get('has_fruit', True)
+        if self.diagnostics and self.enable_debug_output:
+            self.diagnostics.debug("WorldController", f"Decoration {decoration_id} at ({tile_x}, {tile_y}) has_fruit={has_fruit}")
+        if not has_fruit:
+            if self.diagnostics and self.enable_debug_output:
+                self.diagnostics.info("WorldController", f"Decoration {decoration_id} at ({tile_x}, {tile_y}) already harvested, not regrown yet")
             return False  # Already harvested, not regrown yet
         
         # Roll loot table
         loot = decoration.get_loot()
         
-        # Add items to player inventory
-        for item_id, quantity in loot.items():
-            self.player.add_item(item_id, quantity)
+        if self.diagnostics and self.enable_debug_output:
+            self.diagnostics.info("WorldController", f"Harvest loot: {loot}")
+        
+        # Add items to inventory menu (if available) or fallback to player.add_item
+        if self.game_app and self.game_app.ui_controller and self.game_app.ui_controller.inventory_menu:
+            for item_id, quantity in loot.items():
+                if self.diagnostics and self.enable_debug_output:
+                    self.diagnostics.info("WorldController", f"Adding {quantity} of {item_id} to inventory")
+                remaining = self.game_app.ui_controller.inventory_menu.add_item(item_id, quantity)
+                if remaining > 0:
+                    if self.diagnostics:
+                        self.diagnostics.warning("WorldController", f"Inventory full: {remaining} items of {item_id} could not be added")
+                elif self.diagnostics and self.enable_debug_output:
+                    self.diagnostics.info("WorldController", f"Successfully added {quantity} of {item_id} to inventory")
+        else:
+            # Fallback to old player.add_item method
+            if self.diagnostics:
+                self.diagnostics.warning("WorldController", f"InventoryMenu not available, using fallback player.add_item. game_app={self.game_app is not None}")
+            for item_id, quantity in loot.items():
+                self.player.add_item(item_id, quantity)
         
         # Set regrowth timer
         harvest_config = deco_config.get('harvest', {})
@@ -1035,18 +1169,22 @@ class WorldController:
             regrowth_config.get('max_time', 180.0)
         )
         
+        # Update decoration data in tile (directly modify the tile's decoration data)
         deco_data['growth_timer'] = regrowth_time
+        deco_data['initial_growth_time'] = regrowth_time  # Store initial time for progress calculation
         deco_data['has_fruit'] = False
         deco_data['last_interaction'] = 0.0  # Will be updated in update_tile_decorations
         
-        # Update sprite (will be handled in rendering)
-        decoration.update_sprite('without_fruit')
+        # Ensure the updated decoration_data is stored in the tile
+        tile['decoration'] = decoration_data
+        
+        # Update decoration lookup
+        chunk._rebuild_decoration_lookup()
         
         # Trigger event
-        tile = chunk.tiles[tile_y_in_chunk][tile_x_in_chunk]
         decoration.on_harvest(self.player, tile)
         
-        if self.diagnostics:
+        if self.diagnostics and self.enable_debug_output:
             self.diagnostics.info("WorldController", f"Harvested {decoration_id} at ({tile_x}, {tile_y}), got {loot}")
         
         return True
@@ -1134,9 +1272,26 @@ class WorldController:
             # Roll loot table
             loot = decoration.get_loot()
             
-            # Add items to player inventory
-            for item_id, quantity in loot.items():
-                self.player.add_item(item_id, quantity)
+            if self.diagnostics and self.enable_debug_output:
+                self.diagnostics.info("WorldController", f"Mine loot: {loot}")
+            
+            # Add items to inventory menu (if available) or fallback to player.add_item
+            if self.game_app and self.game_app.ui_controller and self.game_app.ui_controller.inventory_menu:
+                for item_id, quantity in loot.items():
+                    if self.diagnostics and self.enable_debug_output:
+                        self.diagnostics.info("WorldController", f"Adding {quantity} of {item_id} to inventory")
+                    remaining = self.game_app.ui_controller.inventory_menu.add_item(item_id, quantity)
+                    if remaining > 0:
+                        if self.diagnostics:
+                            self.diagnostics.warning("WorldController", f"Inventory full: {remaining} items of {item_id} could not be added")
+                    elif self.diagnostics and self.enable_debug_output:
+                        self.diagnostics.info("WorldController", f"Successfully added {quantity} of {item_id} to inventory")
+            else:
+                # Fallback to old player.add_item method
+                if self.diagnostics:
+                    self.diagnostics.warning("WorldController", f"InventoryMenu not available, using fallback player.add_item. game_app={self.game_app is not None}")
+                for item_id, quantity in loot.items():
+                    self.player.add_item(item_id, quantity)
             
             # Remove decoration
             tile = chunk.tiles[tile_y_in_chunk][tile_x_in_chunk]
@@ -1147,7 +1302,7 @@ class WorldController:
             # Trigger event
             decoration.on_mine_complete(self.player, tile)
             
-            if self.diagnostics:
+            if self.diagnostics and self.enable_debug_output:
                 self.diagnostics.info("WorldController", f"Mined {decoration_id} at ({tile_x}, {tile_y}), got {loot}")
             
             return True
@@ -1304,7 +1459,14 @@ class WorldController:
         return decoration.check_collision(x, y, tile_x, tile_y)
     
     def _get_tile_under_mouse(self, mouse_x: int, mouse_y: int):
-        """Get tile under mouse cursor if within 8 tiles of player"""
+        """
+        Get tile under mouse cursor if within 8 tiles of player.
+        Returns tuple with flag indicating if decoration was clicked.
+        
+        Returns:
+            Tuple of (tile_x, tile_y, tile_data, clicked_decoration) or None
+            clicked_decoration: True if mouse is on decoration bounding box, False if on tile
+        """
         if not self.camera:
             return None
         
@@ -1328,11 +1490,105 @@ class WorldController:
         tile_x = int(world_x // settings.TILE_SIZE)
         tile_y = int(world_y // settings.TILE_SIZE)
         
-        if self.world and self.world.terrain_gen:
-            tile_data = self.world.terrain_gen.generate_tile(tile_x, tile_y)
-            return (tile_x, tile_y, tile_data)
+        if not self.world or not self.world.terrain_gen:
+            return None
         
-        return None
+        tile_data = self.world.terrain_gen.generate_tile(tile_x, tile_y)
+        
+        # Load decoration data from chunk if available (generate_tile doesn't include decorations)
+        if self.world and self.world.chunk_manager:
+            chunk_x = tile_x // settings.CHUNK_SIZE
+            chunk_y = tile_y // settings.CHUNK_SIZE
+            chunk_key = (chunk_x, chunk_y)
+            
+            if chunk_key in self.world.chunk_manager.loaded_chunks:
+                chunk = self.world.chunk_manager.loaded_chunks[chunk_key]
+                tile_x_in_chunk = tile_x % settings.CHUNK_SIZE
+                tile_y_in_chunk = tile_y % settings.CHUNK_SIZE
+                
+                # Get actual tile from chunk (includes decoration data)
+                if (tile_y_in_chunk < len(chunk.tiles) and 
+                    tile_x_in_chunk < len(chunk.tiles[tile_y_in_chunk])):
+                    chunk_tile = chunk.tiles[tile_y_in_chunk][tile_x_in_chunk]
+                    if chunk_tile:
+                        # Merge decoration data from chunk into tile_data
+                        if 'decoration' in chunk_tile:
+                            tile_data['decoration'] = chunk_tile['decoration']
+        
+        # Check if mouse is on decoration bounding box
+        clicked_decoration = self._is_point_on_decoration(world_x, world_y, tile_x, tile_y, tile_data)
+        
+        # Debug logging
+        if self.diagnostics and self.enable_debug_output and tile_data.get('decoration'):
+            decoration_id = tile_data.get('decoration', {}).get('decoration_id', 'unknown')
+            self.diagnostics.debug("WorldController", 
+                f"Mouse at ({mouse_x}, {mouse_y}) -> world ({world_x:.1f}, {world_y:.1f}) -> tile ({tile_x}, {tile_y}), "
+                f"decoration={decoration_id}, clicked_decoration={clicked_decoration}")
+        
+        return (tile_x, tile_y, tile_data, clicked_decoration)
+    
+    def _is_point_on_decoration(self, world_x: float, world_y: float, tile_x: int, tile_y: int, tile_data: dict) -> bool:
+        """
+        Check if a world point is within a decoration's bounding box.
+        
+        Args:
+            world_x: World X coordinate
+            world_y: World Y coordinate
+            tile_x: Tile X coordinate
+            tile_y: Tile Y coordinate
+            tile_data: Tile data dictionary
+            
+        Returns:
+            True if point is on decoration bounding box, False otherwise
+        """
+        decoration_data = tile_data.get('decoration')
+        if not decoration_data:
+            return False
+        
+        try:
+            from world.decoration_registry import DecorationRegistry
+            from world.decoration import Decoration
+        except ImportError:
+            return False
+        
+        decoration_id = decoration_data.get('decoration_id')
+        if not decoration_id:
+            return False
+        
+        deco_config = DecorationRegistry.get(decoration_id)
+        if not deco_config:
+            return False
+        
+        decoration = Decoration(deco_config)
+        rendering_config = decoration.get_rendering_config()
+        
+        # Get custom bounding box if available, otherwise use rendering size
+        bounding_box = rendering_config.get('bounding_box')
+        if bounding_box:
+            # Custom bounding box: [width, height] in pixels
+            bbox_width, bbox_height = bounding_box[0], bounding_box[1]
+        else:
+            # Fallback to rendering size
+            size = rendering_config.get('size', [settings.TILE_SIZE, settings.TILE_SIZE])
+            bbox_width, bbox_height = size[0], size[1]
+        
+        offset = rendering_config.get('offset', [0, 0])
+        
+        # Calculate tile center in world coordinates
+        tile_world_x = tile_x * settings.TILE_SIZE
+        tile_world_y = tile_y * settings.TILE_SIZE
+        tile_center_x = tile_world_x + settings.TILE_SIZE / 2.0
+        tile_center_y = tile_world_y + settings.TILE_SIZE / 2.0
+        
+        # Calculate decoration bounding box
+        # Bounding box is centered on tile + offset
+        deco_x = tile_center_x + offset[0] - bbox_width / 2.0
+        deco_y = tile_center_y + offset[1] - bbox_height / 2.0
+        deco_max_x = deco_x + bbox_width
+        deco_max_y = deco_y + bbox_height
+        
+        # Check if point is within decoration bounding box
+        return (deco_x <= world_x <= deco_max_x and deco_y <= world_y <= deco_max_y)
     
     def _is_tile_destroyable(self, tile_data: dict) -> bool:
         """Check if tile can be destroyed"""

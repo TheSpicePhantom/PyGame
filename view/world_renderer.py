@@ -116,7 +116,10 @@ class WorldRenderer:
         vbo.release()
     
     def draw_tile_highlight(self, mouse_x: int, mouse_y: int, screen_width: int, screen_height: int):
-        """Render highlight for tile under mouse cursor if within 8 tiles of player"""
+        """
+        Render highlight for tile or decoration under mouse cursor if within 8 tiles of player.
+        Differentiates visually between tile and decoration selection.
+        """
         if not self.world_controller.camera or not self.world_controller.player:
             return
         
@@ -142,6 +145,24 @@ class WorldRenderer:
         tile_x = int(world_x // settings.TILE_SIZE)
         tile_y = int(world_y // settings.TILE_SIZE)
         
+        # Get tile data
+        if not self.world_controller.world or not self.world_controller.world.terrain_gen:
+            return
+        
+        tile_data = self.world_controller.world.terrain_gen.generate_tile(tile_x, tile_y)
+        
+        # Check if mouse is on decoration bounding box
+        clicked_decoration = self.world_controller._is_point_on_decoration(world_x, world_y, tile_x, tile_y, tile_data)
+        
+        if clicked_decoration:
+            # Highlight decoration bounding box
+            self._draw_decoration_highlight(world_x, world_y, tile_x, tile_y, tile_data, screen_width, screen_height)
+        else:
+            # Highlight tile
+            self._draw_tile_highlight(tile_x, tile_y, screen_width, screen_height)
+    
+    def _draw_tile_highlight(self, tile_x: int, tile_y: int, screen_width: int, screen_height: int):
+        """Draw highlight for tile (white border)."""
         # Get tile world position (top-left corner of tile)
         tile_world_x = tile_x * settings.TILE_SIZE
         tile_world_y = tile_y * settings.TILE_SIZE
@@ -165,7 +186,7 @@ class WorldRenderer:
         highlight.opacity = 80  # Semi-transparent white overlay
         highlight.draw()
         
-        # Draw border around highlighted tile (using separate rectangles for each edge)
+        # Draw border around highlighted tile (white, 2px)
         border_width = 2
         border_color = (255, 255, 255)
         border_opacity = 200
@@ -209,6 +230,127 @@ class WorldRenderer:
             screen_tile_y - tile_size_scaled,
             border_width,
             tile_size_scaled,
+            color=border_color
+        )
+        right_border.opacity = border_opacity
+        right_border.draw()
+    
+    def _draw_decoration_highlight(self, world_x: float, world_y: float, tile_x: int, tile_y: int, 
+                                   tile_data: dict, screen_width: int, screen_height: int):
+        """Draw highlight for decoration bounding box (cyan border, thicker)."""
+        try:
+            from world.decoration_registry import DecorationRegistry
+            from world.decoration import Decoration
+        except ImportError:
+            # Fallback to tile highlight if decoration system not available
+            self._draw_tile_highlight(tile_x, tile_y, screen_width, screen_height)
+            return
+        
+        decoration_data = tile_data.get('decoration')
+        if not decoration_data:
+            # Fallback to tile highlight
+            self._draw_tile_highlight(tile_x, tile_y, screen_width, screen_height)
+            return
+        
+        decoration_id = decoration_data.get('decoration_id')
+        if not decoration_id:
+            return
+        
+        deco_config = DecorationRegistry.get(decoration_id)
+        if not deco_config:
+            return
+        
+        decoration = Decoration(deco_config)
+        rendering_config = decoration.get_rendering_config()
+        
+        # Get custom bounding box if available, otherwise use rendering size
+        bounding_box = rendering_config.get('bounding_box')
+        if bounding_box:
+            # Custom bounding box: [width, height] in pixels
+            deco_width, deco_height = bounding_box[0], bounding_box[1]
+        else:
+            # Fallback to rendering size
+            size = rendering_config.get('size', [settings.TILE_SIZE, settings.TILE_SIZE])
+            deco_width, deco_height = size[0], size[1]
+        
+        offset = rendering_config.get('offset', [0, 0])
+        
+        # Calculate decoration bounding box in world coordinates
+        tile_world_x = tile_x * settings.TILE_SIZE
+        tile_world_y = tile_y * settings.TILE_SIZE
+        tile_center_x = tile_world_x + settings.TILE_SIZE / 2.0
+        tile_center_y = tile_world_y + settings.TILE_SIZE / 2.0
+        
+        # Decoration position (centered on tile + offset)
+        deco_x = tile_center_x + offset[0] - deco_width / 2.0
+        deco_y = tile_center_y + offset[1] - deco_height / 2.0
+        
+        # Convert decoration world position to screen coordinates
+        screen_deco_x = (deco_x - self.world_controller.camera.x) * self.world_controller.camera_zoom + screen_width / 2.0
+        screen_deco_y = (deco_y - self.world_controller.camera.y) * self.world_controller.camera_zoom + screen_height / 2.0
+        
+        # In pyglet, Y=0 is at bottom, so we need to adjust
+        screen_deco_y = screen_height - screen_deco_y
+        
+        # Scale decoration size by zoom
+        deco_width_scaled = deco_width * self.world_controller.camera_zoom
+        deco_height_scaled = deco_height * self.world_controller.camera_zoom
+        
+        # Draw highlight rectangle (cyan overlay for decoration)
+        highlight = pyglet.shapes.Rectangle(
+            screen_deco_x,
+            screen_deco_y - deco_height_scaled,
+            deco_width_scaled,
+            deco_height_scaled,
+            color=(0, 255, 255)  # Cyan
+        )
+        highlight.opacity = 60  # Semi-transparent cyan overlay
+        highlight.draw()
+        
+        # Draw border around decoration (cyan, thicker than tile border)
+        border_width = 3  # Thicker border for decoration
+        border_color = (0, 255, 255)  # Cyan
+        border_opacity = 255  # Fully opaque
+        
+        # Top border
+        top_border = pyglet.shapes.Rectangle(
+            screen_deco_x,
+            screen_deco_y - border_width,
+            deco_width_scaled,
+            border_width,
+            color=border_color
+        )
+        top_border.opacity = border_opacity
+        top_border.draw()
+        
+        # Bottom border
+        bottom_border = pyglet.shapes.Rectangle(
+            screen_deco_x,
+            screen_deco_y - deco_height_scaled,
+            deco_width_scaled,
+            border_width,
+            color=border_color
+        )
+        bottom_border.opacity = border_opacity
+        bottom_border.draw()
+        
+        # Left border
+        left_border = pyglet.shapes.Rectangle(
+            screen_deco_x,
+            screen_deco_y - deco_height_scaled,
+            border_width,
+            deco_height_scaled,
+            color=border_color
+        )
+        left_border.opacity = border_opacity
+        left_border.draw()
+        
+        # Right border
+        right_border = pyglet.shapes.Rectangle(
+            screen_deco_x + deco_width_scaled - border_width,
+            screen_deco_y - deco_height_scaled,
+            border_width,
+            deco_height_scaled,
             color=border_color
         )
         right_border.opacity = border_opacity
@@ -280,8 +422,23 @@ class WorldRenderer:
                     deco_x = tile_world_x + tile_size / 2.0 + offset[0] - size[0] / 2.0
                     deco_y = tile_world_y + tile_size / 2.0 + offset[1] - size[1] / 2.0
                     
-                    # Get sprite color (placeholder - will use texture later)
-                    # For now, use a color based on decoration type
+                    # Get sprite name and mod_id
+                    mod_id = deco_config.get('mod_id', 'core')
+                    deco_data_dict = decoration_data.get('data', {})
+                    
+                    # Determine current sprite based on state
+                    sprite_name = None
+                    if decoration.is_harvestable():
+                        has_fruit = deco_data_dict.get('has_fruit', True)
+                        sprite_name = deco_config['sprites'].get('with_fruit' if has_fruit else 'without_fruit')
+                    else:
+                        sprite_name = deco_config['sprites'].get('default')
+                    
+                    # Fallback to color if texture not available
+                    if not sprite_name:
+                        sprite_name = 'default'
+                    
+                    # Get sprite color (fallback if texture not found)
                     if decoration_id == 'oak_tree':
                         color = (34, 139, 34)  # Forest green
                     elif decoration_id == 'berry_bush':
@@ -298,19 +455,321 @@ class WorldRenderer:
                         shadow_x = tile_world_x + tile_size / 2.0 + shadow_offset[0] - size[0] / 2.0
                         shadow_y = tile_world_y + tile_size / 2.0 + shadow_offset[1] - size[1] / 2.0
                         shadow_size = [size[0] * 0.8, size[1] * 0.3]  # Shadow is wider but shorter
-                        decoration_sprites.append((5, shadow_x, shadow_y, shadow_size[0], shadow_size[1], (0, 0, 0), None))  # Black shadow
+                        shadow_sprite_name = shadow_config.get('sprite', 'shadow_small')
+                        decoration_sprites.append((5, shadow_x, shadow_y, shadow_size[0], shadow_size[1], (0, 0, 0), None, shadow_sprite_name, mod_id))  # Black shadow
                     
-                    # Add decoration (Layer 10 or from config)
-                    decoration_sprites.append((layer, deco_x, deco_y, size[0], size[1], color, decoration_data))
+                    # Add decoration (Layer 10 or from config) with sprite info
+                    decoration_sprites.append((layer, deco_x, deco_y, size[0], size[1], color, decoration_data, sprite_name, mod_id))
         
         # Sort by layer for proper rendering order
         decoration_sprites.sort(key=lambda x: x[0])
         
-        # Render decorations in batches by layer
+        # Render decorations with textures
+        if self.modern_gl_renderer.decoration_texture_manager:
+            self._render_decorations_with_textures(decoration_sprites, camera_x, camera_y)
+        else:
+            # Fallback to color rendering
+            self._render_decorations_with_colors(decoration_sprites)
+    
+    def _render_decorations_with_textures(self, decoration_sprites, camera_x: float, camera_y: float):
+        """Render decorations using texture atlas (batched rendering for performance)."""
+        import numpy as np
+        import moderngl
+        
+        if not decoration_sprites:
+            return
+        
+        # Use texture atlas from tile_texture_manager (includes decoration textures)
+        tile_texture_manager = self.modern_gl_renderer.tile_texture_manager
+        if not tile_texture_manager or not tile_texture_manager.texture_atlas:
+            # Fallback to old method if atlas not available
+            self._render_decorations_with_textures_legacy(decoration_sprites, camera_x, camera_y)
+            return
+        
+        # Enable blending
+        self.modern_gl_renderer.ctx.enable(moderngl.BLEND)
+        self.modern_gl_renderer.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        
+        # Collect all decorations with their atlas coordinates
+        all_vertices = []  # All decorations in one batch
+        progress_bars = []  # Collect progress bars to render after ModernGL
+        
+        for sprite_data in decoration_sprites:
+            if len(sprite_data) >= 9:
+                layer, x, y, width, height, color, deco_data, sprite_name, mod_id = sprite_data[:9]
+            else:
+                # Fallback for old format
+                layer, x, y, width, height, color, deco_data = sprite_data[:7]
+                sprite_name = None
+                mod_id = 'core'
+            
+            if not sprite_name:
+                continue
+            
+            # Get UV coordinates from atlas
+            atlas_name = f"decoration:{mod_id}/{sprite_name}"
+            uv_coords = tile_texture_manager.get_decoration_texture_coords(sprite_name, mod_id)
+            
+            if not uv_coords:
+                # Fallback: try direct lookup
+                if atlas_name in tile_texture_manager.texture_coords:
+                    uv_coords = tile_texture_manager.texture_coords[atlas_name]
+                else:
+                    # Skip if not in atlas
+                    continue
+            
+            u0, v0, u1, v1 = uv_coords
+            
+            # Get regrowth progress for progress bar (if harvestable and harvested)
+            regrowth_progress = None
+            if deco_data:
+                deco_data_dict = deco_data.get('data', {})
+                has_fruit = deco_data_dict.get('has_fruit', True)
+                if not has_fruit:
+                    # Calculate regrowth progress
+                    growth_timer = deco_data_dict.get('growth_timer', 0.0)
+                    initial_growth_time = deco_data_dict.get('initial_growth_time', 0.0)
+                    
+                    # Calculate progress: elapsed time / total regrowth time
+                    # growth_timer starts at initial_growth_time and counts down to 0
+                    # So elapsed = initial_growth_time - growth_timer
+                    if initial_growth_time > 0 and growth_timer >= 0:
+                        elapsed = initial_growth_time - growth_timer
+                        regrowth_progress = max(0.0, min(1.0, elapsed / initial_growth_time))
+            
+            # Create quad vertices with atlas UV coordinates
+            # Format: position (2f), color_index (1f), texcoord (2f), use_texture (1f)
+            # OpenGL: (0,0) bottom-left, but PIL/our coords are top-left, so flip V
+            # Note: In our coordinate system, y increases downward, so y is top and y+height is bottom
+            # But we want the texture to render correctly, so we use v0 for top and v1 for bottom
+            all_vertices.extend([
+                [x, y + height, 0.0, u0, v1, 1.0],  # Bottom-left (world: y+height, tex: v1)
+                [x + width, y + height, 0.0, u1, v1, 1.0],  # Bottom-right (world: y+height, tex: v1)
+                [x + width, y, 0.0, u1, v0, 1.0],  # Top-right (world: y, tex: v0)
+                [x, y + height, 0.0, u0, v1, 1.0],  # Bottom-left (world: y+height, tex: v1)
+                [x + width, y, 0.0, u1, v0, 1.0],  # Top-right (world: y, tex: v0)
+                [x, y, 0.0, u0, v0, 1.0],  # Top-left (world: y, tex: v0)
+            ])
+            
+            # Collect regrowth progress bar data to render after ModernGL
+            if regrowth_progress is not None and regrowth_progress < 1.0:
+                progress_bars.append((x, y, width, height, regrowth_progress))
+        
+        # Render all decorations in one batch using atlas
+        if all_vertices:
+            vertices_array = np.array(all_vertices, dtype=np.float32)
+            vbo = self.modern_gl_renderer.ctx.buffer(vertices_array.tobytes())
+            vao = self.modern_gl_renderer.ctx.vertex_array(
+                self.modern_gl_renderer.chunk_program,
+                [(vbo, "2f 1f 2f 1f", "in_position", "in_color_index", "in_texcoord", "in_use_texture")]
+            )
+            
+            # Bind texture atlas to unit 0
+            tile_texture_manager.texture_atlas.use(0)
+            
+            # Update shader to use texture
+            if 'tile_texture' in self.modern_gl_renderer.chunk_program:
+                self.modern_gl_renderer.chunk_program['tile_texture'].value = 0
+            
+            # Render all decorations in one draw call
+            vao.render(moderngl.TRIANGLES)
+            
+            # Cleanup
+            vao.release()
+            vbo.release()
+        
+        # Render progress bars after ModernGL rendering (using pyglet.shapes)
+        if progress_bars:
+            for x, y, width, height, progress in progress_bars:
+                self._render_regrowth_progress_bar(x, y, width, height, progress, camera_x, camera_y)
+    
+    def _render_decorations_with_textures_legacy(self, decoration_sprites, camera_x: float, camera_y: float):
+        """Legacy rendering method using separate textures (fallback if atlas not available)."""
+        import numpy as np
+        import moderngl
+        
+        if not decoration_sprites:
+            return
+        
+        texture_manager = self.modern_gl_renderer.decoration_texture_manager
+        if not texture_manager:
+            return
+        
+        # Enable blending
+        self.modern_gl_renderer.ctx.enable(moderngl.BLEND)
+        self.modern_gl_renderer.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        
+        # Group by texture for batching
+        texture_batches = {}  # (texture, mod_id) -> list of sprites
+        
+        for sprite_data in decoration_sprites:
+            if len(sprite_data) >= 9:
+                layer, x, y, width, height, color, deco_data, sprite_name, mod_id = sprite_data[:9]
+            else:
+                # Fallback for old format
+                layer, x, y, width, height, color, deco_data = sprite_data[:7]
+                sprite_name = None
+                mod_id = 'core'
+            
+            if not sprite_name:
+                continue
+            
+            # Load texture (will return missing texture if not found)
+            texture = texture_manager.get_texture(sprite_name, mod_id)
+            if not texture:
+                continue
+            
+            batch_key = (texture, mod_id)
+            if batch_key not in texture_batches:
+                texture_batches[batch_key] = []
+            texture_batches[batch_key].append((x, y, width, height))
+        
+        # Render each texture batch
+        for (texture, mod_id), sprites in texture_batches.items():
+            complete_vertices = []
+            for x, y, width, height in sprites:
+                # Quad with all required attributes: position, color_index, texcoord, use_texture
+                complete_vertices.extend([
+                    [x, y, 0.0, 0.0, 0.0, 1.0],  # position, color_index, texcoord, use_texture
+                    [x + width, y, 0.0, 1.0, 0.0, 1.0],
+                    [x + width, y + height, 0.0, 1.0, 1.0, 1.0],
+                    [x, y, 0.0, 0.0, 0.0, 1.0],
+                    [x + width, y + height, 0.0, 1.0, 1.0, 1.0],
+                    [x, y + height, 0.0, 0.0, 1.0, 1.0],
+                ])
+            
+            if complete_vertices:
+                complete_array = np.array(complete_vertices, dtype=np.float32)
+                vbo = self.modern_gl_renderer.ctx.buffer(complete_array.tobytes())
+                vao = self.modern_gl_renderer.ctx.vertex_array(
+                    self.modern_gl_renderer.chunk_program,
+                    [(vbo, "2f 1f 2f 1f", "in_position", "in_color_index", "in_texcoord", "in_use_texture")]
+                )
+                
+                # Bind texture to unit 0
+                texture.use(0)
+                
+                # Update shader to use texture
+                if 'tile_texture' in self.modern_gl_renderer.chunk_program:
+                    self.modern_gl_renderer.chunk_program['tile_texture'].value = 0
+                
+                # Render
+                vao.render(moderngl.TRIANGLES)
+                
+                # Cleanup
+                vao.release()
+                vbo.release()
+    
+    def _render_regrowth_progress_bar(self, deco_x: float, deco_y: float, deco_width: float, deco_height: float, 
+                                      progress: float, camera_x: float, camera_y: float):
+        """Render a small progress bar above decoration showing regrowth progress."""
+        import pyglet.shapes
+        
+        if not self.world_controller.camera:
+            return
+        
+        # Calculate screen position
+        screen_width = self.modern_gl_renderer.screen_width
+        screen_height = self.modern_gl_renderer.screen_height
+        zoom = self.world_controller.camera_zoom
+        
+        # Progress bar position: above decoration, centered
+        bar_width = deco_width * 0.8  # 80% of decoration width
+        bar_height = 3  # 3 pixels high
+        bar_x = deco_x + (deco_width - bar_width) / 2.0
+        bar_y = deco_y + deco_height + 2  # 2 pixels above decoration
+        
+        # Convert to screen coordinates (same transformation as tile highlight)
+        screen_bar_x = (bar_x - camera_x) * zoom + screen_width / 2.0
+        screen_bar_y = (bar_y - camera_y) * zoom + screen_height / 2.0
+        
+        # In pyglet, Y=0 is at bottom, so we need to adjust
+        screen_bar_y = screen_height - screen_bar_y
+        
+        # Scale by zoom
+        bar_width_scaled = bar_width * zoom
+        bar_height_scaled = bar_height * zoom
+        
+        # Ensure minimum size for visibility
+        if bar_width_scaled < 1:
+            bar_width_scaled = 1
+        if bar_height_scaled < 1:
+            bar_height_scaled = 1
+        
+        # Draw background (dark gray)
+        bg_bar = pyglet.shapes.Rectangle(
+            int(screen_bar_x),
+            int(screen_bar_y - bar_height_scaled),
+            int(bar_width_scaled),
+            int(bar_height_scaled),
+            color=(40, 40, 40)  # Dark gray background
+        )
+        bg_bar.opacity = 200
+        bg_bar.draw()
+        
+        # Draw progress (green, transitioning to yellow when near completion)
+        progress_width = bar_width_scaled * progress
+        if progress > 0 and progress_width >= 1:
+            # Color: green -> yellow -> green (smooth transition)
+            if progress < 0.5:
+                # Green to yellow
+                r = int(0 + (255 - 0) * (progress * 2))
+                g = 255
+                b = 0
+            else:
+                # Yellow to green
+                r = 255
+                g = int(255 - (255 - 0) * ((progress - 0.5) * 2))
+                b = 0
+            
+            progress_bar = pyglet.shapes.Rectangle(
+                int(screen_bar_x),
+                int(screen_bar_y - bar_height_scaled),
+                int(progress_width),
+                int(bar_height_scaled),
+                color=(r, g, b)
+            )
+            progress_bar.opacity = 255
+            progress_bar.draw()
+    
+    def _render_decorations_with_colors(self, decoration_sprites):
+        """Render decorations using colors (fallback)."""
         current_layer = None
         batch_vertices = []
         
-        for layer, x, y, width, height, color, deco_data in decoration_sprites:
+        for sprite_data in decoration_sprites:
+            if len(sprite_data) >= 7:
+                layer, x, y, width, height, color, deco_data = sprite_data[:7]
+            else:
+                continue
+            
+            if layer != current_layer:
+                # Render previous batch
+                if batch_vertices:
+                    self._render_decoration_batch(batch_vertices)
+                    batch_vertices = []
+                current_layer = layer
+            
+            # Create vertices for decoration quad
+            r, g, b = color[:3] if len(color) >= 3 else (100, 100, 100)
+            color_index = float(self.modern_gl_renderer.tile_color_palette.get_color_index(color))
+            if color_index == 0 and color not in self.modern_gl_renderer.tile_color_palette.color_to_index:
+                color_index = float(self.modern_gl_renderer.tile_color_palette.add_color(color))
+                self.modern_gl_renderer._update_palette_uniform()
+            
+            # Add vertices for this decoration
+            batch_vertices.extend([
+                [x, y, color_index],
+                [x + width, y, color_index],
+                [x + width, y + height, color_index],
+                [x, y, color_index],
+                [x + width, y + height, color_index],
+                [x, y + height, color_index],
+            ])
+        
+        # Render final batch
+        if batch_vertices:
+            self._render_decoration_batch(batch_vertices)
             if layer != current_layer:
                 # Render previous batch
                 if batch_vertices:

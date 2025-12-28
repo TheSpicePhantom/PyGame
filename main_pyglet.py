@@ -136,6 +136,9 @@ class GameWindow(pyglet.window.Window):
             diagnostics=self.diagnostics
         )
         
+        # Set game_app reference in world_controller (for accessing UI controller)
+        self.world_controller.game_app = self.game_app
+        
         # Initialize renderers
         self.world_renderer = WorldRenderer(
             world_controller=self.world_controller,
@@ -413,16 +416,25 @@ class GameWindow(pyglet.window.Window):
                 # Save world (chunks are saved automatically by ChunkManager)
                 # Save player data using the instance variable
                 if hasattr(self, 'player_data_manager') and self.player_data_manager:
-                    # Get inventory_size from inventory menu if available
+                    # Get inventory from inventory menu if available (new slot-based format)
+                    inventory = {}
                     inventory_size = None
-                    if hasattr(self, 'inventory_menu') and self.inventory_menu:
-                        inventory_size = self.inventory_menu.inventory_size
+                    if hasattr(self, 'game_app') and self.game_app and self.game_app.ui_controller:
+                        if self.game_app.ui_controller.inventory_menu:
+                            inventory_data = self.game_app.ui_controller.inventory_menu.get_inventory_data()
+                            inventory = inventory_data  # Pass full dict with 'slots' and 'inventory_size'
+                            inventory_size = inventory_data.get('inventory_size', 45)
+                    # Fallback to old player.inventory format if inventory menu not available
+                    if not inventory or (isinstance(inventory, dict) and 'slots' not in inventory):
+                        old_inventory = getattr(self.player, 'inventory', {})
+                        if old_inventory:
+                            inventory = old_inventory
                     # Get sprint and sneak multipliers from player
                     sprint_multiplier = getattr(self.player, 'sprint_multiplier', 1.2)
                     sneak_multiplier = getattr(self.player, 'sneak_multiplier', 0.8)
                     self.player_data_manager.save_player(
                         position=(self.player.rect.x, self.player.rect.y),
-                        inventory=getattr(self.player, 'inventory', {}),
+                        inventory=inventory,
                         faction_data=getattr(self.player, 'faction', {'policies': [], 'allies': [], 'enemies': []}),
                         inventory_size=inventory_size,
                         sprint_multiplier=sprint_multiplier,
@@ -1148,114 +1160,18 @@ class GameWindow(pyglet.window.Window):
         # Delegate to game app
         self.game_app.handle_mouse_motion(x, y, dx, dy)
     
+    def on_mouse_release(self, x, y, button, modifiers):
+        """Handle mouse release - delegates to GameApp state machine"""
+        # Delegate to game app (state machine handles everything)
+        self.game_app.handle_mouse_release(x, y, button, modifiers)
+    
     def get_keys_pressed(self):
         """Get set of currently pressed keys"""
         return getattr(self, '_keys_pressed', set())
     
-    def _render_tile_highlight(self):
-        """Render highlight for tile under mouse cursor if within 8 tiles of player"""
-        if not self.world_controller.camera or not self.world_controller.player:
-            return
-        
-        # Convert mouse screen coordinates to world coordinates
-        screen_width = self.width
-        screen_height = self.height
-        
-        # In pyglet, (0,0) is bottom-left, so we need to invert Y
-        # World coordinates: center is at camera position
-        world_x = self.world_controller.camera.x + (self.world_controller.mouse_x - screen_width / 2.0) / self.world_controller.camera_zoom
-        world_y = self.world_controller.camera.y + (screen_height / 2.0 - self.world_controller.mouse_y) / self.world_controller.camera_zoom
-        
-        # Get player position
-        player_x = self.world_controller.player.rect.x
-        player_y = self.world_controller.player.rect.y
-        
-        # Calculate distance in tiles
-        distance_tiles = math.sqrt(
-            ((world_x - player_x) / settings.TILE_SIZE) ** 2 +
-            ((world_y - player_y) / settings.TILE_SIZE) ** 2
-        )
-        
-        # Only highlight if within 8 tiles
-        if distance_tiles > 8.0:
-            return
-        
-        # Get tile coordinates
-        tile_x = int(world_x // settings.TILE_SIZE)
-        tile_y = int(world_y // settings.TILE_SIZE)
-        
-        # Get tile world position (top-left corner of tile)
-        tile_world_x = tile_x * settings.TILE_SIZE
-        tile_world_y = tile_y * settings.TILE_SIZE
-        
-        # Convert tile world position to screen coordinates for rendering
-        screen_tile_x = (tile_world_x - self.world_controller.camera.x) * self.world_controller.camera_zoom + screen_width / 2.0
-        screen_tile_y = (tile_world_y - self.world_controller.camera.y) * self.world_controller.camera_zoom + screen_height / 2.0
-        
-        # In pyglet, Y=0 is at bottom, so we need to adjust
-        screen_tile_y = screen_height - screen_tile_y
-        
-        # Draw highlight rectangle (brighter overlay)
-        import pyglet.shapes
-        highlight = pyglet.shapes.Rectangle(
-            screen_tile_x,
-            screen_tile_y - settings.TILE_SIZE * self.world_controller.camera_zoom,  # Adjust for bottom-left origin
-            settings.TILE_SIZE * self.world_controller.camera_zoom,
-            settings.TILE_SIZE * self.world_controller.camera_zoom,
-            color=(255, 255, 255)
-        )
-        highlight.opacity = 80  # Semi-transparent white overlay
-        highlight.draw()
-        
-        # Draw border around highlighted tile (using separate rectangles for each edge)
-        tile_size_scaled = settings.TILE_SIZE * self.world_controller.camera_zoom
-        border_width = 2
-        border_color = (255, 255, 255)
-        border_opacity = 200
-        
-        # Top border
-        top_border = pyglet.shapes.Rectangle(
-            screen_tile_x,
-            screen_tile_y - border_width,
-            tile_size_scaled,
-            border_width,
-            color=border_color
-        )
-        top_border.opacity = border_opacity
-        top_border.draw()
-        
-        # Bottom border
-        bottom_border = pyglet.shapes.Rectangle(
-            screen_tile_x,
-            screen_tile_y - tile_size_scaled,
-            tile_size_scaled,
-            border_width,
-            color=border_color
-        )
-        bottom_border.opacity = border_opacity
-        bottom_border.draw()
-        
-        # Left border
-        left_border = pyglet.shapes.Rectangle(
-            screen_tile_x,
-            screen_tile_y - tile_size_scaled,
-            border_width,
-            tile_size_scaled,
-            color=border_color
-        )
-        left_border.opacity = border_opacity
-        left_border.draw()
-        
-        # Right border
-        right_border = pyglet.shapes.Rectangle(
-            screen_tile_x + tile_size_scaled - border_width,
-            screen_tile_y - tile_size_scaled,
-            border_width,
-            tile_size_scaled,
-            color=border_color
-        )
-        right_border.opacity = border_opacity
-        right_border.draw()
+    # Removed: _render_tile_highlight() - now handled by world_renderer.draw_tile_highlight()
+    # This ensures consistent highlighting logic and prevents conflicts between
+    # main_pyglet.py and world_controller.py selection functions
     
     def _get_tile_under_mouse(self, mouse_x: int, mouse_y: int):
         """
@@ -1293,11 +1209,15 @@ class GameWindow(pyglet.window.Window):
         tile_y = int(world_y // settings.TILE_SIZE)
         
         # Get tile data from terrain generator
-        if self.world_controller.world and self.world_controller.world.terrain_gen:
-            tile_data = self.world_controller.world.terrain_gen.generate_tile(tile_x, tile_y)
-            return (tile_x, tile_y, tile_data)
+        if not self.world_controller.world or not self.world_controller.world.terrain_gen:
+            return None
         
-        return None
+        tile_data = self.world_controller.world.terrain_gen.generate_tile(tile_x, tile_y)
+        
+        # Check if mouse is on decoration bounding box (use WorldController method)
+        clicked_decoration = self.world_controller._is_point_on_decoration(world_x, world_y, tile_x, tile_y, tile_data)
+        
+        return (tile_x, tile_y, tile_data, clicked_decoration)
     
     def _handle_tile_click(self, mouse_x: int, mouse_y: int, button: int):
         """
@@ -1312,10 +1232,20 @@ class GameWindow(pyglet.window.Window):
         if not tile_info:
             return
         
-        tile_x, tile_y, tile_data = tile_info
+        # Unpack tile info (now includes clicked_decoration flag)
+        if len(tile_info) == 4:
+            tile_x, tile_y, tile_data, clicked_decoration = tile_info
+        else:
+            # Backward compatibility
+            tile_x, tile_y, tile_data = tile_info[:3]
+            clicked_decoration = False
+        
         traversable = tile_data.get('traversable', False)
         tile_id = tile_data.get('tileid', '') or tile_data.get('tile_id', 'unknown')
         biome = tile_data.get('biome', 'unknown')
+        
+        # Note: Decoration interactions are handled in WorldController._handle_tile_click
+        # This method only handles tile-specific interactions
         
         if button == mouse.LEFT:
             # Left click: Check if destroyable

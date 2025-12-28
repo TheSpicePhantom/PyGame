@@ -10,7 +10,7 @@ from core import settings
 class InventoryMenu:
     """Inventar-Menü mit Slot-basierter Struktur (9 Spalten x 6 Reihen: 5 Inventar + 1 Hotbar)"""
     
-    def __init__(self, window_width: int, window_height: int, inventory_size: int = 45):
+    def __init__(self, window_width: int, window_height: int, inventory_size: int = 45, item_texture_manager=None):
         """
         Initialize Inventory Menu
         
@@ -18,10 +18,12 @@ class InventoryMenu:
             window_width: Window width in pixels
             window_height: Window height in pixels
             inventory_size: Total number of inventory slots (excluding hotbar). Default: 45 (9x5)
+            item_texture_manager: Optional ItemTextureManager instance for sprite rendering
         """
         self.window_width = window_width
         self.window_height = window_height
         self.active = False
+        self.item_texture_manager = item_texture_manager
         
         # Inventory structure: slots[row][col] = {'item_id': str, 'amount': int} or None
         # Fixed width: 9 columns
@@ -309,10 +311,31 @@ class InventoryMenu:
                 self.drag_item = None
                 self.selected_slot = None
             elif slot.get('item_id') == self.drag_item.get('item_id'):
-                # Same item: stack
-                self.slots[row][col]['amount'] += self.drag_item['amount']
-                self.drag_item = None
-                self.selected_slot = None
+                # Same item: stack (respecting max_stack_size)
+                from world.item_registry import ItemRegistry
+                item_config = ItemRegistry.get(slot.get('item_id'))
+                max_stack = item_config.get('max_stack_size', 64) if item_config else 64
+                
+                current_amount = slot.get('amount', 0)
+                drag_amount = self.drag_item.get('amount', 0)
+                space_available = max_stack - current_amount
+                
+                if space_available > 0:
+                    add_to_stack = min(drag_amount, space_available)
+                    slot['amount'] += add_to_stack
+                    remaining = drag_amount - add_to_stack
+                    if remaining > 0:
+                        # Keep remaining in drag_item
+                        self.drag_item['amount'] = remaining
+                    else:
+                        self.drag_item = None
+                        self.selected_slot = None
+                else:
+                    # Slot is full, swap instead
+                    temp = self.slots[row][col]
+                    self.slots[row][col] = self.drag_item
+                    self.drag_item = temp
+                    self.selected_slot = (row, col)
             else:
                 # Different item: swap
                 temp = self.slots[row][col]
@@ -320,34 +343,65 @@ class InventoryMenu:
                 self.drag_item = temp
                 self.selected_slot = (row, col)
     
-    def add_item(self, item_id: str, amount: int = 1) -> bool:
+    def add_item(self, item_id: str, quantity: int = 1) -> int:
         """
-        Add item to inventory
+        Add item to inventory with stack size management.
         
         Args:
             item_id: Item identifier
-            amount: Amount to add
+            quantity: Amount to add
             
         Returns:
-            True if item was added, False if inventory is full
+            Remaining quantity that couldn't be added (0 if all items were added)
         """
-        # Try to stack with existing items first
+        from world.item_registry import ItemRegistry
+        
+        # Get item config to check max_stack_size
+        item_config = ItemRegistry.get(item_id)
+        if not item_config:
+            # Item not found in registry - print warning and use default stack size of 64
+            print(f"[InventoryMenu] Warning: Item '{item_id}' not found in ItemRegistry, using default stack size 64")
+            max_stack = 64
+        else:
+            max_stack = item_config.get('max_stack_size', 64)
+        
+        remaining = quantity
+        
+        # Try to stack with existing items first (respecting max_stack_size)
         for row in range(self.total_rows):
             for col in range(self.inventory_width):
                 slot = self.slots[row][col]
                 if slot is not None and slot.get('item_id') == item_id:
-                    slot['amount'] += amount
-                    return True
+                    current_amount = slot.get('amount', 0)
+                    space_available = max_stack - current_amount
+                    if space_available > 0:
+                        add_to_stack = min(remaining, space_available)
+                        slot['amount'] += add_to_stack
+                        remaining -= add_to_stack
+                        if remaining == 0:
+                            return 0
         
-        # Find empty slot
-        for row in range(self.total_rows):
-            for col in range(self.inventory_width):
-                if self.slots[row][col] is None:
-                    self.slots[row][col] = {'item_id': item_id, 'amount': amount}
-                    return True
+        # Find empty slots for remaining items
+        while remaining > 0:
+            # Find empty slot
+            empty_slot_found = False
+            for row in range(self.total_rows):
+                for col in range(self.inventory_width):
+                    if self.slots[row][col] is None:
+                        # Add as much as possible to this slot (up to max_stack_size)
+                        add_to_slot = min(remaining, max_stack)
+                        self.slots[row][col] = {'item_id': item_id, 'amount': add_to_slot}
+                        remaining -= add_to_slot
+                        empty_slot_found = True
+                        break
+                if empty_slot_found:
+                    break
+            
+            # No more empty slots
+            if not empty_slot_found:
+                break
         
-        # Inventory is full
-        return False
+        return remaining
     
     def draw(self):
         """Draw inventory menu"""
@@ -488,25 +542,64 @@ class InventoryMenu:
             item_id = slot.get('item_id', 'unknown')
             amount = slot.get('amount', 0)
             
-            # Calculate icon area with padding (reserved space for future icons)
+            # Calculate icon area with padding
             icon_x = slot_x + self.item_icon_padding
             icon_y = slot_y + self.item_icon_padding
             icon_size = self.slot_size - (2 * self.item_icon_padding)
             
-            # Draw item icon (placeholder: colored rectangle)
-            # TODO: Replace with actual item sprites/icons
-            item_color = self._get_item_color(item_id)
-            item_rect = pyglet.shapes.Rectangle(
-                icon_x, icon_y,
-                icon_size, icon_size,
-                color=item_color
-            )
-            item_rect.draw()
+            # Draw item sprite if available, otherwise fallback to colored rectangle
+            if self.item_texture_manager:
+                try:
+                    pyglet_img = self.item_texture_manager.get_pyglet_image(item_id)
+                    if pyglet_img:
+                        # Create sprite from pyglet image
+                        sprite = pyglet.sprite.Sprite(pyglet_img, x=icon_x, y=icon_y)
+                        # Scale to fit icon_size
+                        tex_width = pyglet_img.width
+                        tex_height = pyglet_img.height
+                        scale = min(icon_size / tex_width, icon_size / tex_height)
+                        sprite.scale = scale
+                        sprite.draw()
+                    else:
+                        # No image available, use fallback
+                        item_color = self._get_item_color(item_id)
+                        item_rect = pyglet.shapes.Rectangle(
+                            icon_x, icon_y,
+                            icon_size, icon_size,
+                            color=item_color
+                        )
+                        item_rect.draw()
+                except Exception as e:
+                    # Error loading texture, use fallback
+                    item_color = self._get_item_color(item_id)
+                    item_rect = pyglet.shapes.Rectangle(
+                        icon_x, icon_y,
+                        icon_size, icon_size,
+                        color=item_color
+                    )
+                    item_rect.draw()
+            else:
+                # No texture manager available, use colored rectangle
+                item_color = self._get_item_color(item_id)
+                item_rect = pyglet.shapes.Rectangle(
+                    icon_x, icon_y,
+                    icon_size, icon_size,
+                    color=item_color
+                )
+                item_rect.draw()
             
             # Draw amount text (bottom-right corner, white)
-            # Always show amount, even if it's 1 (for consistency)
+            # Show amount and max_stack_size if available
+            from world.item_registry import ItemRegistry
+            item_config = ItemRegistry.get(item_id)
+            if item_config and amount > 1:
+                max_stack = item_config.get('max_stack_size', 64)
+                amount_text = f"{amount} / {max_stack}"
+            else:
+                amount_text = str(amount)
+            
             amount_label = pyglet.text.Label(
-                str(amount),
+                amount_text,
                 font_name=self.slot_font_name,
                 font_size=self.amount_font_size,
                 x=slot_x + self.slot_size - self.amount_offset_x,

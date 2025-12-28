@@ -88,12 +88,19 @@ class PlayerDataManager:
             else:
                 sneak_multiplier = self.DEFAULT_SNEAK_MULTIPLIER
         
-        # Ensure inventory is a dict
-        if not isinstance(inventory, dict):
+        # Handle inventory format: can be dict (old format) or list of slots (new format)
+        # If it's a list (slots format), convert to dict with 'slots' key
+        if isinstance(inventory, list):
+            # New slot-based format: list of rows
+            inventory = {'slots': inventory}
+        elif not isinstance(inventory, dict):
             inventory = {}
         
         # Remove inventory_size from inventory if it exists there (migration)
         if 'inventory_size' in inventory:
+            # Don't delete, just extract it if not already set
+            if inventory_size is None:
+                inventory_size = inventory['inventory_size']
             del inventory['inventory_size']
         
         player_data = {
