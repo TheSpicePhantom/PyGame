@@ -1,0 +1,152 @@
+{
+  "decoration_id": "maple_tree",
+  "display_name": "Maple Tree",
+  "mod_id": "core",
+  "tags": ["mineable", "decorative"],
+  "collision": {
+    "enabled": true,
+    "type": "circle",
+    "radius": 0.4
+  },
+  "health": 100,
+  "growth": {
+    "enabled": true,
+    "stages": {
+      "1": {
+        "name": "Sprössling",
+        "display_name": "Maple Sapling",
+        "growth_time": 0.0,
+        "health": 25
+      },
+      "2": {
+        "name": "Junger Baum",
+        "display_name": "Young Maple Tree",
+        "growth_time": 300.0,
+        "health": 50
+      },
+      "3": {
+        "name": "Mittelalter Baum",
+        "display_name": "Mature Maple Tree",
+        "growth_time": 600.0,
+        "health": 75
+      },
+      "4": {
+        "name": "Ausgewachsener Baum",
+        "display_name": "Fully Grown Maple Tree",
+        "growth_time": 900.0,
+        "health": 100
+      }
+    },
+    "default_stage": 4
+  },
+  "seasons": {
+    "enabled": true,
+    "default_season": "summer",
+    "sprite_base_path": "maple",
+    "spring": {
+      "growth_stages": {
+        "1": "spring/maple_1",
+        "2": "spring/maple_2",
+        "3": "spring/maple_3",
+        "4": "spring/maple_4"
+      },
+      "damaged_sprites": {
+        "damaged_50": "spring/maple_2"
+      },
+      "stump": "spring/maple_stump"
+    },
+    "summer": {
+      "growth_stages": {
+        "1": "summer/maple_1",
+        "2": "summer/maple_2",
+        "3": "summer/maple_3",
+        "4": "summer/maple_4"
+      },
+      "damaged_sprites": {
+        "damaged_50": "summer/maple_2"
+      },
+      "stump": "summer/maple_stump"
+    },
+    "autumn": {
+      "growth_stages": {
+        "1": "autumn/maple_1",
+        "2": "autumn/maple_2",
+        "3": "autumn/maple_3",
+        "4": "autumn/maple_4"
+      },
+      "damaged_sprites": {
+        "damaged_50": "autumn/maple_2"
+      },
+      "stump": "autumn/maple_stump"
+    },
+    "winter": {
+      "growth_stages": {
+        "1": "winter/maple_1",
+        "2": "winter/maple_2",
+        "3": "winter/maple_3",
+        "4": "winter/maple_4"
+      },
+      "growth_stages_snowy": {
+        "1": "winter/maple_1_snowy",
+        "2": "winter/maple_2_snowy",
+        "3": "winter/maple_3_snowy",
+        "4": "winter/maple_4_snowy"
+      },
+      "damaged_sprites": {
+        "damaged_50": "winter/maple_2"
+      },
+      "damaged_sprites_snowy": {
+        "damaged_50": "winter/maple_2_snowy"
+      },
+      "stump": "winter/maple_stump",
+      "stump_snowy": "winter/maple_stump_snowy",
+      "snowy_chance": 0.5
+    }
+  },
+  "sprites": {
+    "default": "maple/summer/maple_1",
+    "damaged_50": "maple/summer/maple_2",
+    "stump": "maple/summer/maple_stump"
+  },
+  "mining": {
+    "tool_required": null,
+    "hardness": "wood",
+    "mining_time": 3.0,
+    "hardness_multiplier": 1.0,
+    "durability": 100,
+    "loot_table": "maple_tree_loot",
+    "particles": {
+      "hit": "wood_particle",
+      "break": "wood_break"
+    }
+  },
+  "placement": {
+    "biomes": ["terrain:forest"],
+    "density": 0.5,
+    "noise_threshold": {
+      "min": 0.6,
+      "max": 1.0
+    },
+    "clustering": {
+      "enabled": true,
+      "cluster_size": 5,
+      "cluster_radius": 3
+    }
+  },
+  "rendering": {
+    "size": [48, 64],
+    "offset": [0, -8],
+    "layer": 10,
+    "shadow": {
+      "enabled": true,
+      "sprite": "shadow_medium",
+      "offset": [0, 0]
+    }
+  },
+  "animation": {
+    "enabled": false,
+    "type": "none",
+    "speed": 1.0,
+    "amplitude": 0.0
+  }
+}
