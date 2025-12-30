@@ -299,7 +299,8 @@ class WorldController:
                 screen_width=screen_width,
                 screen_height=screen_height,
                 zoom=self.camera_zoom,
-                movement_dir=movement_dir
+                movement_dir=movement_dir,
+                dt=dt
             )
         
         # Handle continuous mining if mouse is held down on decoration

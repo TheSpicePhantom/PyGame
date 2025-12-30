@@ -434,22 +434,31 @@ class WorldRenderer:
                     mod_id = deco_config.get('mod_id', 'core')
                     deco_data_dict = decoration_data.get('data', {})
                     
-                    # Determine current sprite based on state
+                    # Determine current sprite based on state (with Season/Growth support)
                     sprite_name = None
                     
-                    # Check for sprite_state (set during mining or stump phase)
-                    sprite_state = deco_data_dict.get('sprite_state')
-                    if sprite_state:
-                        # Use sprite_state if available (default, damaged_50, stump)
-                        sprite_name = deco_config['sprites'].get(sprite_state)
-                    
-                    # Fallback to harvestable state or default
-                    if not sprite_name:
-                        if decoration.is_harvestable():
-                            has_fruit = deco_data_dict.get('has_fruit', True)
-                            sprite_name = deco_config['sprites'].get('with_fruit' if has_fruit else 'without_fruit')
-                        else:
-                            sprite_name = deco_config['sprites'].get('default')
+                    # Try to use Season/Growth system if available
+                    try:
+                        from world.season_manager import SeasonManager
+                        from world.growth_manager import GrowthManager
+                        
+                        # Use new get_current_sprite() method with Season/Growth support
+                        sprite_name = decoration.get_current_sprite(SeasonManager, GrowthManager, deco_data_dict)
+                    except (ImportError, AttributeError):
+                        # Fallback to old system if SeasonManager/GrowthManager not available
+                        # Check for sprite_state (set during mining or stump phase)
+                        sprite_state = deco_data_dict.get('sprite_state')
+                        if sprite_state:
+                            # Use sprite_state if available (default, damaged_50, stump)
+                            sprite_name = deco_config['sprites'].get(sprite_state)
+                        
+                        # Fallback to harvestable state or default
+                        if not sprite_name:
+                            if decoration.is_harvestable():
+                                has_fruit = deco_data_dict.get('has_fruit', True)
+                                sprite_name = deco_config['sprites'].get('with_fruit' if has_fruit else 'without_fruit')
+                            else:
+                                sprite_name = deco_config['sprites'].get('default')
                     
                     # Fallback to color if texture not available
                     if not sprite_name:

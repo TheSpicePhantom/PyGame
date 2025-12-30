@@ -48,6 +48,22 @@ class World:
             if self.diagnostics:
                 self.diagnostics.warning("World", f"Failed to load tool mapping registry: {e}")
         
+        # Initialize SeasonManager and GrowthManager
+        try:
+            from world.season_manager import SeasonManager
+            from world.growth_manager import GrowthManager
+            
+            SeasonManager.set_diagnostics(self.diagnostics)
+            SeasonManager.load_all()
+            GrowthManager.set_diagnostics(self.diagnostics)
+            GrowthManager.initialize()
+            
+            if self.diagnostics:
+                self.diagnostics.info("World", "SeasonManager and GrowthManager initialized")
+        except Exception as e:
+            if self.diagnostics:
+                self.diagnostics.warning("World", f"Failed to initialize SeasonManager/GrowthManager: {e}")
+        
         # Initialize chunk manager (to check if world already exists)
         # We'll create a temporary terrain generator, then update it with the correct seed
         temp_terrain_gen = TerrainGenerator(seed=None)  # Temporary, will be replaced
@@ -65,6 +81,14 @@ class World:
         
         # Update chunk manager to use the correct terrain generator
         self.chunk_manager.terrain_gen = self.terrain_gen
+        
+        # Initialize SeasonManager for this world (after chunk_manager is ready)
+        try:
+            from world.season_manager import SeasonManager
+            SeasonManager.initialize_world(world_name, self.chunk_manager)
+        except Exception as e:
+            if self.diagnostics:
+                self.diagnostics.warning("World", f"Failed to initialize SeasonManager for world: {e}")
         
         if self.diagnostics:
             self.diagnostics.info("World", f"Terrain generator initialized with seed: {self.terrain_gen.seed}")
@@ -122,7 +146,7 @@ class World:
                 print(f"[World] ERROR: {error_msg}")
             raise ValueError(error_msg)
     
-    def update(self, player_pos, camera_pos=None, screen_width=None, screen_height=None, zoom=1.0, movement_dir=None):
+    def update(self, player_pos, camera_pos=None, screen_width=None, screen_height=None, zoom=1.0, movement_dir=None, dt=None):
         """
         Update world based on player and camera position (load/unload chunks)
         
@@ -133,6 +157,7 @@ class World:
             screen_height: Screen height in pixels. If None, uses settings.SCREEN_HEIGHT
             zoom: Camera zoom factor (default: 1.0)
             movement_dir: Optional movement direction tuple (dx, dy) for asymmetric chunk loading.
+            dt: Delta time in seconds (for season/growth updates). If None, uses default 1/120.
         """
         # Pre-load visible chunks on first update to prevent stuttering
         # Note: Pre-load is also done in WorldController.initialize_game(), so this is a fallback
@@ -161,6 +186,20 @@ class World:
         
         # Process chunks that finished loading in background threads
         self.chunk_manager.process_loaded_chunks(self.all_sprites, self.resource_sprites)
+        
+        # Update seasons and growth
+        try:
+            from world.season_manager import SeasonManager
+            from world.growth_manager import GrowthManager
+            
+            # Use provided dt or default to 1/120 (120 FPS)
+            update_dt = dt if dt is not None else (1.0 / 120.0)
+            
+            SeasonManager.update(update_dt)
+            GrowthManager.update_all(self, update_dt)
+        except Exception as e:
+            if self.diagnostics:
+                self.diagnostics.warning("World", f"Error updating seasons/growth: {e}")
     
     def draw(self, camera, renderer):
         """

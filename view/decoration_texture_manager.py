@@ -97,16 +97,28 @@ class DecorationTextureManager:
         
         # Try to load from file
         # Priority order:
-        # 1. assets/decorations/{mod_id}/{sprite_name}.png
-        # 2. assets/decorations/{sprite_name}.png (direct in base_path)
-        # 3. assets/decorations/{sprite_name}/{sprite_name}.png (fallback)
+        # 1. assets/decorations/{mod_id}/{sprite_name}.png (flat structure)
+        # 2. assets/decorations/{mod_id}/{season}/{sprite_name}.png (season subfolder, if sprite_name contains season prefix)
+        # 3. assets/decorations/{sprite_name}.png (direct in base_path)
+        # 4. assets/decorations/{sprite_name}/{sprite_name}.png (fallback)
         
         sprite_path = None
         search_paths = [
-            self.base_path / mod_id / f"{sprite_name}.png",  # mod_id folder
+            self.base_path / mod_id / f"{sprite_name}.png",  # mod_id folder (flat)
             self.base_path / f"{sprite_name}.png",  # Direct in base_path
             Path("assets/decorations") / f"{sprite_name}.png",  # Absolute fallback
         ]
+        
+        # Check if sprite_name contains season prefix (e.g., "spring_maple_1")
+        # If so, also try season subfolder structure
+        season_prefixes = ["spring", "summer", "autumn", "winter"]
+        for season in season_prefixes:
+            if sprite_name.startswith(f"{season}_"):
+                # Try season subfolder: assets/decorations/{mod_id}/{season}/{rest_of_name}.png
+                rest_of_name = sprite_name[len(season) + 1:]  # Remove "spring_" prefix
+                season_path = self.base_path / mod_id / season / f"{rest_of_name}.png"
+                search_paths.insert(1, season_path)  # Insert after flat structure, before direct base_path
+                break
         
         for path in search_paths:
             if path.exists():

@@ -262,3 +262,137 @@ class Decoration:
             'speed': 1.0,
             'amplitude': 0.0
         })
+    
+    def get_current_stage(self, tile_data: dict) -> int:
+        """
+        Get current growth stage (1-4).
+        
+        Args:
+            tile_data: Tile decoration data dictionary
+            
+        Returns:
+            Current growth stage (1-4) or default_stage if not set
+        """
+        growth_config = self.config.get('growth', {})
+        if not growth_config.get('enabled', False):
+            return growth_config.get('default_stage', 4)
+        
+        return tile_data.get('current_stage', growth_config.get('default_stage', 4))
+    
+    def get_health_percentage(self, tile_data: dict) -> float:
+        """
+        Get health percentage (1.0 = full health, 0.0 = destroyed).
+        
+        Args:
+            tile_data: Tile decoration data dictionary
+            
+        Returns:
+            Health percentage (0.0-1.0)
+        """
+        # Check if explicit health is stored
+        if 'health' in tile_data and 'max_health' in tile_data:
+            max_health = tile_data.get('max_health', 100)
+            if max_health > 0:
+                return min(tile_data.get('health', max_health) / max_health, 1.0)
+        
+        # Calculate from mining progress
+        mining_config = self.config.get('mining', {})
+        if not mining_config:
+            return 1.0
+        
+        elapsed_time = tile_data.get('elapsed_time', 0.0)
+        mining_time = mining_config.get('mining_time', 3.0)
+        hardness_multiplier = mining_config.get('hardness_multiplier', 1.0)
+        
+        # Calculate time_to_mine (simplified, actual calculation uses tool speed)
+        time_to_mine = mining_time * hardness_multiplier
+        
+        if time_to_mine <= 0:
+            return 1.0
+        
+        health_percent = 1.0 - (elapsed_time / time_to_mine)
+        return max(0.0, min(1.0, health_percent))
+    
+    def get_current_sprite(self, season_manager, growth_manager, tile_data: dict) -> str:
+        """
+        Get current sprite name based on Season + Stage + Damage + Snow.
+        
+        Args:
+            season_manager: SeasonManager class (for get_current_season, is_snowing)
+            growth_manager: GrowthManager class (not used directly, but passed for consistency)
+            tile_data: Tile decoration data dictionary
+            
+        Returns:
+            Sprite name string
+        """
+        # Check if seasons are enabled
+        seasons_config = self.config.get('seasons', {})
+        if not seasons_config.get('enabled', False):
+            # Fallback to old system
+            health_percent = self.get_health_percentage(tile_data)
+            return self._get_fallback_sprite(health_percent)
+        
+        # Get current season and stage
+        current_season = season_manager.get_current_season()
+        current_stage = self.get_current_stage(tile_data)
+        health_percent = self.get_health_percentage(tile_data)
+        is_snowy = season_manager.is_snowing() and current_season == "winter"
+        
+        # Get season config
+        season_config = seasons_config.get(current_season, {})
+        
+        # Choose growth stages (snowy or normal)
+        if is_snowy and 'growth_stages_snowy' in season_config:
+            growth_stages = season_config.get('growth_stages_snowy', {})
+        else:
+            growth_stages = season_config.get('growth_stages', {})
+        
+        # Get sprite for current stage
+        sprite_name = growth_stages.get(str(current_stage))
+        
+        # Override with damage sprite if damaged
+        if health_percent < 0.5:
+            if health_percent < 0.1:
+                # Stump
+                if is_snowy and 'stump_snowy' in season_config:
+                    sprite_name = season_config.get('stump_snowy', sprite_name)
+                else:
+                    sprite_name = season_config.get('stump', sprite_name)
+            else:
+                # Damaged (50%)
+                if is_snowy and 'damaged_sprites_snowy' in season_config:
+                    damaged_sprites = season_config.get('damaged_sprites_snowy', {})
+                    sprite_name = damaged_sprites.get('damaged_50', sprite_name)
+                else:
+                    damaged_sprites = season_config.get('damaged_sprites', {})
+                    sprite_name = damaged_sprites.get('damaged_50', sprite_name)
+        
+        # Fallback to default sprite if not found
+        if not sprite_name:
+            sprite_name = self.config.get('sprites', {}).get('default', 'default')
+        
+        return sprite_name
+    
+    def _get_fallback_sprite(self, health_percent: float) -> str:
+        """
+        Get fallback sprite using old system (for decorations without seasons).
+        
+        Args:
+            health_percent: Health percentage (1.0 = full, 0.0 = destroyed)
+            
+        Returns:
+            Sprite name
+        """
+        sprites = self.config.get('sprites', {})
+        
+        if health_percent > 0.5:
+            return sprites.get('default', 'default')
+        elif health_percent > 0.1:
+            return sprites.get('damaged_50', sprites.get('default', 'default'))
+        else:
+            return sprites.get('stump', sprites.get('default', 'default'))
+    
+    def has_growth(self) -> bool:
+        """Check if this decoration has growth enabled."""
+        growth_config = self.config.get('growth', {})
+        return growth_config.get('enabled', False)

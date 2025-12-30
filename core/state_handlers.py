@@ -168,10 +168,61 @@ class IngameStateHandler(StateHandler):
             self.game_app.change_state(GameState.INVENTORY)
             return None
         
-        # Global keys (F3, F5, F8)
-        if symbol == key.F3:
-            self.game_app.ui_controller.show_performance_stats = not self.game_app.ui_controller.show_performance_stats
-            print(f"[Performance] Stats display: {'ON' if self.game_app.ui_controller.show_performance_stats else 'OFF'}")
+        # Global keys (F1-F4: Season debug, F3: Performance, F5: Hot-reload, F8: Debug viz, T: Time-skip, G: Force-grow)
+        if symbol == key.F1:
+            # Debug: Force season to Spring
+            try:
+                from world.season_manager import SeasonManager
+                SeasonManager.force_season('spring')
+                print("[Debug] Forced season to: Spring")
+            except Exception as e:
+                print(f"[Debug] Failed to force season: {e}")
+        elif symbol == key.F2:
+            # Debug: Force season to Summer
+            try:
+                from world.season_manager import SeasonManager
+                SeasonManager.force_season('summer')
+                print("[Debug] Forced season to: Summer")
+            except Exception as e:
+                print(f"[Debug] Failed to force season: {e}")
+        elif symbol == key.F3:
+            if modifiers & key.MOD_SHIFT:
+                # Shift+F3: Force season to Autumn
+                try:
+                    from world.season_manager import SeasonManager
+                    SeasonManager.force_season('autumn')
+                    print("[Debug] Forced season to: Autumn")
+                except Exception as e:
+                    print(f"[Debug] Failed to force season: {e}")
+            else:
+                # F3: Toggle performance stats
+                self.game_app.ui_controller.show_performance_stats = not self.game_app.ui_controller.show_performance_stats
+                print(f"[Performance] Stats display: {'ON' if self.game_app.ui_controller.show_performance_stats else 'OFF'}")
+        elif symbol == key.F4:
+            # Debug: Force season to Winter
+            try:
+                from world.season_manager import SeasonManager
+                SeasonManager.force_season('winter')
+                print("[Debug] Forced season to: Winter")
+            except Exception as e:
+                print(f"[Debug] Failed to force season: {e}")
+        elif symbol == key.T:
+            # Debug: Time-skip (+1 day)
+            try:
+                from world.season_manager import SeasonManager
+                SeasonManager.skip_time(1.0)
+                print("[Debug] Skipped 1 day forward")
+            except Exception as e:
+                print(f"[Debug] Failed to skip time: {e}")
+        elif symbol == key.G:
+            # Debug: Force-grow all decorations
+            try:
+                from world.growth_manager import GrowthManager
+                if self.game_app.world_controller and self.game_app.world_controller.world:
+                    GrowthManager.force_grow_all(self.game_app.world_controller.world)
+                    print("[Debug] Force-grew all decorations")
+            except Exception as e:
+                print(f"[Debug] Failed to force-grow: {e}")
         elif symbol == key.F5:
             # Hot-reload decoration registry and item registry (dev mode)
             try:
@@ -192,6 +243,14 @@ class IngameStateHandler(StateHandler):
                 print("[ToolMappingRegistry] Reloaded all tool mapping data (F5)")
             except Exception as e:
                 print(f"[ToolMappingRegistry] Failed to reload: {e}")
+            
+            # Reload SeasonManager
+            try:
+                from world.season_manager import SeasonManager
+                SeasonManager.reload()
+                print("[SeasonManager] Reloaded all season data (F5)")
+            except Exception as e:
+                print(f"[SeasonManager] Failed to reload: {e}")
         elif symbol == key.F8:
             self.game_app.ui_controller.debug_visualization_mode = (self.game_app.ui_controller.debug_visualization_mode + 1) % 3
             modes = ["OFF", "Chunk Boundaries", "Chunk Boundaries + Tile Grids"]

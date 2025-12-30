@@ -34,6 +34,23 @@
       ]
     },
     {
+      "decoration_id": "maple_tree",
+      "density": 0.3,
+      "spawn_chance": 0.6,
+      "spawn_rules": [
+        {
+          "noise_range": [0.6, 0.9],
+          "density": 0.3,
+          "spawn_chance": 0.6
+        },
+        {
+          "noise_range": [0.9, 1.0],
+          "density": 0.5,
+          "spawn_chance": 0.8
+        }
+      ]
+    },
+    {
       "decoration_id": "tall_grass",
       "density": 0.6,
       "spawn_chance": 1.0,

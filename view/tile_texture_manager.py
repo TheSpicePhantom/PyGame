@@ -514,6 +514,180 @@ class TileTextureManager:
                     loaded_count += 1
                     self._log("debug", f"Loaded decoration texture: {atlas_name} ({sprite_img.size[0]}x{sprite_img.size[1]})")
             
+            # Load Season-Sprites if seasons are enabled
+            seasons_config = deco_config.get('seasons', {})
+            if seasons_config.get('enabled', False):
+                for season_name, season_data in seasons_config.items():
+                    if season_name in ['enabled', 'default_season', 'sprite_base_path']:
+                        continue
+                    
+                    # Load growth_stages sprites
+                    growth_stages = season_data.get('growth_stages', {})
+                    for stage_key, sprite_name in growth_stages.items():
+                        if not sprite_name:
+                            continue
+                        
+                        # Try to load sprite image
+                        sprite_paths = [
+                            decoration_base_path / mod_id / f"{sprite_name}.png",
+                            decoration_base_path / f"{sprite_name}.png",
+                            Path("assets/decorations") / mod_id / f"{sprite_name}.png",
+                            Path("assets/decorations") / f"{sprite_name}.png",
+                        ]
+                        
+                        sprite_img = None
+                        for path in sprite_paths:
+                            if path.exists():
+                                try:
+                                    sprite_img = Image.open(path).convert("RGBA")
+                                    break
+                                except Exception as e:
+                                    self._log("debug", f"Error loading season sprite {path}: {e}")
+                                    continue
+                        
+                        if sprite_img:
+                            atlas_name = f"decoration:{mod_id}/{sprite_name}"
+                            if atlas_name not in self.texture_images:  # Don't duplicate if already loaded
+                                self.texture_images[atlas_name] = sprite_img
+                                loaded_count += 1
+                                self._log("debug", f"Loaded season sprite: {atlas_name} ({sprite_img.size[0]}x{sprite_img.size[1]})")
+                    
+                    # Load growth_stages_snowy sprites (winter)
+                    growth_stages_snowy = season_data.get('growth_stages_snowy', {})
+                    for stage_key, sprite_name in growth_stages_snowy.items():
+                        if not sprite_name:
+                            continue
+                        
+                        sprite_paths = [
+                            decoration_base_path / mod_id / f"{sprite_name}.png",
+                            decoration_base_path / f"{sprite_name}.png",
+                            Path("assets/decorations") / mod_id / f"{sprite_name}.png",
+                            Path("assets/decorations") / f"{sprite_name}.png",
+                        ]
+                        
+                        sprite_img = None
+                        for path in sprite_paths:
+                            if path.exists():
+                                try:
+                                    sprite_img = Image.open(path).convert("RGBA")
+                                    break
+                                except Exception as e:
+                                    self._log("debug", f"Error loading snowy sprite {path}: {e}")
+                                    continue
+                        
+                        if sprite_img:
+                            atlas_name = f"decoration:{mod_id}/{sprite_name}"
+                            if atlas_name not in self.texture_images:
+                                self.texture_images[atlas_name] = sprite_img
+                                loaded_count += 1
+                                self._log("debug", f"Loaded snowy sprite: {atlas_name} ({sprite_img.size[0]}x{sprite_img.size[1]})")
+                    
+                    # Load damaged_sprites
+                    damaged_sprites = season_data.get('damaged_sprites', {})
+                    for damage_key, sprite_name in damaged_sprites.items():
+                        if not sprite_name:
+                            continue
+                        
+                        sprite_paths = [
+                            decoration_base_path / mod_id / f"{sprite_name}.png",
+                            decoration_base_path / f"{sprite_name}.png",
+                            Path("assets/decorations") / mod_id / f"{sprite_name}.png",
+                            Path("assets/decorations") / f"{sprite_name}.png",
+                        ]
+                        
+                        sprite_img = None
+                        for path in sprite_paths:
+                            if path.exists():
+                                try:
+                                    sprite_img = Image.open(path).convert("RGBA")
+                                    break
+                                except Exception as e:
+                                    continue
+                        
+                        if sprite_img:
+                            atlas_name = f"decoration:{mod_id}/{sprite_name}"
+                            if atlas_name not in self.texture_images:
+                                self.texture_images[atlas_name] = sprite_img
+                                loaded_count += 1
+                    
+                    # Load damaged_sprites_snowy
+                    damaged_sprites_snowy = season_data.get('damaged_sprites_snowy', {})
+                    for damage_key, sprite_name in damaged_sprites_snowy.items():
+                        if not sprite_name:
+                            continue
+                        
+                        sprite_paths = [
+                            decoration_base_path / mod_id / f"{sprite_name}.png",
+                            decoration_base_path / f"{sprite_name}.png",
+                            Path("assets/decorations") / mod_id / f"{sprite_name}.png",
+                            Path("assets/decorations") / f"{sprite_name}.png",
+                        ]
+                        
+                        sprite_img = None
+                        for path in sprite_paths:
+                            if path.exists():
+                                try:
+                                    sprite_img = Image.open(path).convert("RGBA")
+                                    break
+                                except Exception as e:
+                                    continue
+                        
+                        if sprite_img:
+                            atlas_name = f"decoration:{mod_id}/{sprite_name}"
+                            if atlas_name not in self.texture_images:
+                                self.texture_images[atlas_name] = sprite_img
+                                loaded_count += 1
+                    
+                    # Load stump sprites
+                    stump_sprite = season_data.get('stump')
+                    if stump_sprite:
+                        sprite_paths = [
+                            decoration_base_path / mod_id / f"{stump_sprite}.png",
+                            decoration_base_path / f"{stump_sprite}.png",
+                            Path("assets/decorations") / mod_id / f"{stump_sprite}.png",
+                            Path("assets/decorations") / f"{stump_sprite}.png",
+                        ]
+                        
+                        sprite_img = None
+                        for path in sprite_paths:
+                            if path.exists():
+                                try:
+                                    sprite_img = Image.open(path).convert("RGBA")
+                                    break
+                                except Exception as e:
+                                    continue
+                        
+                        if sprite_img:
+                            atlas_name = f"decoration:{mod_id}/{stump_sprite}"
+                            if atlas_name not in self.texture_images:
+                                self.texture_images[atlas_name] = sprite_img
+                                loaded_count += 1
+                    
+                    # Load stump_snowy
+                    stump_snowy = season_data.get('stump_snowy')
+                    if stump_snowy:
+                        sprite_paths = [
+                            decoration_base_path / mod_id / f"{stump_snowy}.png",
+                            decoration_base_path / f"{stump_snowy}.png",
+                            Path("assets/decorations") / mod_id / f"{stump_snowy}.png",
+                            Path("assets/decorations") / f"{stump_snowy}.png",
+                        ]
+                        
+                        sprite_img = None
+                        for path in sprite_paths:
+                            if path.exists():
+                                try:
+                                    sprite_img = Image.open(path).convert("RGBA")
+                                    break
+                                except Exception as e:
+                                    continue
+                        
+                        if sprite_img:
+                            atlas_name = f"decoration:{mod_id}/{stump_snowy}"
+                            if atlas_name not in self.texture_images:
+                                self.texture_images[atlas_name] = sprite_img
+                                loaded_count += 1
+            
             # Load shadow sprite if enabled
             rendering = deco_config.get('rendering', {})
             shadow = rendering.get('shadow', {})

@@ -29,6 +29,18 @@
           "spawn_chance": 1.0
         }
       ]
+    },
+    {
+      "decoration_id": "maple_tree",
+      "density": 0.2,
+      "spawn_chance": 0.4,
+      "spawn_rules": [
+        {
+          "noise_range": [0.5, 0.8],
+          "density": 0.2,
+          "spawn_chance": 0.4
+        }
+      ]
     }
   ],
   "ground_tiles": [

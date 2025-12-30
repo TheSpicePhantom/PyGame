@@ -1,0 +1,77 @@
+{
+  "seasons": {
+    "spring": {
+      "display_name": "Spring",
+      "duration_days": 20,
+      "order": 1,
+      "growth_speed_multiplier": 1.5,
+      "weather": {
+        "rain_chance": 0.3,
+        "snow_chance": 0.0,
+        "temperature_range": [10, 20]
+      },
+      "tint_color": [180, 255, 180, 50],
+      "ambient_sound": "spring_birds.ogg",
+      "day_night_ratio": 0.6,
+      "sunrise_time": 6.0,
+      "sunset_time": 20.0
+    },
+    "summer": {
+      "display_name": "Summer",
+      "duration_days": 20,
+      "order": 2,
+      "growth_speed_multiplier": 1.0,
+      "weather": {
+        "rain_chance": 0.15,
+        "snow_chance": 0.0,
+        "temperature_range": [20, 35]
+      },
+      "tint_color": [255, 255, 200, 30],
+      "ambient_sound": "summer_cicadas.ogg",
+      "day_night_ratio": 0.6,
+      "sunrise_time": 6.0,
+      "sunset_time": 20.0
+    },
+    "autumn": {
+      "display_name": "Autumn",
+      "duration_days": 20,
+      "order": 3,
+      "growth_speed_multiplier": 0.5,
+      "weather": {
+        "rain_chance": 0.25,
+        "snow_chance": 0.0,
+        "temperature_range": [5, 15]
+      },
+      "tint_color": [255, 200, 150, 40],
+      "ambient_sound": "autumn_wind.ogg",
+      "day_night_ratio": 0.5,
+      "sunrise_time": 7.0,
+      "sunset_time": 19.0
+    },
+    "winter": {
+      "display_name": "Winter",
+      "duration_days": 20,
+      "order": 4,
+      "growth_speed_multiplier": 0.0,
+      "weather": {
+        "rain_chance": 0.1,
+        "snow_chance": 0.5,
+        "temperature_range": [-10, 5]
+      },
+      "tint_color": [200, 220, 255, 60],
+      "ambient_sound": "winter_wind.ogg",
+      "day_night_ratio": 0.4,
+      "sunrise_time": 8.0,
+      "sunset_time": 16.0
+    }
+  },
+  "world_settings": {
+    "start_season": "summer",
+    "start_day": 1,
+    "day_length_seconds": 600,
+    "enable_season_transitions": true,
+    "transition_duration_days": 2,
+    "enable_snowy_variants": true,
+    "snowy_biomes": ["terrain:tundra", "terrain:mountain"]
+  }
+}

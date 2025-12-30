@@ -1093,9 +1093,59 @@ class TerrainGenerator:
                             
                             # Initialize harvestable-specific data
                             deco_registry_config = DecorationRegistry.get(decoration_id)
-                            if deco_registry_config and deco_registry_config.get('harvest', {}).get('enabled'):
-                                decoration_data['data']['has_fruit'] = True
-                                decoration_data['data']['growth_timer'] = 0.0
+                            if deco_registry_config:
+                                # Initialize harvestable data
+                                if deco_registry_config.get('harvest', {}).get('enabled'):
+                                    decoration_data['data']['has_fruit'] = True
+                                    decoration_data['data']['growth_timer'] = 0.0
+                                
+                                # Initialize growth stage if growth is enabled
+                                growth_config = deco_registry_config.get('growth', {})
+                                if growth_config.get('enabled', False):
+                                    placement_config = deco_registry_config.get('placement', {})
+                                    spawn_stage_mode = placement_config.get('spawn_stage', 'default')
+                                    
+                                    if spawn_stage_mode == 'random':
+                                        # Use weighted random selection
+                                        spawn_weights = placement_config.get('spawn_stage_weights', {})
+                                        if spawn_weights:
+                                            # Convert weights to list for random.choices
+                                            stages = []
+                                            weights = []
+                                            for stage_str, weight in spawn_weights.items():
+                                                try:
+                                                    stage = int(stage_str)
+                                                    stages.append(stage)
+                                                    weights.append(weight)
+                                                except ValueError:
+                                                    continue
+                                            
+                                            if stages and weights:
+                                                import random
+                                                selected_stage = random.choices(stages, weights=weights)[0]
+                                                decoration_data['data']['current_stage'] = selected_stage
+                                                
+                                                # Initialize health based on stage
+                                                stages_list = growth_config.get('stages', [])
+                                                for stage_config in stages_list:
+                                                    if stage_config.get('stage') == selected_stage:
+                                                        decoration_data['data']['health'] = stage_config.get('health', 100)
+                                                        decoration_data['data']['max_health'] = stage_config.get('health', 100)
+                                                        decoration_data['data']['growth_progress'] = 0.0
+                                                        break
+                                    else:
+                                        # Use default_stage
+                                        default_stage = growth_config.get('default_stage', 4)
+                                        decoration_data['data']['current_stage'] = default_stage
+                                        
+                                        # Initialize health based on stage
+                                        stages_list = growth_config.get('stages', [])
+                                        for stage_config in stages_list:
+                                            if stage_config.get('stage') == default_stage:
+                                                decoration_data['data']['health'] = stage_config.get('health', 100)
+                                                decoration_data['data']['max_health'] = stage_config.get('health', 100)
+                                                decoration_data['data']['growth_progress'] = 0.0
+                                                break
                             
                             tile['decoration'] = decoration_data
                             break  # Only spawn one decoration per tile
