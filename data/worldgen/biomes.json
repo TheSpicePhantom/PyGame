@@ -24,7 +24,7 @@
         50,
         100
       ],
-      "tile_id": "core:deepwater",
+      "tile_id": "core:water_deep",
       "traversable": false
     },
     "water:shallow": {
@@ -40,7 +40,7 @@
         120,
         200
       ],
-      "tile_id": "core:shallowwater",
+      "tile_id": "core:water_shallow",
       "traversable": false
     },
     "terrain:beach": {

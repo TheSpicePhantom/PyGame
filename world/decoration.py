@@ -317,6 +317,10 @@ class Decoration:
         """
         Get current sprite name based on Season + Stage + Damage + Snow.
         
+        DEPRECATED: This method has been moved to WorldRenderer._determine_sprite_name() for
+        centralization of rendering logic. This method is kept for backward compatibility
+        but should not be used in new code.
+        
         Args:
             season_manager: SeasonManager class (for get_current_season, is_snowing)
             growth_manager: GrowthManager class (not used directly, but passed for consistency)
@@ -330,7 +334,7 @@ class Decoration:
         if not seasons_config.get('enabled', False):
             # Fallback to old system
             health_percent = self.get_health_percentage(tile_data)
-            return self._get_fallback_sprite(health_percent)
+            return self._get_fallback_sprite(health_percent, tile_data)
         
         # Get current season and stage
         current_season = season_manager.get_current_season()
@@ -341,11 +345,35 @@ class Decoration:
         # Get season config
         season_config = seasons_config.get(current_season, {})
         
-        # Choose growth stages (snowy or normal)
-        if is_snowy and 'growth_stages_snowy' in season_config:
-            growth_stages = season_config.get('growth_stages_snowy', {})
+        # Check if harvestable and has fruit state
+        has_fruit = True  # Default to having fruit
+        if self.is_harvestable() and tile_data is not None:
+            has_fruit = tile_data.get('has_fruit', True)
+        
+        # Choose growth stages based on fruit state, snowy state, and season
+        growth_stages = None
+        
+        if is_snowy:
+            # Snowy variants
+            if has_fruit and 'growth_stages_snowy_with_fruit' in season_config:
+                growth_stages = season_config.get('growth_stages_snowy_with_fruit', {})
+            elif not has_fruit and 'growth_stages_snowy_without_fruit' in season_config:
+                growth_stages = season_config.get('growth_stages_snowy_without_fruit', {})
+            elif 'growth_stages_snowy' in season_config:
+                growth_stages = season_config.get('growth_stages_snowy', {})
         else:
-            growth_stages = season_config.get('growth_stages', {})
+            # Normal variants
+            if has_fruit and 'growth_stages_with_fruit' in season_config:
+                growth_stages = season_config.get('growth_stages_with_fruit', {})
+            elif not has_fruit and 'growth_stages_without_fruit' in season_config:
+                growth_stages = season_config.get('growth_stages_without_fruit', {})
+        
+        # Fallback to standard growth_stages if fruit variants not found
+        if not growth_stages:
+            if is_snowy and 'growth_stages_snowy' in season_config:
+                growth_stages = season_config.get('growth_stages_snowy', {})
+            else:
+                growth_stages = season_config.get('growth_stages', {})
         
         # Get sprite for current stage
         sprite_name = growth_stages.get(str(current_stage))
@@ -373,18 +401,33 @@ class Decoration:
         
         return sprite_name
     
-    def _get_fallback_sprite(self, health_percent: float) -> str:
+    def _get_fallback_sprite(self, health_percent: float, tile_data: dict = None) -> str:
         """
         Get fallback sprite using old system (for decorations without seasons).
         
         Args:
             health_percent: Health percentage (1.0 = full, 0.0 = destroyed)
+            tile_data: Optional tile decoration data dictionary (for harvestable items)
             
         Returns:
             Sprite name
         """
         sprites = self.config.get('sprites', {})
         
+        # Check if this is a harvestable decoration (like berry bushes)
+        if self.is_harvestable() and tile_data is not None:
+            has_fruit = tile_data.get('has_fruit', True)
+            if has_fruit:
+                sprite_name = sprites.get('with_fruit')
+            else:
+                sprite_name = sprites.get('without_fruit')
+            
+            # If sprite found, return it (unless damaged)
+            if sprite_name and health_percent > 0.1:
+                return sprite_name
+            # If damaged, fall through to damage sprites
+        
+        # Standard damage-based sprite selection
         if health_percent > 0.5:
             return sprites.get('default', 'default')
         elif health_percent > 0.1:

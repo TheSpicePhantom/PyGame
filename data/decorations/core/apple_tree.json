@@ -1,0 +1,226 @@
+{
+  "decoration_id": "apple_tree",
+  "display_name": "Apple Tree",
+  "mod_id": "core",
+  "tags": ["mineable", "decorative", "harvestable"],
+  "collision": {
+    "enabled": true,
+    "type": "rectangle",
+    "radius": 2
+  },
+  "health": 100,
+  "growth": {
+    "enabled": true,
+    "random_tick_chance": 0.1,
+    "growth_speed_variance": 0.15,
+    "stages": [
+      {
+        "stage": 1,
+        "name": "Apple Sapling",
+        "display_name": "Apple Sapling",
+        "growth_time": 0.0,
+        "health": 25,
+        "size_multiplier": 0.5,
+        "sprite_offset": [0, 0],
+        "collision_radius": 0.2,
+        "growth_speed_multiplier": 2.0
+      },
+      {
+        "stage": 2,
+        "name": "Young Apple Tree",
+        "display_name": "Young Apple Tree",
+        "growth_time": 300.0,
+        "health": 50,
+        "size_multiplier": 0.7,
+        "sprite_offset": [0, -4],
+        "collision_radius": 0.3,
+        "growth_speed_multiplier": 1.5
+      },
+      {
+        "stage": 3,
+        "name": "Mature Apple Tree",
+        "display_name": "Mature Apple Tree",
+        "growth_time": 600.0,
+        "health": 75,
+        "size_multiplier": 0.9,
+        "sprite_offset": [0, -6],
+        "collision_radius": 0.35,
+        "growth_speed_multiplier": 1.0
+      },
+      {
+        "stage": 4,
+        "name": "Fully Grown Apple Tree",
+        "display_name": "Fully Grown Apple Tree",
+        "growth_time": 900.0,
+        "health": 100,
+        "size_multiplier": 1.0,
+        "sprite_offset": [0, -8],
+        "collision_radius": 0.4,
+        "growth_speed_multiplier": 1.0
+      }
+    ],
+    "default_stage": 4,
+    "can_regrow": false,
+    "growth_requirements": {
+      "min_temperature": 5,
+      "seasons_allowed": ["spring", "summer", "autumn"],
+      "min_light_level": 0.3
+    }
+  },
+  "seasons": {
+    "enabled": true,
+    "default_season": "summer",
+    "sprite_base_path": "Apple",
+    "spring": {
+      "growth_stages": {
+        "1": "apple/spring/apple_1",
+        "2": "apple/spring/apple_2",
+        "3": "apple/spring/apple_3",
+        "4": "apple/spring/apple_4"
+      },
+      "growth_stages_with_fruit": {
+        "1": "apple/spring/apple_1",
+        "2": "apple/spring/apple_2",
+        "3": "apple/spring/apple_3",
+        "4": "apple/spring/apple_4"
+      },
+      "growth_stages_without_fruit": {
+        "1": "apple/spring/apple_1",
+        "2": "apple/spring/apple_2",
+        "3": "apple/spring/apple_3",
+        "4": "apple/spring/apple_4"
+      },
+      "damaged_sprites": {
+        "damaged_50": "apple/spring/apple_2"
+      },
+      "stump": "apple/spring/apple_stump"
+    },
+    "summer": {
+      "growth_stages": {
+        "1": "apple/summer/apple_1",
+        "2": "apple/summer/apple_2",
+        "3": "apple/summer/apple_3",
+        "4": "apple/summer/apple_4"
+      },
+      "growth_stages_with_fruit": {
+        "1": "apple/summer/apple_1",
+        "2": "apple/summer/apple_2",
+        "3": "apple/summer/apple_3",
+        "4": "apple/summer/apple_4_fruit"
+      },
+      "growth_stages_without_fruit": {
+        "1": "apple/summer/apple_1",
+        "2": "apple/summer/apple_2",
+        "3": "apple/summer/apple_3",
+        "4": "apple/summer/apple_4"
+      },
+      "damaged_sprites": {
+        "damaged_50": "apple/summer/apple_2"
+      },
+      "stump": "apple/summer/apple_stump"
+    },
+    "autumn": {
+      "growth_stages": {
+        "1": "apple/autumn/apple_1",
+        "2": "apple/autumn/apple_2",
+        "3": "apple/autumn/apple_3",
+        "4": "apple/autumn/apple_4"
+      },
+      "growth_stages_with_fruit": {
+        "1": "apple/autumn/apple_1",
+        "2": "apple/autumn/apple_2",
+        "3": "apple/autumn/apple_3",
+        "4": "apple/autumn/apple_4_fruit"
+      },
+      "growth_stages_without_fruit": {
+        "1": "apple/autumn/apple_1",
+        "2": "apple/autumn/apple_2",
+        "3": "apple/autumn/apple_3",
+        "4": "apple/autumn/apple_4"
+      },
+      "damaged_sprites": {
+        "damaged_50": "apple/autumn/apple_2"
+      },
+      "stump": "apple/autumn/apple_stump"
+    },
+    "winter": {
+      "growth_stages": {
+        "1": "apple/winter/apple_1",
+        "2": "apple/winter/apple_2",
+        "3": "apple/winter/apple_3",
+        "4": "apple/winter/apple_4"
+      },
+      "growth_stages_snowy": {
+        "1": "apple/winter/apple_1_snowy",
+        "2": "apple/winter/apple_2_snowy",
+        "3": "apple/winter/apple_3_snowy",
+        "4": "apple/winter/apple_4_snowy"
+      },
+      "damaged_sprites": {
+        "damaged_50": "apple/winter/apple_2"
+      },
+      "damaged_sprites_snowy": {
+        "damaged_50": "apple/winter/apple_2_snowy"
+      },
+      "stump": "apple/winter/apple_stump",
+      "stump_snowy": "apple/winter/apple_stump_snowy",
+      "snowy_chance": 0.5
+    }
+  },
+  "sprites": {
+    "default": "apple/summer/apple_1",
+    "damaged_50": "apple/summer/apple_2",
+    "stump": "apple/summer/apple_stump"
+  },
+  "mining": {
+    "tool_required": null,
+    "hardness": "wood",
+    "mining_time": 3.0,
+    "hardness_multiplier": 1.0,
+    "durability": 100,
+    "loot_table": "apple_tree_loot",
+    "particles": {
+      "hit": "wood_particle",
+      "break": "wood_break"
+    },
+    "stump_removal": {
+      "enabled": true,
+      "timer": 120.0,
+      "regrow_chance": 0.1
+    }
+  },
+  "placement": {
+    "valid_biomes": ["terrain:plains", "terrain:forest"],
+    "invalid_biomes": ["terrain:desert", "terrain:snow", "water:deep", "water:shallow"],
+    "stray_factor": 5,
+    "density": 0.1,
+    "noise_threshold": {
+      "min": 0.45,
+      "max": 1.0
+    },
+    "clustering": {
+      "enabled": false,
+      "cluster_size": 5,
+      "cluster_radius": 3,
+      "isolated_spawn_chance": 0.9
+    },
+    "spawn_stage": "random",
+    "spawn_stage_weights": {
+      "1": 0.1,
+      "2": 0.2,
+      "3": 0.3,
+      "4": 0.4
+    }
+  },
+  "rendering": {
+    "size": [80, 96],
+    "offset": [0, -40],
+    "layer": 10
+  },
+  "animation": {
+    "enabled": false,
+    "type": "none",
+    "speed": 1.0,
+    "amplitude": 0.0
+  }
+}

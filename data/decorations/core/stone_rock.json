@@ -25,11 +25,13 @@
     }
   },
   "placement": {
-    "biomes": ["terrain:rocky", "terrain:mountains"],
+    "valid_biomes": ["terrain:mountains"],
+    "invalid_biomes": ["water:deep", "water:shallow"],
+    "stray_factor": 1,
     "density": 0.4,
     "noise_threshold": {
-      "min": -1.0,
-      "max": -0.3
+      "min": 0.0,
+      "max": 0.5
     }
   },
   "rendering": {

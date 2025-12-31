@@ -14,6 +14,7 @@ class GrowthManager:
     _time_since_update: float = 0.0
     _initialized: bool = False
     _diagnostics = None
+    _world_controller = None  # Reference to world_controller for cache invalidation
     
     # Random-Tick-System (Minecraft-Style)
     # Pro Update-Intervall werden nur zufällig ausgewählte Decorations aktualisiert
@@ -24,6 +25,11 @@ class GrowthManager:
     def set_diagnostics(cls, diagnostics_service):
         """Set diagnostics service for logging."""
         cls._diagnostics = diagnostics_service
+    
+    @classmethod
+    def set_world_controller(cls, world_controller):
+        """Set world controller for cache invalidation."""
+        cls._world_controller = world_controller
     
     @classmethod
     def _log(cls, level: str, message: str):
@@ -106,18 +112,18 @@ class GrowthManager:
                     # Collect growable decorations
                     if decoration.has_growth():
                         deco_data = decoration_data.get('data', {})
-                        growable_decorations.append((decoration, deco_data, tile))
+                        growable_decorations.append((decoration, deco_data, tile, chunk.chunk_x, chunk.chunk_y))
                     
                     # Collect stump decorations (always update, no random tick)
                     deco_data = decoration_data.get('data', {})
                     if deco_data.get('is_stump', False):
-                        stump_decorations.append((decoration, deco_data, tile))
+                        stump_decorations.append((decoration, deco_data, tile, chunk.chunk_x, chunk.chunk_y))
         
         # Random-Tick-System: Nur zufällig ausgewählte Decorations werden aktualisiert
         updated_count = 0
         ticked_count = 0
         
-        for decoration, deco_data, tile in growable_decorations:
+        for decoration, deco_data, tile, chunk_x, chunk_y in growable_decorations:
             # Random tick chance (Minecraft-Style)
             # Jede Decoration hat eine zufällige Chance, in diesem Update getickt zu werden
             growth_config = decoration.config.get('growth', {})
@@ -125,19 +131,19 @@ class GrowthManager:
             
             if random.random() < random_tick_chance:
                 # This decoration gets a random tick - update its growth
-                cls.update_growth(decoration, deco_data, accumulated_dt, tile)
+                cls.update_growth(decoration, deco_data, accumulated_dt, tile, chunk_x, chunk_y)
                 ticked_count += 1
                 updated_count += 1
         
         # Always update stump removal (not random)
-        for decoration, deco_data, tile in stump_decorations:
+        for decoration, deco_data, tile, chunk_x, chunk_y in stump_decorations:
             cls.update_stump_removal(decoration, deco_data, accumulated_dt, tile)
         
         if ticked_count > 0:
             cls._log("debug", f"Random-ticked {ticked_count} of {len(growable_decorations)} growable decorations")
     
     @classmethod
-    def update_growth(cls, decoration, tile_data: dict, dt: float, tile: dict):
+    def update_growth(cls, decoration, tile_data: dict, dt: float, tile: dict, chunk_x: int = None, chunk_y: int = None):
         """
         Update growth progress for a decoration.
         
@@ -146,6 +152,8 @@ class GrowthManager:
             tile_data: Tile decoration data dictionary
             dt: Delta time in seconds
             tile: Tile dictionary (for updating collision)
+            chunk_x: Optional chunk X coordinate for cache invalidation
+            chunk_y: Optional chunk Y coordinate for cache invalidation
         """
         growth_config = decoration.config.get('growth', {})
         if not growth_config.get('enabled', False):
@@ -222,7 +230,7 @@ class GrowthManager:
         # Check if ready to advance
         growth_time = next_stage_config.get('growth_time', 0.0)
         if growth_progress >= growth_time:
-            cls.advance_stage(decoration, tile_data, tile)
+            cls.advance_stage(decoration, tile_data, tile, chunk_x, chunk_y)
     
     @classmethod
     def can_grow(cls, decoration, tile_data: dict, season: str) -> bool:
@@ -269,7 +277,7 @@ class GrowthManager:
         return True
     
     @classmethod
-    def advance_stage(cls, decoration, tile_data: dict, tile: dict):
+    def advance_stage(cls, decoration, tile_data: dict, tile: dict, chunk_x: int = None, chunk_y: int = None):
         """
         Advance decoration to next growth stage.
         
@@ -277,6 +285,8 @@ class GrowthManager:
             decoration: Decoration instance
             tile_data: Tile decoration data dictionary
             tile: Tile dictionary (for updating collision)
+            chunk_x: Optional chunk X coordinate for cache invalidation
+            chunk_y: Optional chunk Y coordinate for cache invalidation
         """
         growth_config = decoration.config.get('growth', {})
         stages = growth_config.get('stages', [])
@@ -317,6 +327,19 @@ class GrowthManager:
         # ParticleManager.spawn('growth_sparkle', tile.x, tile.y, count=10)
         
         cls._log("debug", f"Decoration {decoration.decoration_id} advanced to stage {next_stage}")
+        
+        # Invalidiere Decoration-Cache für diesen Chunk (wenn Chunk-Koordinaten verfügbar)
+        if chunk_x is not None and chunk_y is not None:
+            # Versuche world_renderer über world_controller zu erreichen
+            # GrowthManager hat keinen direkten Zugriff, daher überprüfen wir verschiedene Wege
+            try:
+                # Versuche über world_controller (falls verfügbar)
+                if hasattr(cls, '_world_controller') and cls._world_controller:
+                    if hasattr(cls._world_controller, 'world_renderer') and cls._world_controller.world_renderer:
+                        cls._world_controller.world_renderer.invalidate_decoration_cache(chunk_x, chunk_y)
+                        cls._world_controller.world_renderer.mark_decoration_chunk_dirty(chunk_x, chunk_y)
+            except Exception:
+                pass  # Ignore errors if world_controller not available
     
     @classmethod
     def update_stump_removal(cls, decoration, tile_data: dict, dt: float, tile: dict):

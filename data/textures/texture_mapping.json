@@ -107,11 +107,11 @@
       "base_path": "assets/tiles"
     },
     "water:shallow": {
-      "base_texture": "shallow",
+      "base_texture": "water_shallow",
       "base_path": "assets/tiles"
     },
     "water:deep": {
-      "base_texture": "deep",
+      "base_texture": "water_deep",
       "base_path": "assets/tiles"
     }
   }

@@ -735,38 +735,60 @@ class ModernGLRenderer:
                     self.chunk_program['tile_texture'].value = 0
         
         upload_start_time = time.perf_counter()
-        new_chunks_uploaded = 0
         
-        # Pro Chunk: ggf. Buffer neu aufbauen und einmal drawen
-        for chunk_x, chunk_y, tiles in chunks_data:
-            chunk_key = (chunk_x, chunk_y)
-            is_dirty = chunk_key in self.chunk_dirty or chunk_key not in self.chunk_buffers
-            
-            # Upload-Budget begrenzen
-            if is_dirty and new_chunks_uploaded >= max_new_chunks_per_frame:
-                # Noch nicht im GPU-Cache? Dann diesen Chunk in diesem Frame überspringen
-                if chunk_key not in self.chunk_buffers:
-                    skipped_chunks.append(chunk_key)
-                    continue
-                # Im Cache aber dirty? Mit altem Buffer rendern (ohne Upload)
-                if chunk_key in self.chunk_buffers:
-                    vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
-                    if vao and vertex_count > 0:
-                        # Atlas is already bound above, just render
-                        vao.render(moderngl.TRIANGLES, vertices=vertex_count)
-                        rendered_chunks.append(chunk_key)
-                    continue
-            
-            # Normaler Pfad: Buffer erstellen/aktualisieren
-            vbo, vao, vertex_count = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
-            if is_dirty:
-                new_chunks_uploaded += 1
-                uploaded_chunks.append(chunk_key)
-            
-            if vao and vertex_count > 0:
-                # Atlas is already bound above, just render
-                vao.render(moderngl.TRIANGLES, vertices=vertex_count)
-                rendered_chunks.append(chunk_key)
+        # TEMPORARY: Disable merged buffer rendering until bug is fixed
+        # Use merged buffer for batched rendering (single draw call for all chunks)
+        # This reduces draw calls from N (one per chunk) to 1 (all chunks in one call)
+        use_merged_buffer = False  # Disabled until bug is fixed
+        
+        if use_merged_buffer:
+            try:
+                # Build or update merged chunk buffer (handles incremental updates automatically)
+                self._build_merged_chunk_buffer(chunks_data)
+                
+                # Render all chunks in a single draw call using merged buffer
+                if self._merged_chunk_vao is not None and self._merged_chunk_vertex_count > 0:
+                    # Atlas is already bound above, just render all chunks at once
+                    self._merged_chunk_vao.render(moderngl.TRIANGLES, vertices=self._merged_chunk_vertex_count)
+                    rendered_chunks = [(cx, cy) for cx, cy, _ in chunks_data]
+            except Exception as e:
+                # Fallback to per-chunk rendering if merged buffer fails
+                if self.diagnostics:
+                    self.diagnostics.warning("ModernGLRenderer", f"Merged buffer rendering failed, falling back to per-chunk: {e}")
+                
+                # Fallback: per-chunk rendering (old method)
+                use_merged_buffer = False
+        
+        if not use_merged_buffer:
+            # Fallback: per-chunk rendering (old method)
+            new_chunks_uploaded = 0
+            for chunk_x, chunk_y, tiles in chunks_data:
+                chunk_key = (chunk_x, chunk_y)
+                is_dirty = chunk_key in self.chunk_dirty or chunk_key not in self.chunk_buffers
+                
+                # Upload-Budget begrenzen
+                if is_dirty and new_chunks_uploaded >= max_new_chunks_per_frame:
+                    # Noch nicht im GPU-Cache? Dann diesen Chunk in diesem Frame überspringen
+                    if chunk_key not in self.chunk_buffers:
+                        skipped_chunks.append(chunk_key)
+                        continue
+                    # Im Cache aber dirty? Mit altem Buffer rendern (ohne Upload)
+                    if chunk_key in self.chunk_buffers:
+                        vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
+                        if vao and vertex_count > 0:
+                            vao.render(moderngl.TRIANGLES, vertices=vertex_count)
+                            rendered_chunks.append(chunk_key)
+                        continue
+                
+                # Normaler Pfad: Buffer erstellen/aktualisieren
+                vbo, vao, vertex_count = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
+                if is_dirty:
+                    new_chunks_uploaded += 1
+                    uploaded_chunks.append(chunk_key)
+                
+                if vao and vertex_count > 0:
+                    vao.render(moderngl.TRIANGLES, vertices=vertex_count)
+                    rendered_chunks.append(chunk_key)
         
         upload_time = time.perf_counter() - upload_start_time
         if performance_monitor:
@@ -821,8 +843,13 @@ class ModernGLRenderer:
         chunk_keys = tuple(sorted(chunk_keys_set))
         chunks_hash = hash(chunk_keys)
         
-        # Reuse existing merged buffer if chunks haven't changed
-        if self._merged_chunks_hash == chunks_hash and self._merged_chunk_vbo is not None:
+        # Check if we need to update: either chunks changed or some are dirty
+        chunks_changed = self._merged_chunks_hash != chunks_hash
+        has_dirty_chunks = bool(self.chunk_dirty)
+        
+        # Reuse existing merged buffer if chunks haven't changed AND no chunks are dirty
+        # BUT: Always rebuild if chunks changed (new chunks need to be written)
+        if not chunks_changed and not has_dirty_chunks and self._merged_chunk_vbo is not None:
             return
         
         # Initialize buffer if it doesn't exist
@@ -850,7 +877,26 @@ class ModernGLRenderer:
         tile_size = float(settings.TILE_SIZE)
         total_vertex_count = 0
         
+        # If chunks changed, we need to write ALL chunks (not just new/dirty ones)
+        # because the buffer layout might have changed
+        if chunks_changed:
+            # Write all chunks when chunk set changes
+            chunks_to_process = chunk_keys_set
+        else:
+            # Only update chunks that are new or dirty (optimization: skip unchanged chunks)
+            chunks_to_process = chunks_to_add | (chunks_to_update & self.chunk_dirty) if has_dirty_chunks else chunks_to_add | chunks_to_update
+        
         for chunk_key in new_chunk_order:
+            # Skip chunks that don't need updating (only if chunks haven't changed)
+            if not chunks_changed and chunk_key not in chunks_to_process and chunk_key in current_chunks_set:
+                # Reuse existing vertex count for unchanged chunks
+                # We need to calculate it from the chunk data to maintain total_vertex_count
+                chunk_data = next((c for c in chunks_data if (c[0], c[1]) == chunk_key), None)
+                if chunk_data:
+                    _, _, tiles = chunk_data
+                    # Calculate vertex count (chunk_size * chunk_size * 6 vertices per tile)
+                    total_vertex_count += chunk_size * chunk_size * 6
+                continue
             # Find chunk data
             chunk_data = next((c for c in chunks_data if (c[0], c[1]) == chunk_key), None)
             if not chunk_data:
@@ -964,6 +1010,10 @@ class ModernGLRenderer:
         self._merged_chunk_order = new_chunk_order
         self._merged_chunk_vertex_count = total_vertex_count
         self._merged_chunks_hash = chunks_hash
+        
+        # Clear dirty flags for chunks that were updated
+        if has_dirty_chunks:
+            self.chunk_dirty.clear()
     
     def _render_test_quad_ndc(self):
         """Render a test quad directly in NDC coordinates (bypasses all transformations)"""

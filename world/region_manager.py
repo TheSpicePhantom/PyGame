@@ -194,6 +194,9 @@ class RegionManager:
         """
         from world.world_utils import get_world_save_dir
         from core import settings
+        
+        # Compression level (1-9, default 6 for balance between speed and size)
+        self.compression_level = getattr(settings, 'CHUNK_COMPRESSION_LEVEL', 6)
         self.world_name = world_name
         self.auto_repair_corrupted = auto_repair_corrupted
         self.backup_corrupted = backup_corrupted
@@ -372,6 +375,26 @@ class RegionManager:
             else:
                 print(f"[RegionManager] Failed to create new region file ({region_x}, {region_y}): {e}")
             return False
+    
+    async def _initialize_region_file(self, region_x: int, region_y: int):
+        """
+        Initialize a new region file with empty header (all slots marked as empty).
+        This prevents empty header errors when chunks are saved.
+        
+        Args:
+            region_x: Region X coordinate
+            region_y: Region Y coordinate
+        """
+        region_file = self._get_region_filename(region_x, region_y)
+        
+        # Create directory if needed
+        region_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Use existing _create_new_region_file method (run in thread pool for async)
+        result = await asyncio.to_thread(self._create_new_region_file, region_x, region_y)
+        
+        if not result:
+            raise RegionFileError(f"Failed to initialize region file ({region_x}, {region_y})")
     
     def _get_region_file_handle(self, region_x: int, region_y: int, create_if_missing: bool = False, _lock_held: bool = False) -> Optional[object]:
         """
@@ -1362,8 +1385,8 @@ class RegionManager:
                 
                 # Validate size
                 if actual_size == 0:
-                    raise ChunkCorruptedError(
-                        f"Chunk ({chunk_x}, {chunk_y}) corrupted: length is 0 (empty slot)"
+                    raise ChunkNotFoundError(
+                        f"Chunk ({chunk_x}, {chunk_y}) not found: empty slot (chunk not yet saved)"
                     )
                 
                 if actual_size > self.MAX_CHUNK_DATA_SIZE:
@@ -1469,6 +1492,11 @@ class RegionManager:
         
         region_file = self._get_region_filename(region_x, region_y)
         
+        # Ensure region header exists (pre-initialize if needed)
+        if not region_file.exists():
+            # Create region file with initialized header (all empty slots)
+            await self._initialize_region_file(region_x, region_y)
+        
         # Compress chunk data based on configured compression type (CPU-bound, run in thread pool)
         def _compress():
             if self.compression_type == self.COMPRESSION_LZ4:
@@ -1476,7 +1504,7 @@ class RegionManager:
                 return lz4.frame.compress(chunk_data, compression_level=lz4.frame.COMPRESSIONLEVEL_MINHC), self.COMPRESSION_LZ4
             else:
                 # Zlib compression: default, good compression ratio
-                return zlib.compress(chunk_data, level=1), self.COMPRESSION_ZLIB  # Fast compression for better performance
+                return zlib.compress(chunk_data, level=self.compression_level), self.COMPRESSION_ZLIB
         
         compressed_data, compression_type = await asyncio.to_thread(_compress)
         
@@ -1731,7 +1759,7 @@ class RegionManager:
                     if self.compression_type == self.COMPRESSION_LZ4:
                         compressed_data = lz4.frame.compress(chunk_info['data'], compression_level=lz4.frame.COMPRESSIONLEVEL_MINHC)
                     else:
-                        compressed_data = zlib.compress(chunk_info['data'], level=1)
+                        compressed_data = zlib.compress(chunk_info['data'], level=self.compression_level)
                     
                     # Validate size
                     if len(compressed_data) > self.MAX_CHUNK_DATA_SIZE:

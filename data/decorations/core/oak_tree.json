@@ -27,8 +27,10 @@
     }
   },
   "placement": {
-    "biomes": ["terrain:forest"],
-    "density": 0.5,
+    "valid_biomes": ["terrain:forest"],
+    "invalid_biomes": ["terrain:desert", "terrain:snow", "water:deep", "water:shallow"],
+    "stray_factor": 2,
+    "density": 0.05,
     "noise_threshold": {
       "min": 0.6,
       "max": 1.0
@@ -41,7 +43,8 @@
   },
   "rendering": {
     "size": [48, 64],
-    "offset": [0, -8],
+    "offset": [0, -16],
+    "bounding_box": [24, 48],
     "layer": 10,
     "shadow": {
       "enabled": true,

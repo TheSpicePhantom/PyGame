@@ -47,6 +47,7 @@ class PerformanceAnalyzer:
             'chunk_migrated_legacy': self._analyze_chunk_migrated_legacy(),
             'region_file_performance': self._analyze_region_file_performance(),
             'movement': self._analyze_movement(),
+            'ui_performance': self._analyze_ui_performance(),
             'insights': []
         }
         
@@ -467,6 +468,26 @@ class PerformanceAnalyzer:
             'total_regions_tracked': total_tracked,
             'fastest_5': fastest_5,
             'slowest_5': slowest_5,
+        }
+    
+    def _analyze_ui_performance(self) -> Dict:
+        """Analysiert UI-Performance"""
+        stats = self.data.get('stats', {})
+        ui_stats = stats.get('ui_performance', {})
+        
+        if not ui_stats:
+            return {
+                'world_render_times': None,
+                'debug_render_times': None,
+                'ui_render_times': None,
+                'stats_overlay_times': None,
+            }
+        
+        return {
+            'world_render_times': ui_stats.get('world_render_times', {}),
+            'debug_render_times': ui_stats.get('debug_render_times', {}),
+            'ui_render_times': ui_stats.get('ui_render_times', {}),
+            'stats_overlay_times': ui_stats.get('stats_overlay_times', {}),
         }
     
     def _analyze_movement(self) -> Dict:
@@ -910,6 +931,69 @@ class PerformanceAnalyzer:
             print(f"  Durchschnitt: {render_stats['avg']:>8.2f}")
             print(f"  Median:   {render_stats['median']:>8.2f}")
         
+        # Decoration Performance
+        if 'decoration_collect_times' in stats and stats['decoration_collect_times'].get('avg', 0) > 0:
+            print(f"\n{'=' * 80}")
+            print("DECORATION PERFORMANCE")
+            print(f"{'=' * 80}")
+            
+            collect_stats = stats.get('decoration_collect_times', {})
+            sprite_stats = stats.get('decoration_sprite_times', {})
+            vertex_stats = stats.get('decoration_vertex_times', {})
+            vbo_stats = stats.get('decoration_vbo_times', {})
+            render_stats = stats.get('decoration_render_times', {})
+            count_stats = stats.get('decoration_counts', {})
+            
+            print(f"\nSammeln von Dekorationen (ms):")
+            print(f"  Minimum:  {collect_stats.get('min', 0):>8.2f}")
+            print(f"  Maximum:  {collect_stats.get('max', 0):>8.2f}")
+            print(f"  Durchschnitt: {collect_stats.get('avg', 0):>8.2f}")
+            print(f"  Median:   {collect_stats.get('median', 0):>8.2f}")
+            
+            if sprite_stats.get('avg', 0) > 0:
+                print(f"\nSprite-Name-Bestimmung (ms):")
+                print(f"  Minimum:  {sprite_stats.get('min', 0):>8.2f}")
+                print(f"  Maximum:  {sprite_stats.get('max', 0):>8.2f}")
+                print(f"  Durchschnitt: {sprite_stats.get('avg', 0):>8.2f}")
+                print(f"  Median:   {sprite_stats.get('median', 0):>8.2f}")
+            
+            if vertex_stats.get('avg', 0) > 0:
+                print(f"\nVertex-Erstellung (ms):")
+                print(f"  Minimum:  {vertex_stats.get('min', 0):>8.2f}")
+                print(f"  Maximum:  {vertex_stats.get('max', 0):>8.2f}")
+                print(f"  Durchschnitt: {vertex_stats.get('avg', 0):>8.2f}")
+                print(f"  Median:   {vertex_stats.get('median', 0):>8.2f}")
+            
+            if vbo_stats.get('avg', 0) > 0:
+                print(f"\nVBO-Update/Erstellung (ms):")
+                print(f"  Minimum:  {vbo_stats.get('min', 0):>8.2f}")
+                print(f"  Maximum:  {vbo_stats.get('max', 0):>8.2f}")
+                print(f"  Durchschnitt: {vbo_stats.get('avg', 0):>8.2f}")
+                print(f"  Median:   {vbo_stats.get('median', 0):>8.2f}")
+            
+            if render_stats.get('avg', 0) > 0:
+                print(f"\nGPU-Rendering (ms):")
+                print(f"  Minimum:  {render_stats.get('min', 0):>8.2f}")
+                print(f"  Maximum:  {render_stats.get('max', 0):>8.2f}")
+                print(f"  Durchschnitt: {render_stats.get('avg', 0):>8.2f}")
+                print(f"  Median:   {render_stats.get('median', 0):>8.2f}")
+            
+            if count_stats.get('avg', 0) > 0:
+                print(f"\nAnzahl Dekorationen pro Frame:")
+                print(f"  Minimum:  {count_stats.get('min', 0):>8.0f}")
+                print(f"  Maximum:  {count_stats.get('max', 0):>8.0f}")
+                print(f"  Durchschnitt: {count_stats.get('avg', 0):>8.1f}")
+                print(f"  Median:   {count_stats.get('median', 0):>8.1f}")
+            
+            # Gesamtzeit berechnen
+            total_avg = (collect_stats.get('avg', 0) + 
+                        sprite_stats.get('avg', 0) + 
+                        vertex_stats.get('avg', 0) + 
+                        vbo_stats.get('avg', 0) + 
+                        render_stats.get('avg', 0))
+            print(f"\nGesamtzeit Dekorationen (ms):")
+            print(f"  Durchschnitt: {total_avg:>8.2f}")
+        
         # Region File Performance (Fastest & Slowest 5)
         region_file_perf = analysis['region_file_performance']
         if region_file_perf['total_regions_tracked'] > 0:
@@ -953,6 +1037,45 @@ class PerformanceAnalyzer:
             
             print(f"\nHohe Delay Events (>33ms): {movement['high_delay_count']} ({movement['high_delay_percent']:.1f}%)")
             print(f"Movement-Rate: {movement['events_per_second']:.1f} Events/Sekunde")
+        
+        # UI Performance
+        ui_perf = analysis.get('ui_performance', {})
+        if ui_perf.get('world_render_times') or ui_perf.get('ui_render_times'):
+            print(f"\n{'=' * 80}")
+            print("UI PERFORMANCE")
+            print(f"{'=' * 80}")
+            
+            if ui_perf.get('world_render_times'):
+                world_stats = ui_perf['world_render_times']
+                print(f"\nWorld-Rendering (ms):")
+                print(f"  Minimum:  {world_stats.get('min', 0):>8.2f}")
+                print(f"  Maximum:  {world_stats.get('max', 0):>8.2f}")
+                print(f"  Durchschnitt: {world_stats.get('avg', 0):>8.2f}")
+                print(f"  Median:   {world_stats.get('median', 0):>8.2f}")
+            
+            if ui_perf.get('debug_render_times') and ui_perf['debug_render_times'].get('avg', 0) > 0:
+                debug_stats = ui_perf['debug_render_times']
+                print(f"\nDebug-Visualisierung (ms):")
+                print(f"  Minimum:  {debug_stats.get('min', 0):>8.2f}")
+                print(f"  Maximum:  {debug_stats.get('max', 0):>8.2f}")
+                print(f"  Durchschnitt: {debug_stats.get('avg', 0):>8.2f}")
+                print(f"  Median:   {debug_stats.get('median', 0):>8.2f}")
+            
+            if ui_perf.get('ui_render_times'):
+                ui_stats = ui_perf['ui_render_times']
+                print(f"\nUI-Rendering (ms):")
+                print(f"  Minimum:  {ui_stats.get('min', 0):>8.2f}")
+                print(f"  Maximum:  {ui_stats.get('max', 0):>8.2f}")
+                print(f"  Durchschnitt: {ui_stats.get('avg', 0):>8.2f}")
+                print(f"  Median:   {ui_stats.get('median', 0):>8.2f}")
+            
+            if ui_perf.get('stats_overlay_times'):
+                stats_stats = ui_perf['stats_overlay_times']
+                print(f"\nPerformance-Stats-Overlay (ms):")
+                print(f"  Minimum:  {stats_stats.get('min', 0):>8.2f}")
+                print(f"  Maximum:  {stats_stats.get('max', 0):>8.2f}")
+                print(f"  Durchschnitt: {stats_stats.get('avg', 0):>8.2f}")
+                print(f"  Median:   {stats_stats.get('median', 0):>8.2f}")
         
         # Insights
         print(f"\n{'=' * 80}")

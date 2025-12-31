@@ -175,6 +175,9 @@ class IngameStateHandler(StateHandler):
                 from world.season_manager import SeasonManager
                 SeasonManager.force_season('spring')
                 print("[Debug] Forced season to: Spring")
+                # Invalidate all decoration VBOs to force sprite update
+                if self.game_app.world_controller and self.game_app.world_controller.world_renderer:
+                    self.game_app.world_controller.world_renderer.mark_all_decoration_chunks_dirty()
             except Exception as e:
                 print(f"[Debug] Failed to force season: {e}")
         elif symbol == key.F2:
@@ -183,6 +186,9 @@ class IngameStateHandler(StateHandler):
                 from world.season_manager import SeasonManager
                 SeasonManager.force_season('summer')
                 print("[Debug] Forced season to: Summer")
+                # Invalidate all decoration VBOs to force sprite update
+                if self.game_app.world_controller and self.game_app.world_controller.world_renderer:
+                    self.game_app.world_controller.world_renderer.mark_all_decoration_chunks_dirty()
             except Exception as e:
                 print(f"[Debug] Failed to force season: {e}")
         elif symbol == key.F3:
@@ -192,6 +198,9 @@ class IngameStateHandler(StateHandler):
                     from world.season_manager import SeasonManager
                     SeasonManager.force_season('autumn')
                     print("[Debug] Forced season to: Autumn")
+                    # Invalidate all decoration VBOs to force sprite update
+                    if self.game_app.world_controller and self.game_app.world_controller.world_renderer:
+                        self.game_app.world_controller.world_renderer.mark_all_decoration_chunks_dirty()
                 except Exception as e:
                     print(f"[Debug] Failed to force season: {e}")
             else:
@@ -204,14 +213,22 @@ class IngameStateHandler(StateHandler):
                 from world.season_manager import SeasonManager
                 SeasonManager.force_season('winter')
                 print("[Debug] Forced season to: Winter")
+                # Invalidate all decoration VBOs to force sprite update
+                if self.game_app.world_controller and self.game_app.world_controller.world_renderer:
+                    self.game_app.world_controller.world_renderer.mark_all_decoration_chunks_dirty()
             except Exception as e:
                 print(f"[Debug] Failed to force season: {e}")
         elif symbol == key.T:
             # Debug: Time-skip (+1 day)
             try:
                 from world.season_manager import SeasonManager
-                SeasonManager.skip_time(1.0)
+                season_changed = SeasonManager.skip_time(1.0)
                 print("[Debug] Skipped 1 day forward")
+                # If season changed, invalidate all decoration VBOs to force sprite update
+                if season_changed:
+                    if self.game_app.world_controller and self.game_app.world_controller.world_renderer:
+                        self.game_app.world_controller.world_renderer.mark_all_decoration_chunks_dirty()
+                        print("[Debug] Season changed, invalidated decoration VBOs")
             except Exception as e:
                 print(f"[Debug] Failed to skip time: {e}")
         elif symbol == key.G:
@@ -251,6 +268,11 @@ class IngameStateHandler(StateHandler):
                 print("[SeasonManager] Reloaded all season data (F5)")
             except Exception as e:
                 print(f"[SeasonManager] Failed to reload: {e}")
+        elif symbol == key.F6:
+            # Debug: Force invalidate all decoration caches
+            if self.game_app.world_controller and self.game_app.world_controller.world_renderer:
+                self.game_app.world_controller.world_renderer.invalidate_all_caches()
+                print("[Debug] Invalidated all decoration caches")
         elif symbol == key.F8:
             self.game_app.ui_controller.debug_visualization_mode = (self.game_app.ui_controller.debug_visualization_mode + 1) % 3
             modes = ["OFF", "Chunk Boundaries", "Chunk Boundaries + Tile Grids"]

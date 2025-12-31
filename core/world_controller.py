@@ -54,6 +54,7 @@ class WorldController:
         self.building_sprites = None
         self.player_data_manager: Optional[PlayerDataManager] = None
         self.auto_save: Optional[AutoSaveSystem] = None
+        self.world_renderer = None  # Set by main_pyglet.py after WorldRenderer creation
         
         # Camera zoom
         self.camera_zoom = 1.0
@@ -114,6 +115,17 @@ class WorldController:
         
         # Set world name in metadata (use original name, not sanitized)
         self.world.chunk_manager.set_world_name(world_name)
+        
+        # Set world_controller reference in chunk_manager for SeasonManager cache invalidation
+        if hasattr(self.world.chunk_manager, 'world_controller'):
+            self.world.chunk_manager.world_controller = self
+        
+        # Set world_controller reference in GrowthManager for cache invalidation
+        try:
+            from world.growth_manager import GrowthManager
+            GrowthManager.set_world_controller(self)
+        except ImportError:
+            pass  # GrowthManager not available
         
         # Initialize PlayerDataManager
         self.player_data_manager = PlayerDataManager(sanitized_name)
@@ -230,7 +242,25 @@ class WorldController:
         # Pre-load visible chunks around spawn position
         # Mark as done to prevent duplicate pre-load in World.update()
         if self.world and self.world.chunk_manager:
-            self.world.chunk_manager.preload_visible_chunks((start_world_x, start_world_y))
+            # Use new preload_visible_area method with camera position and screen size
+            screen_width = self.modern_gl_renderer.screen_width if self.modern_gl_renderer else 1920
+            screen_height = self.modern_gl_renderer.screen_height if self.modern_gl_renderer else 1080
+            zoom = self.camera_zoom
+            
+            # Pre-load visible chunks
+            min_chunk_x, max_chunk_x, min_chunk_y, max_chunk_y = self.world.chunk_manager.get_visible_chunk_range(
+                start_world_x, start_world_y, screen_width, screen_height, zoom, padding_chunks=2
+            )
+            self.world.chunk_manager.preload_visible_area(
+                start_world_x, start_world_y, screen_width, screen_height, zoom, padding_chunks=2
+            )
+            
+            # Force redraw of all preloaded chunks to ensure all decorations are rendered correctly
+            if self.world_renderer:
+                self.world_renderer.mark_chunks_dirty_in_range(
+                    min_chunk_x, max_chunk_x, min_chunk_y, max_chunk_y
+                )
+            
             # Mark initial preload as done to prevent duplicate in World.update()
             self.world._initial_preload_done = True
     
@@ -1388,6 +1418,10 @@ class WorldController:
             # Don't remove decoration yet - let stump timer handle it
             # The decoration will be removed in update_tile_decorations() when stump_timer expires
             
+            # Mark chunk's decoration VBO as dirty (sprite changed to stump)
+            if self.world_renderer:
+                self.world_renderer.mark_decoration_chunk_dirty(chunk_x, chunk_y)
+            
             return True
         
         # Update damage sprite (for visual feedback during mining)
@@ -1493,6 +1527,9 @@ class WorldController:
                                 deco_data['growth_timer'] = 0.0
                                 deco_data['initial_growth_time'] = 0.0
                                 decoration.update_sprite('with_fruit')
+                                # Mark chunk's decoration VBO as dirty (sprite changed)
+                                if self.world_renderer:
+                                    self.world_renderer.mark_decoration_chunk_dirty(chunk.chunk_x, chunk.chunk_y)
                     
                     # Handle stump removal timer (after mining complete)
                     if deco_data.get('is_stump', False):
@@ -1504,11 +1541,14 @@ class WorldController:
                             # Remove decoration when timer expires
                             if stump_timer <= 0.0:
                                 # Remove decoration
-                                chunk.set_decoration_at(tile_x, tile_y, None)
+                                chunk.set_decoration_at(tile_x, tile_y, None, world_renderer=self.world_renderer)
                                 if 'decoration' in tile:
                                     del tile['decoration']
                                 # Rebuild decoration lookup after removal
                                 chunk._rebuild_decoration_lookup()
+                                # Mark chunk's decoration VBO as dirty (decoration removed)
+                                if self.world_renderer:
+                                    self.world_renderer.mark_decoration_chunk_dirty(chunk.chunk_x, chunk.chunk_y)
                                 continue  # Skip to next tile
                     
                     # Handle animation updates (placeholder for Phase 6)

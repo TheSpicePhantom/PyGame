@@ -63,6 +63,20 @@ class PerformanceMonitor:
         # Chunk upload times (per frame) - time spent uploading vertex data to GPU
         self.chunk_upload_times = deque(maxlen=300)
         
+        # Decoration performance tracking (per frame)
+        self.decoration_collect_times = deque(maxlen=300)  # Time to collect decorations from chunks
+        self.decoration_sprite_times = deque(maxlen=300)  # Time to determine sprite names
+        self.decoration_vertex_times = deque(maxlen=300)  # Time to create vertex data
+        self.decoration_vbo_times = deque(maxlen=300)  # Time for VBO update/creation
+        self.decoration_render_times = deque(maxlen=300)  # Time for actual GPU rendering
+        self.decoration_counts = deque(maxlen=300)  # Number of decorations rendered per frame
+        
+        # UI performance tracking (per frame)
+        self.world_render_times = deque(maxlen=300)  # Time to render world (chunks, player)
+        self.debug_render_times = deque(maxlen=300)  # Time to render debug visualization
+        self.ui_render_times = deque(maxlen=300)  # Time to render UI (menus, hotbar, overlays)
+        self.stats_overlay_times = deque(maxlen=300)  # Time to render performance stats overlay
+        
         # Disk I/O times (per operation) - separate tracking for load and save
         self.disk_load_times = deque(maxlen=300)  # Track all disk load times
         self.disk_save_times = deque(maxlen=300)  # Track all disk save times
@@ -260,6 +274,66 @@ class PerformanceMonitor:
             return
         self.chunk_upload_times.append(upload_time * 1000)  # Convert to ms
     
+    def record_decoration_collect_time(self, collect_time):
+        """Record time spent collecting decorations from chunks (in seconds)"""
+        if not self.enabled:
+            return
+        self.decoration_collect_times.append(collect_time * 1000)  # Convert to ms
+    
+    def record_decoration_sprite_time(self, sprite_time):
+        """Record time spent determining sprite names (in seconds)"""
+        if not self.enabled:
+            return
+        self.decoration_sprite_times.append(sprite_time * 1000)  # Convert to ms
+    
+    def record_decoration_vertex_time(self, vertex_time):
+        """Record time spent creating vertex data (in seconds)"""
+        if not self.enabled:
+            return
+        self.decoration_vertex_times.append(vertex_time * 1000)  # Convert to ms
+    
+    def record_decoration_vbo_time(self, vbo_time):
+        """Record time spent updating/creating VBO (in seconds)"""
+        if not self.enabled:
+            return
+        self.decoration_vbo_times.append(vbo_time * 1000)  # Convert to ms
+    
+    def record_decoration_render_time(self, render_time):
+        """Record time spent on actual GPU rendering (in seconds)"""
+        if not self.enabled:
+            return
+        self.decoration_render_times.append(render_time * 1000)  # Convert to ms
+    
+    def record_decoration_count(self, count):
+        """Record number of decorations rendered in a frame"""
+        if not self.enabled:
+            return
+        self.decoration_counts.append(count)
+    
+    def record_world_render_time(self, render_time):
+        """Record time spent rendering world (chunks, player) (in seconds)"""
+        if not self.enabled:
+            return
+        self.world_render_times.append(render_time * 1000)  # Convert to ms
+    
+    def record_debug_render_time(self, render_time):
+        """Record time spent rendering debug visualization (in seconds)"""
+        if not self.enabled:
+            return
+        self.debug_render_times.append(render_time * 1000)  # Convert to ms
+    
+    def record_ui_render_time(self, render_time):
+        """Record time spent rendering UI (menus, hotbar, overlays) (in seconds)"""
+        if not self.enabled:
+            return
+        self.ui_render_times.append(render_time * 1000)  # Convert to ms
+    
+    def record_stats_overlay_time(self, render_time):
+        """Record time spent rendering performance stats overlay (in seconds)"""
+        if not self.enabled:
+            return
+        self.stats_overlay_times.append(render_time * 1000)  # Convert to ms
+    
     def record_region_file_load(self, region_x: int, region_y: int, load_time: float):
         """
         Record a region file load operation (Disk I/O)
@@ -427,6 +501,68 @@ class PerformanceMonitor:
                 'max': max(self.chunk_upload_times) if self.chunk_upload_times else 0,
                 'avg': mean(self.chunk_upload_times) if self.chunk_upload_times else 0,
                 'median': median(self.chunk_upload_times) if self.chunk_upload_times else 0,
+            },
+            'decoration_collect_times': {
+                'min': min(self.decoration_collect_times) if self.decoration_collect_times else 0,
+                'max': max(self.decoration_collect_times) if self.decoration_collect_times else 0,
+                'avg': mean(self.decoration_collect_times) if self.decoration_collect_times else 0,
+                'median': median(self.decoration_collect_times) if self.decoration_collect_times else 0,
+            },
+            'decoration_sprite_times': {
+                'min': min(self.decoration_sprite_times) if self.decoration_sprite_times else 0,
+                'max': max(self.decoration_sprite_times) if self.decoration_sprite_times else 0,
+                'avg': mean(self.decoration_sprite_times) if self.decoration_sprite_times else 0,
+                'median': median(self.decoration_sprite_times) if self.decoration_sprite_times else 0,
+            },
+            'decoration_vertex_times': {
+                'min': min(self.decoration_vertex_times) if self.decoration_vertex_times else 0,
+                'max': max(self.decoration_vertex_times) if self.decoration_vertex_times else 0,
+                'avg': mean(self.decoration_vertex_times) if self.decoration_vertex_times else 0,
+                'median': median(self.decoration_vertex_times) if self.decoration_vertex_times else 0,
+            },
+            'decoration_vbo_times': {
+                'min': min(self.decoration_vbo_times) if self.decoration_vbo_times else 0,
+                'max': max(self.decoration_vbo_times) if self.decoration_vbo_times else 0,
+                'avg': mean(self.decoration_vbo_times) if self.decoration_vbo_times else 0,
+                'median': median(self.decoration_vbo_times) if self.decoration_vbo_times else 0,
+            },
+            'decoration_render_times': {
+                'min': min(self.decoration_render_times) if self.decoration_render_times else 0,
+                'max': max(self.decoration_render_times) if self.decoration_render_times else 0,
+                'avg': mean(self.decoration_render_times) if self.decoration_render_times else 0,
+                'median': median(self.decoration_render_times) if self.decoration_render_times else 0,
+            },
+            'decoration_counts': {
+                'min': min(self.decoration_counts) if self.decoration_counts else 0,
+                'max': max(self.decoration_counts) if self.decoration_counts else 0,
+                'avg': mean(self.decoration_counts) if self.decoration_counts else 0,
+                'median': median(self.decoration_counts) if self.decoration_counts else 0,
+            },
+            'ui_performance': {
+                'world_render_times': {
+                    'min': min(self.world_render_times) if self.world_render_times else 0,
+                    'max': max(self.world_render_times) if self.world_render_times else 0,
+                    'avg': mean(self.world_render_times) if self.world_render_times else 0,
+                    'median': median(self.world_render_times) if self.world_render_times else 0,
+                },
+                'debug_render_times': {
+                    'min': min(self.debug_render_times) if self.debug_render_times else 0,
+                    'max': max(self.debug_render_times) if self.debug_render_times else 0,
+                    'avg': mean(self.debug_render_times) if self.debug_render_times else 0,
+                    'median': median(self.debug_render_times) if self.debug_render_times else 0,
+                },
+                'ui_render_times': {
+                    'min': min(self.ui_render_times) if self.ui_render_times else 0,
+                    'max': max(self.ui_render_times) if self.ui_render_times else 0,
+                    'avg': mean(self.ui_render_times) if self.ui_render_times else 0,
+                    'median': median(self.ui_render_times) if self.ui_render_times else 0,
+                },
+                'stats_overlay_times': {
+                    'min': min(self.stats_overlay_times) if self.stats_overlay_times else 0,
+                    'max': max(self.stats_overlay_times) if self.stats_overlay_times else 0,
+                    'avg': mean(self.stats_overlay_times) if self.stats_overlay_times else 0,
+                    'median': median(self.stats_overlay_times) if self.stats_overlay_times else 0,
+                },
             },
             'disk_load_times': {
                 'min': min(self.disk_load_times) if self.disk_load_times else 0,

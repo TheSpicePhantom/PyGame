@@ -324,8 +324,9 @@ class TileTextureManager:
             
             # Füge zu texture_images hinzu
             self.texture_images[colorized_name] = colorized_img
+            self._log("info", f"Colorized overlay texture: {colorized_name} with color {target_color}")
             
-            # Generiere 4 Rotations-Varianten
+            # Generiere 4 Rotations-Varianten (wird in _build_texture_atlas verwendet)
             self._generate_rotations(colorized_name, colorized_img)
     
     def _multi_octave_noise(self, x: float, y: float, octaves: int = 3, seed_offset: int = 0) -> float:
@@ -536,10 +537,12 @@ class TileTextureManager:
                         ]
                         
                         sprite_img = None
+                        loaded_path = None
                         for path in sprite_paths:
                             if path.exists():
                                 try:
                                     sprite_img = Image.open(path).convert("RGBA")
+                                    loaded_path = path
                                     break
                                 except Exception as e:
                                     self._log("debug", f"Error loading season sprite {path}: {e}")
@@ -550,7 +553,70 @@ class TileTextureManager:
                             if atlas_name not in self.texture_images:  # Don't duplicate if already loaded
                                 self.texture_images[atlas_name] = sprite_img
                                 loaded_count += 1
-                                self._log("debug", f"Loaded season sprite: {atlas_name} ({sprite_img.size[0]}x{sprite_img.size[1]})")
+                                self._log("debug", f"Loaded season sprite: {atlas_name} ({sprite_img.size[0]}x{sprite_img.size[1]}) from {loaded_path}")
+                        else:
+                            # Log missing texture for debugging
+                            self._log("warning", f"Could not load season sprite: {sprite_name} (decoration: {decoration_id}, season: {season_name}, stage: {stage_key}). Tried paths: {[str(p) for p in sprite_paths]}")
+                    
+                    # Load growth_stages_with_fruit sprites
+                    growth_stages_with_fruit = season_data.get('growth_stages_with_fruit', {})
+                    for stage_key, sprite_name in growth_stages_with_fruit.items():
+                        if not sprite_name:
+                            continue
+                        
+                        sprite_paths = [
+                            decoration_base_path / mod_id / f"{sprite_name}.png",
+                            decoration_base_path / f"{sprite_name}.png",
+                            Path("assets/decorations") / mod_id / f"{sprite_name}.png",
+                            Path("assets/decorations") / f"{sprite_name}.png",
+                        ]
+                        
+                        sprite_img = None
+                        for path in sprite_paths:
+                            if path.exists():
+                                try:
+                                    sprite_img = Image.open(path).convert("RGBA")
+                                    break
+                                except Exception as e:
+                                    self._log("debug", f"Error loading fruit sprite {path}: {e}")
+                                    continue
+                        
+                        if sprite_img:
+                            atlas_name = f"decoration:{mod_id}/{sprite_name}"
+                            if atlas_name not in self.texture_images:
+                                self.texture_images[atlas_name] = sprite_img
+                                loaded_count += 1
+                                self._log("debug", f"Loaded fruit sprite: {atlas_name} ({sprite_img.size[0]}x{sprite_img.size[1]})")
+                    
+                    # Load growth_stages_without_fruit sprites
+                    growth_stages_without_fruit = season_data.get('growth_stages_without_fruit', {})
+                    for stage_key, sprite_name in growth_stages_without_fruit.items():
+                        if not sprite_name:
+                            continue
+                        
+                        sprite_paths = [
+                            decoration_base_path / mod_id / f"{sprite_name}.png",
+                            decoration_base_path / f"{sprite_name}.png",
+                            Path("assets/decorations") / mod_id / f"{sprite_name}.png",
+                            Path("assets/decorations") / f"{sprite_name}.png",
+                        ]
+                        
+                        sprite_img = None
+                        for path in sprite_paths:
+                            if path.exists():
+                                try:
+                                    sprite_img = Image.open(path).convert("RGBA")
+                                    break
+                                except Exception as e:
+                                    self._log("debug", f"Error loading no-fruit sprite {path}: {e}")
+                                    continue
+                        
+                        if sprite_img:
+                            atlas_name = f"decoration:{mod_id}/{sprite_name}"
+                            if atlas_name not in self.texture_images:
+                                self.texture_images[atlas_name] = sprite_img
+                                loaded_count += 1
+                                self._log("debug", f"Loaded no-fruit sprite: {atlas_name} ({sprite_img.size[0]}x{sprite_img.size[1]})")
                     
                     # Load growth_stages_snowy sprites (winter)
                     growth_stages_snowy = season_data.get('growth_stages_snowy', {})
@@ -581,6 +647,66 @@ class TileTextureManager:
                                 self.texture_images[atlas_name] = sprite_img
                                 loaded_count += 1
                                 self._log("debug", f"Loaded snowy sprite: {atlas_name} ({sprite_img.size[0]}x{sprite_img.size[1]})")
+                    
+                    # Load growth_stages_snowy_with_fruit sprites
+                    growth_stages_snowy_with_fruit = season_data.get('growth_stages_snowy_with_fruit', {})
+                    for stage_key, sprite_name in growth_stages_snowy_with_fruit.items():
+                        if not sprite_name:
+                            continue
+                        
+                        sprite_paths = [
+                            decoration_base_path / mod_id / f"{sprite_name}.png",
+                            decoration_base_path / f"{sprite_name}.png",
+                            Path("assets/decorations") / mod_id / f"{sprite_name}.png",
+                            Path("assets/decorations") / f"{sprite_name}.png",
+                        ]
+                        
+                        sprite_img = None
+                        for path in sprite_paths:
+                            if path.exists():
+                                try:
+                                    sprite_img = Image.open(path).convert("RGBA")
+                                    break
+                                except Exception as e:
+                                    self._log("debug", f"Error loading snowy fruit sprite {path}: {e}")
+                                    continue
+                        
+                        if sprite_img:
+                            atlas_name = f"decoration:{mod_id}/{sprite_name}"
+                            if atlas_name not in self.texture_images:
+                                self.texture_images[atlas_name] = sprite_img
+                                loaded_count += 1
+                                self._log("debug", f"Loaded snowy fruit sprite: {atlas_name} ({sprite_img.size[0]}x{sprite_img.size[1]})")
+                    
+                    # Load growth_stages_snowy_without_fruit sprites
+                    growth_stages_snowy_without_fruit = season_data.get('growth_stages_snowy_without_fruit', {})
+                    for stage_key, sprite_name in growth_stages_snowy_without_fruit.items():
+                        if not sprite_name:
+                            continue
+                        
+                        sprite_paths = [
+                            decoration_base_path / mod_id / f"{sprite_name}.png",
+                            decoration_base_path / f"{sprite_name}.png",
+                            Path("assets/decorations") / mod_id / f"{sprite_name}.png",
+                            Path("assets/decorations") / f"{sprite_name}.png",
+                        ]
+                        
+                        sprite_img = None
+                        for path in sprite_paths:
+                            if path.exists():
+                                try:
+                                    sprite_img = Image.open(path).convert("RGBA")
+                                    break
+                                except Exception as e:
+                                    self._log("debug", f"Error loading snowy no-fruit sprite {path}: {e}")
+                                    continue
+                        
+                        if sprite_img:
+                            atlas_name = f"decoration:{mod_id}/{sprite_name}"
+                            if atlas_name not in self.texture_images:
+                                self.texture_images[atlas_name] = sprite_img
+                                loaded_count += 1
+                                self._log("debug", f"Loaded snowy no-fruit sprite: {atlas_name} ({sprite_img.size[0]}x{sprite_img.size[1]})")
                     
                     # Load damaged_sprites
                     damaged_sprites = season_data.get('damaged_sprites', {})
@@ -895,8 +1021,8 @@ class TileTextureManager:
             overlay_names = self._extract_overlay_names(mapping)
             
             # Entferne base_texture aus overlay_names (wurde bereits verarbeitet)
-            if base_texture in overlay_names:
-                overlay_names.remove(base_texture)
+            # Auch entfernen, wenn base_texture Teil eines Overlay-Namens ist (z.B. "plains_grass_1" wenn base_texture="plains_grass_1")
+            overlay_names = [name for name in overlay_names if name != base_texture]
             
             # Lade und colorisiere alle Overlays
             if overlay_names:
@@ -992,6 +1118,7 @@ class TileTextureManager:
             if name.startswith("decoration:"):
                 decoration_textures[name] = img
             else:
+                # Include both base textures and rotation variants in tile_textures
                 tile_textures[name] = img
         
         # Build atlas: first pack tiles, then decorations
@@ -1008,8 +1135,24 @@ class TileTextureManager:
             tile_section_width = 0
             tile_section_height = 0
         
-        # Calculate decoration section size (use max decoration size, default 64x64)
-        max_decoration_size = 64  # Maximum expected decoration size
+        # Calculate decoration section size (dynamically determine max size from loaded textures)
+        max_decoration_size = 64  # Default minimum
+        if decoration_textures:
+            actual_max_size = 0
+            for decoration_name, img in decoration_textures.items():
+                img_width, img_height = img.size
+                actual_max_size = max(actual_max_size, img_width, img_height)
+            
+            # Use actual max size, but cap at reasonable limit (128) to prevent excessive atlas size
+            max_decoration_size = min(actual_max_size, 128)
+            
+            # Log for debugging
+            if self.diagnostics:
+                self.diagnostics.info("TileTextureManager", 
+                    f"Max decoration size: {max_decoration_size}px (from {len(decoration_textures)} textures, actual max: {actual_max_size}px)")
+            else:
+                print(f"[TileTextureManager] Max decoration size: {max_decoration_size}px (from {len(decoration_textures)} textures, actual max: {actual_max_size}px)")
+        
         num_decorations = len(decoration_textures)
         if num_decorations > 0:
             decoration_grid_size = math.ceil(math.sqrt(num_decorations))
@@ -1039,6 +1182,7 @@ class TileTextureManager:
         atlas_img = Image.new("RGBA", (self.atlas_size, self.atlas_size), (0, 0, 0, 0))
         
         # Pack tile textures (top section)
+        # Include all textures (base + rotations) in the atlas
         texture_list = list(tile_textures.items())
         for idx, (tile_name, img) in enumerate(texture_list):
             # Calculate grid position
@@ -1083,12 +1227,19 @@ class TileTextureManager:
             # Resize decoration to fit in slot (center it if smaller)
             img_width, img_height = img.size
             if img_width > max_decoration_size or img_height > max_decoration_size:
-                # Scale down if too large
+                # Scale down if too large (shouldn't happen if max_decoration_size is calculated correctly)
+                original_size = (img_width, img_height)
                 scale = min(max_decoration_size / img_width, max_decoration_size / img_height)
                 new_width = int(img_width * scale)
                 new_height = int(img_height * scale)
                 img = img.resize((new_width, new_height), Image.Resampling.NEAREST)
                 img_width, img_height = img.size
+                # Log warning if scaling was needed
+                if self.diagnostics:
+                    self.diagnostics.warning("TileTextureManager",
+                        f"Scaled down decoration {decoration_name}: original {original_size} -> ({new_width}, {new_height})")
+                else:
+                    print(f"[TileTextureManager] WARNING: Scaled down decoration {decoration_name}: original {original_size} -> ({new_width}, {new_height})")
             
             # Center decoration in slot
             offset_x = (max_decoration_size - img_width) // 2
@@ -1225,17 +1376,29 @@ class TileTextureManager:
                         # Found non-colorized variant, use it
                         return self.texture_coords[overlay_texture_name]
                     else:
-                        # Variant texture not found in atlas
-                        if not hasattr(self, '_variant_missing_counter'):
-                            self._variant_missing_counter = 0
-                        self._variant_missing_counter += 1
-                        
-                        if self._variant_missing_counter % 100 == 0:
+                        # Variant texture not found in atlas - log first occurrence
+                        if not hasattr(self, '_variant_missing_logged'):
+                            self._variant_missing_logged = set()
+                        if colorized_name not in self._variant_missing_logged:
+                            self._variant_missing_logged.add(colorized_name)
                             self._log("warning", f"Variant texture {colorized_name} not found in atlas for {tile_id} at ({world_x}, {world_y})")
         
         # Kein Pattern matched: Verwende base_texture mit Rotation
         colorized_name = f"{tile_id}:{base_texture}"
-        return self._get_rotated_texture_coords(colorized_name, world_x, world_y, rotation_enabled)
+        coords = self._get_rotated_texture_coords(colorized_name, world_x, world_y, rotation_enabled)
+        if coords is None:
+            # Fallback: Try non-colorized base texture
+            if base_texture in self.texture_coords:
+                self._log("debug", f"Using fallback non-colorized base texture: {base_texture} for {tile_id}")
+                return self._get_rotated_texture_coords(base_texture, world_x, world_y, rotation_enabled)
+            else:
+                # Last resort: log error
+                if not hasattr(self, '_base_texture_missing_logged'):
+                    self._base_texture_missing_logged = set()
+                if colorized_name not in self._base_texture_missing_logged:
+                    self._base_texture_missing_logged.add(colorized_name)
+                    self._log("error", f"Base texture {colorized_name} not found in atlas for {tile_id}. Available textures: {list(self.texture_coords.keys())[:20]}...")
+        return coords
     
     def get_overlay_texture(self, tile_id: str, world_x: int, world_y: int) -> Optional[tuple]:
         """

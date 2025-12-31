@@ -43,6 +43,11 @@ class DebugRenderer:
             'chunk_overlay_vbo': None,
             'chunk_overlay_vao': None
         }
+        
+        # Performance text cache (update only once per second instead of every frame)
+        self._performance_text_labels = []  # Cached text labels
+        self._performance_text_update_timer = 0.0  # Timer for update frequency
+        self._performance_text_update_interval = 1.0  # Update every 1 second
     
     def draw_debug_visualization(self, chunks_data: list, debug_visualization_mode: int):
         """Render debug visualization: chunk boundaries (red), region boundaries (blue), and tile grids"""
@@ -204,15 +209,14 @@ class DebugRenderer:
         if debug_visualization_mode >= 1:
             self._draw_decoration_bounding_boxes(chunks_data)
     
-    def draw_performance_stats(self, current_state: GameState):
-        """Draw performance statistics overlay"""
-        if not self.ui_controller.show_performance_stats or current_state == GameState.PAUSED:
-            return
-        
+    def _build_performance_text_labels(self):
+        """Build performance stats text labels (called once per second)"""
+        from typing import List
         import pyglet.text
         import time
         
         stats = self.performance_monitor.get_stats()
+        labels = []
         
         # Get world info
         seed = None
@@ -279,7 +283,7 @@ class DebugRenderer:
                     elapsed = time.time() - self.world_controller.auto_save.last_save_time
                     lines.append(f"Time since last save: {elapsed:.1f}s")
         
-        # Draw stats text
+        # Create text labels
         y_offset = self.height - 30
         text_color = (255, 255, 255, 255)
         
@@ -294,6 +298,28 @@ class DebugRenderer:
                 anchor_y='top',
                 color=text_color
             )
+            labels.append(label)
+        
+        return labels
+    
+    def draw_performance_stats(self, current_state: GameState, dt: float = 0.0):
+        """Draw performance statistics overlay (with text caching)"""
+        if not self.ui_controller.show_performance_stats or current_state == GameState.PAUSED:
+            return
+        
+        # Initialize labels on first call if empty
+        if not self._performance_text_labels:
+            self._performance_text_labels = self._build_performance_text_labels()
+        
+        # Update text only every 1 second (instead of every frame)
+        self._performance_text_update_timer += dt
+        if self._performance_text_update_timer >= self._performance_text_update_interval:
+            # Rebuild text labels (expensive operation, but only once per second)
+            self._performance_text_labels = self._build_performance_text_labels()
+            self._performance_text_update_timer = 0.0
+        
+        # Render cached labels (cheap operation, 60x per second)
+        for label in self._performance_text_labels:
             label.draw()
     
     def _draw_chunk_overlays(self, chunks_data: list):

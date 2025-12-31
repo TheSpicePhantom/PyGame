@@ -106,7 +106,7 @@ class Chunk:
                     return tile.get('decoration')
         return None
     
-    def set_decoration_at(self, tile_x: int, tile_y: int, decoration_data: dict):
+    def set_decoration_at(self, tile_x: int, tile_y: int, decoration_data: dict, world_renderer=None):
         """
         Set decoration at tile position and update lookup.
         
@@ -114,6 +114,7 @@ class Chunk:
             tile_x: Tile X coordinate within chunk (0-14)
             tile_y: Tile Y coordinate within chunk (0-14)
             decoration_data: Decoration data dict or None to remove
+            world_renderer: Optional WorldRenderer instance for cache invalidation
         """
         if tile_y >= len(self.tiles) or tile_x >= len(self.tiles[tile_y]):
             return
@@ -129,6 +130,10 @@ class Chunk:
             if 'decoration' in tile:
                 del tile['decoration']
             self.decoration_lookup.pop((tile_x, tile_y), None)
+        
+        # Invalidate decoration cache in WorldRenderer if available
+        if world_renderer:
+            world_renderer.invalidate_decoration_cache(self.chunk_x, self.chunk_y)
 
 
 class ChunkManager:
@@ -169,6 +174,10 @@ class ChunkManager:
         # Renderer reference (optional, set via set_renderer() method)
         # Used to mark chunks as dirty when tiles are modified
         self.renderer = None
+        
+        # WorldController reference (optional, set by WorldController)
+        # Used for cache invalidation in SeasonManager
+        self.world_controller = None
         
         # Load or create world metadata
         self.metadata_file = self.save_dir / "world_metadata.json"
@@ -1032,8 +1041,20 @@ class ChunkManager:
             # Track when chunk was loaded (for cooldown before unloading)
             self.chunk_load_times[key] = current_time
             
-            # Save newly generated chunk asynchronously
-            self._save_chunk_to_file(chunk)
+            # Save newly generated chunk IMMEDIATELY (synchronously for preload)
+            if not async_load:
+                # Save synchronously during preload to prevent empty slots
+                seed = self.get_seed()
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self.region_manager.save_chunk_data(chunk_x, chunk_y, tiles, seed))
+                finally:
+                    loop.close()
+            else:
+                # Save asynchronously for normal loading
+                self._save_chunk_to_file(chunk)
             
             # Update chunks_generated in new metadata structure
             if "size" not in self.metadata:
@@ -1521,6 +1542,51 @@ class ChunkManager:
         """Get list of currently loaded chunks"""
         return list(self.loaded_chunks.values())
     
+    def preload_visible_area(self, camera_x: float, camera_y: float, 
+                             screen_width: int, screen_height: int, 
+                             zoom: float = 1.0, padding_chunks: int = 2):
+        """
+        Pre-load all chunks in visible area synchronously (for world initialization).
+        This prevents "empty slot" errors by ensuring chunks are loaded before rendering.
+        
+        Args:
+            camera_x: Camera X position
+            camera_y: Camera Y position
+            screen_width: Screen width in pixels
+            screen_height: Screen height in pixels
+            zoom: Camera zoom level
+            padding_chunks: Number of chunks to load beyond visible area
+        """
+        # Calculate visible chunk range
+        min_chunk_x, max_chunk_x, min_chunk_y, max_chunk_y = self.get_visible_chunk_range(
+            camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks
+        )
+        
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", 
+                f"Pre-loading visible area: chunks ({min_chunk_x}, {min_chunk_y}) to ({max_chunk_x}, {max_chunk_y})")
+        else:
+            print(f"[ChunkManager] Pre-loading visible area: chunks ({min_chunk_x}, {min_chunk_y}) to ({max_chunk_x}, {max_chunk_y})")
+        
+        # Load all visible chunks synchronously (async_load=False)
+        loaded_count = 0
+        for chunk_x in range(min_chunk_x, max_chunk_x + 1):
+            for chunk_y in range(min_chunk_y, max_chunk_y + 1):
+                # Check world bounds
+                if not (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
+                        0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
+                    continue
+                
+                # Load chunk synchronously (creates if doesn't exist)
+                chunk = self.get_or_create_chunk(chunk_x, chunk_y, async_load=False)
+                if chunk:
+                    loaded_count += 1
+        
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", f"Pre-loaded {loaded_count} chunks in visible area")
+        else:
+            print(f"[ChunkManager] Pre-loaded {loaded_count} chunks in visible area")
+    
     def preload_visible_chunks(self, player_pos: Tuple[float, float], buffer: int = 1):
         """Pre-load all chunks visible on screen + buffer (synchronously for initial load)
         
@@ -1836,6 +1902,16 @@ class ChunkManager:
                 # Note: If chunk was loaded from disk, record_chunk_loaded_from_disk was already called
                 # This overall load_time includes both disk IO and generation if applicable
                 load_time = time.perf_counter() - load_start_time
+                load_time_ms = load_time * 1000  # Convert to milliseconds
+                
+                # Log slow chunks (>50ms)
+                if load_time_ms > 50:
+                    chunk_size = len(chunk.tiles) if chunk and chunk.tiles else 0
+                    if self.diagnostics:
+                        self.diagnostics.warning("ChunkManager", 
+                            f"Slow chunk load: ({chunk_x}, {chunk_y}): {load_time_ms:.1f}ms, "
+                            f"Size: {chunk_size} tiles, Generated: {was_generated}")
+                
                 if self.performance_monitor:
                     self.performance_monitor.record_chunk_load(chunk_x, chunk_y, load_time)
                 

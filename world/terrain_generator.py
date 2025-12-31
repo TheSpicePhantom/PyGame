@@ -9,6 +9,7 @@ import math
 import random
 from opensimplex import OpenSimplex
 from pathlib import Path
+from datetime import datetime
 from core import settings
 
 class BiomeStatistics:
@@ -200,6 +201,33 @@ class TerrainGenerator:
         
         # Pre-process biome data for efficient lookup
         self._process_biomes()
+        
+        # Debug logging for maple trees (initialize after all attributes are set)
+        self._debug_log_file = None
+        self._init_debug_log()
+    
+    def _init_debug_log(self):
+        """Initialize debug log file for terrain generation debugging."""
+        try:
+            log_dir = Path("debug-logs")
+            log_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_file = log_dir / f"terrain_gen_debug_{timestamp}.log"
+            self._debug_log_file = open(log_file, 'w', encoding='utf-8')
+            self._debug_log_maple(f"=== Terrain Gen Debug Log Started at {datetime.now().isoformat()} ===")
+        except Exception:
+            self._debug_log_file = None
+    
+    def _debug_log_maple(self, message: str):
+        """Write debug message to log file for maple tree generation."""
+        if not self._debug_log_file:
+            return
+        try:
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            self._debug_log_file.write(f"[{timestamp}] {message}\n")
+            self._debug_log_file.flush()
+        except Exception:
+            pass
     
     def set_seed(self, seed: int):
         """
@@ -928,9 +956,71 @@ class TerrainGenerator:
         else:
             print("Statistics collection is disabled. Initialize with collect_statistics=True.")
     
+    def _is_tile_valid_for_decoration(self, tiles, tile_x, tile_y, chunk_size, valid_biomes, invalid_biomes, stray_factor, current_biome_id):
+        """
+        Check if a tile is valid for spawning a decoration.
+        
+        Args:
+            tiles: 2D list of tile dictionaries
+            tile_x: Tile X coordinate within chunk
+            tile_y: Tile Y coordinate within chunk
+            chunk_size: Size of chunk
+            valid_biomes: List of valid biome IDs (empty list = no valid biomes)
+            invalid_biomes: List of invalid biome IDs
+            stray_factor: Maximum distance in tiles from valid biome (0 = no stray)
+            current_biome_id: Current biome ID of the tile
+            
+        Returns:
+            bool: True if tile is valid for spawning
+        """
+        # If no valid biomes specified, decoration cannot spawn
+        if not valid_biomes:
+            return False
+        
+        # Check if current biome is explicitly invalid
+        if invalid_biomes and current_biome_id in invalid_biomes:
+            return False
+        
+        # Check if current biome is directly valid
+        if current_biome_id in valid_biomes:
+            return True
+        
+        # If stray_factor is 0, only allow exact biome match
+        if stray_factor <= 0:
+            return False
+        
+        # Check if within stray_factor of a valid biome
+        # Search in a square around the tile (using Manhattan distance)
+        for dy in range(-stray_factor, stray_factor + 1):
+            for dx in range(-stray_factor, stray_factor + 1):
+                # Skip the center tile (already checked)
+                if dx == 0 and dy == 0:
+                    continue
+                
+                # Calculate Manhattan distance
+                distance = abs(dx) + abs(dy)
+                if distance > stray_factor:
+                    continue
+                
+                # Check neighboring tile
+                check_x = tile_x + dx
+                check_y = tile_y + dy
+                
+                # Check bounds
+                if 0 <= check_x < chunk_size and 0 <= check_y < chunk_size:
+                    if check_y < len(tiles) and check_x < len(tiles[check_y]):
+                        check_tile = tiles[check_y][check_x]
+                        if check_tile:
+                            check_biome_id = check_tile.get('biome', '')
+                            if check_biome_id in valid_biomes:
+                                return True
+        
+        return False
+    
     def generate_decorations(self, tiles, chunk_x, chunk_y, chunk_size=None):
         """
-        Generate decorations for a chunk based on biome and noise.
+        Generate decorations for a chunk based on decoration placement configs.
+        Uses valid_biomes, invalid_biomes, and stray_factor from decoration JSONs.
         
         Args:
             tiles: 2D list of tile dictionaries (already generated)
@@ -947,45 +1037,15 @@ class TerrainGenerator:
             # DecorationRegistry not available, skip decoration generation
             return
         
-        # Debug: Check if DecorationRegistry has biome extensions loaded
-        if not hasattr(self, '_deco_registry_checked'):
-            self._deco_registry_checked = True
-            biome_count = len(DecorationRegistry._biomes) if hasattr(DecorationRegistry, '_biomes') else 0
-            print(f"[TerrainGen] DecorationRegistry has {biome_count} biome extensions loaded")
-        
         # Calculate world offset for this chunk
         try:
             world_offset_x = chunk_x * chunk_size
             world_offset_y = chunk_y * chunk_size
             
-            # Track biome decorations for weighted spawn rules
-            biome_decorations = {}  # biome_id -> list of decoration configs
+            # Get all decorations from registry
+            all_decorations = DecorationRegistry.get_all()
             
-            # First pass: Collect all decorations for each biome in this chunk
-            for tile_y in range(chunk_size):
-                if tile_y >= len(tiles):
-                    continue
-                for tile_x in range(chunk_size):
-                    if tile_x >= len(tiles[tile_y]):
-                        continue
-                    
-                    tile = tiles[tile_y][tile_x]
-                    if not tile:
-                        continue
-                    
-                    biome_id = tile.get('biome', '')
-                    if not biome_id or biome_id.startswith('water:'):
-                        continue  # Skip water biomes
-                    
-                    # Get biome extension config
-                    if biome_id not in biome_decorations:
-                        biome_ext = DecorationRegistry.get_biome_extensions(biome_id)
-                        if biome_ext:
-                            biome_decorations[biome_id] = biome_ext.get('decorations', [])
-                        else:
-                            biome_decorations[biome_id] = []
-            
-            # Second pass: Spawn decorations based on weighted spawn rules
+            # Iterate through all tiles in chunk
             for tile_y in range(chunk_size):
                 if tile_y >= len(tiles):
                     continue
@@ -1009,149 +1069,169 @@ class TerrainGenerator:
                     if not tile.get('traversable', True):
                         continue
                     
-                    # Get decorations for this biome
-                    deco_configs = biome_decorations.get(biome_id, [])
-                    if not deco_configs:
-                        continue
-                    
                     # Calculate world coordinates for noise
                     world_x = world_offset_x + tile_x
                     world_y = world_offset_y + tile_y
                     
-                    # Get noise value for this position (use height noise for consistency)
-                    # _get_noise_value returns [-1, 1], normalize to [0, 1] for spawn_rules
+                    # Get noise value for this position
                     raw_noise = self._get_noise_value(world_x, world_y)
                     noise_value = (raw_noise + 1.0) / 2.0  # Normalize from [-1, 1] to [0, 1]
                     
-                    # Try each decoration config for this biome
-                    for deco_config in deco_configs:
-                        decoration_id = deco_config.get('decoration_id')
-                        if not decoration_id:
+                    # Try each decoration from registry
+                    for decoration_id, deco_config in all_decorations.items():
+                        placement_config = deco_config.get('placement', {})
+                        if not placement_config:
                             continue
                         
-                        spawn_rules = deco_config.get('spawn_rules', [])
-                        if not spawn_rules:
+                        # Get placement settings (support both old 'biomes' and new 'valid_biomes')
+                        valid_biomes = placement_config.get('valid_biomes', [])
+                        if not valid_biomes:
+                            # Fallback to old 'biomes' field for backwards compatibility
+                            valid_biomes = placement_config.get('biomes', [])
+                        invalid_biomes = placement_config.get('invalid_biomes', [])
+                        stray_factor = placement_config.get('stray_factor', 0)
+                        
+                        # CRITICAL: Check biome validity FIRST (before any other checks)
+                        # Decorations MUST only spawn in valid_biomes (with optional stray_factor blending)
+                        # If no valid_biomes specified, skip this decoration entirely
+                        if not valid_biomes:
                             continue
                         
-                        # Check weighted spawn rules
-                        for rule in spawn_rules:
-                            noise_min = rule.get('noise_range', [0.0, 1.0])[0]
-                            noise_max = rule.get('noise_range', [0.0, 1.0])[1]
-                            
-                            # Check if noise value is in range
-                            if not (noise_min <= noise_value <= noise_max):
-                                continue
-                            
-                            density = rule.get('density', 0.1)
-                            spawn_chance = rule.get('spawn_chance', 0.5)
-                            
-                            # Density check
-                            if random.random() > density:
-                                continue
-                            
-                            # Spawn chance check
-                            if random.random() > spawn_chance:
-                                continue
-                            
-                            # Check clustering if enabled
-                            clustering = deco_config.get('clustering', {})
-                            if clustering.get('enabled', False):
-                                # Simple clustering: check nearby tiles
-                                cluster_radius = clustering.get('cluster_radius', 3)
-                                nearby_count = 0
-                                for dy in range(-cluster_radius, cluster_radius + 1):
-                                    for dx in range(-cluster_radius, cluster_radius + 1):
-                                        if dx == 0 and dy == 0:
-                                            continue
-                                        check_x = tile_x + dx
-                                        check_y = tile_y + dy
-                                        if 0 <= check_x < chunk_size and 0 <= check_y < chunk_size:
-                                            if check_y < len(tiles) and check_x < len(tiles[check_y]):
-                                                check_tile = tiles[check_y][check_x]
-                                                if check_tile and check_tile.get('decoration', {}).get('decoration_id') == decoration_id:
-                                                    nearby_count += 1
-                                
-                                # Clustering logic: prefer spawning near other decorations, but allow isolated spawns
-                                # If no nearby decorations, use a higher chance to spawn isolated (70% instead of 30%)
-                                # This allows initial clusters to form while still preferring clustering
-                                if nearby_count == 0:
-                                    isolated_spawn_chance = clustering.get('isolated_spawn_chance', 0.7)  # Default 70% chance
-                                    if random.random() > isolated_spawn_chance:
+                        # Check if current biome is explicitly invalid (hard block)
+                        if invalid_biomes and biome_id in invalid_biomes:
+                            continue
+                        
+                        # Check if tile is valid for this decoration (includes stray_factor check)
+                        is_valid = self._is_tile_valid_for_decoration(
+                            tiles, tile_x, tile_y, chunk_size,
+                            valid_biomes, invalid_biomes, stray_factor, biome_id
+                        )
+                        
+                        # DEBUG: Log für Maple-Trees
+                        if decoration_id == 'maple_tree':
+                            self._debug_log_maple(f"[DEBUG MAPLE GEN] Trying to place maple_tree at tile ({tile_x}, {tile_y}) in chunk ({chunk_x}, {chunk_y})")
+                            self._debug_log_maple(f"[DEBUG MAPLE GEN] Biome: {biome_id}, Noise: {noise_value:.3f}")
+                            self._debug_log_maple(f"[DEBUG MAPLE GEN] Valid biomes: {valid_biomes}, Invalid biomes: {invalid_biomes}, Stray factor: {stray_factor}")
+                            self._debug_log_maple(f"[DEBUG MAPLE GEN] Tile valid: {is_valid}")
+                        
+                        if not is_valid:
+                            continue
+                        
+                        # Only continue with other checks if biome is valid
+                        density = placement_config.get('density', 0.1)
+                        noise_threshold = placement_config.get('noise_threshold', {})
+                        clustering = placement_config.get('clustering', {})
+                        
+                        # Check noise threshold
+                        noise_min = noise_threshold.get('min', 0.0)
+                        noise_max = noise_threshold.get('max', 1.0)
+                        noise_check = (noise_min <= noise_value <= noise_max)
+                        if decoration_id == 'maple_tree':
+                            self._debug_log_maple(f"[DEBUG MAPLE GEN] Noise check ({noise_min:.3f} <= {noise_value:.3f} <= {noise_max:.3f}): {noise_check}")
+                        if not noise_check:
+                            continue
+                        
+                        # Density check
+                        density_roll = random.random()
+                        density_check = density_roll <= density
+                        if decoration_id == 'maple_tree':
+                            self._debug_log_maple(f"[DEBUG MAPLE GEN] Density check ({density_roll:.3f} <= {density:.3f}): {density_check}")
+                        if not density_check:
+                            continue
+                        
+                        # Check clustering if enabled
+                        if clustering.get('enabled', False):
+                            cluster_radius = clustering.get('cluster_radius', 3)
+                            nearby_count = 0
+                            for dy in range(-cluster_radius, cluster_radius + 1):
+                                for dx in range(-cluster_radius, cluster_radius + 1):
+                                    if dx == 0 and dy == 0:
                                         continue
-                                # If nearby decorations exist, always allow spawn (clustering preference)
+                                    check_x = tile_x + dx
+                                    check_y = tile_y + dy
+                                    if 0 <= check_x < chunk_size and 0 <= check_y < chunk_size:
+                                        if check_y < len(tiles) and check_x < len(tiles[check_y]):
+                                            check_tile = tiles[check_y][check_x]
+                                            if check_tile and check_tile.get('decoration', {}).get('decoration_id') == decoration_id:
+                                                nearby_count += 1
                             
-                            # Spawn decoration
-                            decoration_data = {
-                                'decoration_id': decoration_id,
-                                'data': {
-                                    'growth_timer': 0.0,
-                                    'has_fruit': True,  # Default for harvestable items
-                                    'damage': 0.0,
-                                    'last_interaction': 0.0
-                                }
+                            # Clustering logic: prefer spawning near other decorations, but allow isolated spawns
+                            if nearby_count == 0:
+                                isolated_spawn_chance = clustering.get('isolated_spawn_chance', 0.7)  # Default 70% chance
+                                if random.random() > isolated_spawn_chance:
+                                    continue
+                        
+                        # Spawn decoration
+                        decoration_data = {
+                            'decoration_id': decoration_id,
+                            'data': {
+                                'growth_timer': 0.0,
+                                'has_fruit': True,  # Default for harvestable items
+                                'damage': 0.0,
+                                'last_interaction': 0.0
                             }
+                        }
+                        
+                        # Initialize harvestable-specific data
+                        if deco_config.get('harvest', {}).get('enabled'):
+                            decoration_data['data']['has_fruit'] = True
+                            decoration_data['data']['growth_timer'] = 0.0
+                        
+                        # Initialize growth stage if growth is enabled
+                        growth_config = deco_config.get('growth', {})
+                        if growth_config.get('enabled', False):
+                            spawn_stage_mode = placement_config.get('spawn_stage', 'default')
                             
-                            # Initialize harvestable-specific data
-                            deco_registry_config = DecorationRegistry.get(decoration_id)
-                            if deco_registry_config:
-                                # Initialize harvestable data
-                                if deco_registry_config.get('harvest', {}).get('enabled'):
-                                    decoration_data['data']['has_fruit'] = True
-                                    decoration_data['data']['growth_timer'] = 0.0
-                                
-                                # Initialize growth stage if growth is enabled
-                                growth_config = deco_registry_config.get('growth', {})
-                                if growth_config.get('enabled', False):
-                                    placement_config = deco_registry_config.get('placement', {})
-                                    spawn_stage_mode = placement_config.get('spawn_stage', 'default')
+                            if spawn_stage_mode == 'random':
+                                # Use weighted random selection
+                                spawn_weights = placement_config.get('spawn_stage_weights', {})
+                                if spawn_weights:
+                                    # Convert weights to list for random.choices
+                                    stages = []
+                                    weights = []
+                                    for stage_str, weight in spawn_weights.items():
+                                        try:
+                                            stage = int(stage_str)
+                                            stages.append(stage)
+                                            weights.append(weight)
+                                        except ValueError:
+                                            continue
                                     
-                                    if spawn_stage_mode == 'random':
-                                        # Use weighted random selection
-                                        spawn_weights = placement_config.get('spawn_stage_weights', {})
-                                        if spawn_weights:
-                                            # Convert weights to list for random.choices
-                                            stages = []
-                                            weights = []
-                                            for stage_str, weight in spawn_weights.items():
-                                                try:
-                                                    stage = int(stage_str)
-                                                    stages.append(stage)
-                                                    weights.append(weight)
-                                                except ValueError:
-                                                    continue
-                                            
-                                            if stages and weights:
-                                                import random
-                                                selected_stage = random.choices(stages, weights=weights)[0]
-                                                decoration_data['data']['current_stage'] = selected_stage
-                                                
-                                                # Initialize health based on stage
-                                                stages_list = growth_config.get('stages', [])
-                                                for stage_config in stages_list:
-                                                    if stage_config.get('stage') == selected_stage:
-                                                        decoration_data['data']['health'] = stage_config.get('health', 100)
-                                                        decoration_data['data']['max_health'] = stage_config.get('health', 100)
-                                                        decoration_data['data']['growth_progress'] = 0.0
-                                                        break
-                                    else:
-                                        # Use default_stage
-                                        default_stage = growth_config.get('default_stage', 4)
-                                        decoration_data['data']['current_stage'] = default_stage
+                                    if stages and weights:
+                                        selected_stage = random.choices(stages, weights=weights)[0]
+                                        decoration_data['data']['current_stage'] = selected_stage
                                         
                                         # Initialize health based on stage
                                         stages_list = growth_config.get('stages', [])
                                         for stage_config in stages_list:
-                                            if stage_config.get('stage') == default_stage:
+                                            if stage_config.get('stage') == selected_stage:
                                                 decoration_data['data']['health'] = stage_config.get('health', 100)
                                                 decoration_data['data']['max_health'] = stage_config.get('health', 100)
                                                 decoration_data['data']['growth_progress'] = 0.0
                                                 break
-                            
-                            tile['decoration'] = decoration_data
-                            break  # Only spawn one decoration per tile
+                            else:
+                                # Use default_stage
+                                default_stage = growth_config.get('default_stage', 4)
+                                decoration_data['data']['current_stage'] = default_stage
+                                
+                                # Initialize health based on stage
+                                stages_list = growth_config.get('stages', [])
+                                for stage_config in stages_list:
+                                    if stage_config.get('stage') == default_stage:
+                                        decoration_data['data']['health'] = stage_config.get('health', 100)
+                                        decoration_data['data']['max_health'] = stage_config.get('health', 100)
+                                        decoration_data['data']['growth_progress'] = 0.0
+                                        break
                         
-                        if tile.get('decoration'):
-                            break  # Already spawned, move to next tile
-        except Exception:
-            # Silently fail if decoration generation has issues (e.g., missing registry)
-            pass
+                        tile['decoration'] = decoration_data
+                        if decoration_id == 'maple_tree':
+                            self._debug_log_maple(f"[DEBUG MAPLE GEN] SUCCESS: Placed maple_tree at tile ({tile_x}, {tile_y}) in chunk ({chunk_x}, {chunk_y})")
+                        break  # Only spawn one decoration per tile
+                    
+                    if tile.get('decoration'):
+                        continue  # Already spawned, move to next tile
+        except Exception as e:
+            # Log error instead of silently failing
+            import traceback
+            print(f"[TerrainGen] Error generating decorations: {e}")
+            traceback.print_exc()

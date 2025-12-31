@@ -2,7 +2,7 @@
     "item_id": "apple",
     "display_name": "Apple",
     "description": "Edible apple from trees",
-    "sprite": "apple",
+    "sprite": "core/apple",
     "max_stack_size": 16,
     "category": "food",
     "tags": ["consumable"]

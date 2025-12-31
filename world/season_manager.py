@@ -176,6 +176,12 @@ class SeasonManager:
             cls._current_season = next_season
             cls._season_start_day = cls._current_day
             cls._is_snowing = False  # Reset snow state
+            
+            # Invalidiere ALLE Decoration-Caches (Season ändert Sprites!)
+            if cls._chunk_manager and hasattr(cls._chunk_manager, 'world_controller'):
+                world_controller = cls._chunk_manager.world_controller
+                if world_controller and world_controller.world_renderer:
+                    world_controller.world_renderer.mark_all_decoration_chunks_dirty()
     
     @classmethod
     def _save_season_data(cls):
@@ -290,17 +296,48 @@ class SeasonManager:
             cls._log("info", f"Forced season to: {season}")
     
     @classmethod
-    def skip_time(cls, days: float):
+    def skip_time(cls, days: float) -> bool:
         """
         Debug: Skip time forward.
         
         Args:
             days: Number of days to skip
+        
+        Returns:
+            True if season changed, False otherwise
         """
+        if not cls._seasons:
+            return False
+        
+        # Store current season before skipping
+        old_season = cls._current_season
+        
         day_length = cls._world_settings.get('day_length_seconds', 600.0)
         cls._elapsed_time += days * day_length
         cls._current_day = cls._elapsed_time / day_length
-        cls._log("info", f"Skipped {days} days (now at day {cls._current_day:.1f})")
+        
+        # Check if season changed (similar to update() logic)
+        current_season_config = cls._seasons.get(cls._current_season, {})
+        season_duration = current_season_config.get('duration_days', 20.0)
+        days_in_season = cls._current_day - cls._season_start_day
+        
+        season_changed = False
+        while days_in_season >= season_duration:
+            # Advance to next season
+            cls._advance_season()
+            season_changed = True
+            
+            # Recalculate for potential multiple season changes
+            current_season_config = cls._seasons.get(cls._current_season, {})
+            season_duration = current_season_config.get('duration_days', 20.0)
+            days_in_season = cls._current_day - cls._season_start_day
+        
+        if season_changed:
+            cls._log("info", f"Skipped {days} days (now at day {cls._current_day:.1f}), season changed: {old_season} → {cls._current_season}")
+        else:
+            cls._log("info", f"Skipped {days} days (now at day {cls._current_day:.1f})")
+        
+        return season_changed
     
     @classmethod
     def reload(cls):

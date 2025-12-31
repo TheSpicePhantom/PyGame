@@ -51,8 +51,10 @@
     }
   },
   "placement": {
-    "biomes": ["terrain:forest", "terrain:plains"],
-    "density": 0.5,
+    "valid_biomes": ["terrain:forest", "terrain:plains"],
+    "invalid_biomes": ["terrain:desert", "terrain:snow", "water:deep", "water:shallow"],
+    "stray_factor": 3,
+    "density": 0.2,
     "noise_threshold": {
       "min": 0.3,
       "max": 0.7

@@ -5,8 +5,8 @@
   "tags": ["mineable", "decorative"],
   "collision": {
     "enabled": true,
-    "type": "circle",
-    "radius": 0.4
+    "type": "rectangle",
+    "radius": 2
   },
   "health": 100,
   "growth": {
@@ -16,7 +16,7 @@
     "stages": [
       {
         "stage": 1,
-        "name": "Sprössling",
+        "name": "Sapling",
         "display_name": "Maple Sapling",
         "growth_time": 0.0,
         "health": 25,
@@ -27,7 +27,7 @@
       },
       {
         "stage": 2,
-        "name": "Junger Baum",
+        "name": "Young Tree",
         "display_name": "Young Maple Tree",
         "growth_time": 300.0,
         "health": 50,
@@ -38,7 +38,7 @@
       },
       {
         "stage": 3,
-        "name": "Mittelalter Baum",
+        "name": "Mature Tree",
         "display_name": "Mature Maple Tree",
         "growth_time": 600.0,
         "health": 75,
@@ -49,7 +49,7 @@
       },
       {
         "stage": 4,
-        "name": "Ausgewachsener Baum",
+        "name": "Fully Grown Tree",
         "display_name": "Fully Grown Maple Tree",
         "growth_time": 900.0,
         "health": 100,
@@ -78,6 +78,18 @@
         "3": "maple/spring/maple_3",
         "4": "maple/spring/maple_4"
       },
+      "growth_stages_with_fruit": {
+        "1": "maple/spring/maple_1",
+        "2": "maple/spring/maple_2",
+        "3": "maple/spring/maple_3",
+        "4": "maple/spring/maple_4"
+      },
+      "growth_stages_without_fruit": {
+        "1": "maple/spring/maple_1",
+        "2": "maple/spring/maple_2",
+        "3": "maple/spring/maple_3",
+        "4": "maple/spring/maple_4"
+      },
       "damaged_sprites": {
         "damaged_50": "maple/spring/maple_2"
       },
@@ -90,6 +102,18 @@
         "3": "maple/summer/maple_3",
         "4": "maple/summer/maple_4"
       },
+      "growth_stages_with_fruit": {
+        "1": "maple/summer/maple_1",
+        "2": "maple/summer/maple_2",
+        "3": "maple/summer/maple_3",
+        "4": "maple/summer/maple_4"
+      },
+      "growth_stages_without_fruit": {
+        "1": "maple/summer/maple_1",
+        "2": "maple/summer/maple_2",
+        "3": "maple/summer/maple_3",
+        "4": "maple/summer/maple_4"
+      },
       "damaged_sprites": {
         "damaged_50": "maple/summer/maple_2"
       },
@@ -97,6 +121,18 @@
     },
     "autumn": {
       "growth_stages": {
+        "1": "maple/autumn/maple_1",
+        "2": "maple/autumn/maple_2",
+        "3": "maple/autumn/maple_3",
+        "4": "maple/autumn/maple_4"
+      },
+      "growth_stages_with_fruit": {
+        "1": "maple/autumn/maple_1",
+        "2": "maple/autumn/maple_2",
+        "3": "maple/autumn/maple_3",
+        "4": "maple/autumn/maple_4"
+      },
+      "growth_stages_without_fruit": {
         "1": "maple/autumn/maple_1",
         "2": "maple/autumn/maple_2",
         "3": "maple/autumn/maple_3",
@@ -121,7 +157,31 @@
         "3": "maple/winter/maple_3",
         "4": "maple/winter/maple_4"
       },
+      "growth_stages_with_fruit": {
+        "1": "maple/winter/maple_1",
+        "2": "maple/winter/maple_2",
+        "3": "maple/winter/maple_3",
+        "4": "maple/winter/maple_4"
+      },
+      "growth_stages_without_fruit": {
+        "1": "maple/winter/maple_1",
+        "2": "maple/winter/maple_2",
+        "3": "maple/winter/maple_3",
+        "4": "maple/winter/maple_4"
+      },
       "growth_stages_snowy": {
+        "1": "maple/winter/maple_1_snowy",
+        "2": "maple/winter/maple_2_snowy",
+        "3": "maple/winter/maple_3_snowy",
+        "4": "maple/winter/maple_4_snowy"
+      },
+      "growth_stages_snowy_with_fruit": {
+        "1": "maple/winter/maple_1_snowy",
+        "2": "maple/winter/maple_2_snowy",
+        "3": "maple/winter/maple_3_snowy",
+        "4": "maple/winter/maple_4_snowy"
+      },
+      "growth_stages_snowy_without_fruit": {
         "1": "maple/winter/maple_1_snowy",
         "2": "maple/winter/maple_2_snowy",
         "3": "maple/winter/maple_3_snowy",
@@ -161,14 +221,16 @@
     }
   },
   "placement": {
-    "biomes": ["terrain:forest", "terrain:plains"],
-    "density": 0.5,
+    "valid_biomes": ["terrain:forest", "terrain:plains"],
+    "invalid_biomes": ["terrain:desert", "terrain:snow", "water:deep", "water:shallow"],
+    "stray_factor": 3,
+    "density": 0.1,
     "noise_threshold": {
-      "min": 0.6,
+      "min": 0.45,
       "max": 1.0
     },
     "clustering": {
-      "enabled": true,
+      "enabled": false,
       "cluster_size": 5,
       "cluster_radius": 3
     },
@@ -181,14 +243,9 @@
     }
   },
   "rendering": {
-    "size": [48, 64],
-    "offset": [0, -8],
-    "layer": 10,
-    "shadow": {
-      "enabled": true,
-      "sprite": "shadow_medium",
-      "offset": [0, 0]
-    }
+    "size": [80, 96],
+    "offset": [0, -40],
+    "layer": 10
   },
   "animation": {
     "enabled": false,

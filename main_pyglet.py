@@ -144,6 +144,8 @@ class GameWindow(pyglet.window.Window):
             world_controller=self.world_controller,
             modern_gl_renderer=self.modern_gl_renderer
         )
+        # Set world_renderer reference in world_controller for cache invalidation
+        self.world_controller.world_renderer = self.world_renderer
         
         self.ui_renderer = UIRenderer(
             ui_controller=self.ui_controller
@@ -157,6 +159,9 @@ class GameWindow(pyglet.window.Window):
             width=width,
             height=height
         )
+        
+        # Frame time tracking for dt calculation
+        self._last_frame_time = None
         
         # FPS limiting flag
         self._update_called = False
@@ -625,9 +630,14 @@ class GameWindow(pyglet.window.Window):
                     traceback.print_exc()
         
         # Rendering-Pipeline: World -> Debug -> UI -> Performance Stats
+        import time
+        perf_times = {}
+        performance_monitor = self.diagnostics.get_performance_monitor() if hasattr(self.diagnostics, 'get_performance_monitor') else None
+        
         current_state = self.game_app.current_state
         
         # 1. Render world (chunks, player) - only if in game
+        t1 = time.perf_counter()
         if current_state == GameState.INGAME or current_state == GameState.PAUSED:
             self.world_renderer.draw(debug_visualization_mode=0)  # Debug handled separately
             
@@ -639,19 +649,42 @@ class GameWindow(pyglet.window.Window):
                     screen_width=self.width,
                     screen_height=self.height
                 )
+        perf_times['world'] = (time.perf_counter() - t1) * 1000
         
         # 2. Render debug visualization (chunk boundaries, tile grids)
+        t2 = time.perf_counter()
         if current_state == GameState.INGAME or current_state == GameState.PAUSED:
             debug_mode = self.ui_controller.debug_visualization_mode
             if debug_mode > 0:
                 chunks_data = self.world_renderer.get_chunks_data()
                 self.debug_renderer.draw_debug_visualization(chunks_data, debug_mode)
+        perf_times['debug'] = (time.perf_counter() - t2) * 1000
         
         # 3. Render UI (menus, hotbar, overlays)
+        t3 = time.perf_counter()
         self.ui_renderer.draw(current_state)
+        perf_times['ui'] = (time.perf_counter() - t3) * 1000
         
         # 4. Render performance stats overlay
-        self.debug_renderer.draw_performance_stats(current_state)
+        t4 = time.perf_counter()
+        # Calculate dt for text cache update (use frame time if available, otherwise estimate)
+        dt = 1.0 / 60.0  # Default to 60 FPS if not available
+        if self._last_frame_time is not None:
+            dt = time.perf_counter() - self._last_frame_time
+        self.debug_renderer.draw_performance_stats(current_state, dt=dt)
+        perf_times['stats'] = (time.perf_counter() - t4) * 1000
+        self._last_frame_time = time.perf_counter()
+        
+        # Record performance metrics
+        if performance_monitor:
+            if 'world' in perf_times:
+                performance_monitor.record_world_render_time(perf_times['world'] / 1000.0)
+            if 'debug' in perf_times and perf_times['debug'] > 0:
+                performance_monitor.record_debug_render_time(perf_times['debug'] / 1000.0)
+            if 'ui' in perf_times:
+                performance_monitor.record_ui_render_time(perf_times['ui'] / 1000.0)
+            if 'stats' in perf_times:
+                performance_monitor.record_stats_overlay_time(perf_times['stats'] / 1000.0)
         
         self.diagnostics.end_render()
     

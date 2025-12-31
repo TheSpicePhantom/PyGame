@@ -1,9 +1,11 @@
 """
 View: WorldRenderer - Rendering von Welt, Chunks, Player und Tile-Highlight
 """
-from typing import Optional
+from typing import Optional, List, Tuple
 import math
 import pyglet.shapes
+from pathlib import Path
+from datetime import datetime
 from core import settings
 from core.world_controller import WorldController
 
@@ -19,6 +21,74 @@ class WorldRenderer:
         """
         self.world_controller = world_controller
         self.modern_gl_renderer = modern_gl_renderer
+        
+        # Sprite name cache (key: (decoration_id, tile_data_hash), value: sprite_name)
+        self._sprite_name_cache = {}
+        
+        # Decoration object cache (key: decoration_id, value: Decoration instance)
+        self._decoration_cache = {}
+        
+        # Rendering config cache (key: decoration_id, value: rendering_config)
+        self._rendering_config_cache = {}
+        
+        # Decoration cache per chunk (key: (chunk_x, chunk_y), value: List[(tile_x, tile_y, decoration_data)])
+        self._decoration_cache_per_chunk = {}
+        self._decoration_cache_dirty = set()  # Set[(chunk_x, chunk_y)] - Chunks mit geänderten Decorations
+        
+        # Optional: Cache hit-rate statistics for debugging
+        self._decoration_cache_stats = {'hits': 0, 'misses': 0}
+        
+        # Decoration VBO cache per chunk (key: (chunk_x, chunk_y), value: (vbo, vao, vertex_count))
+        self._chunk_decoration_vbos = {}
+        self._decoration_dirty_chunks = set()  # Chunks that need VBO rebuild
+        
+        # Reusable VBO/VAO for decorations (reused each frame to avoid allocation overhead)
+        self._decoration_vbo = None
+        self._decoration_vao = None
+        self._decoration_vbo_size = 0  # Current size in bytes
+        
+        # Debug logging file
+        self._debug_log_file = None
+        self._debug_log_enabled = True  # Set to False to disable debug logging
+        self._init_debug_log()
+    
+    def _init_debug_log(self):
+        """Initialize debug log file for decoration rendering debugging."""
+        if not self._debug_log_enabled:
+            return
+        
+        try:
+            log_dir = Path("debug-logs")
+            log_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_file = log_dir / f"decoration_debug_{timestamp}.log"
+            self._debug_log_file = open(log_file, 'w', encoding='utf-8')
+            self._debug_log(f"=== Debug Log Started at {datetime.now().isoformat()} ===")
+        except Exception as e:
+            print(f"[WorldRenderer] Failed to initialize debug log: {e}")
+            self._debug_log_enabled = False
+    
+    def _debug_log(self, message: str):
+        """Write debug message to log file."""
+        if not self._debug_log_enabled or not self._debug_log_file:
+            return
+        
+        try:
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            self._debug_log_file.write(f"[{timestamp}] {message}\n")
+            self._debug_log_file.flush()  # Ensure immediate write
+        except Exception:
+            pass  # Silently fail if logging fails
+    
+    def close_debug_log(self):
+        """Close debug log file (call on shutdown)."""
+        if self._debug_log_file:
+            try:
+                self._debug_log_file.write(f"=== Debug Log Ended at {datetime.now().isoformat()} ===\n")
+                self._debug_log_file.close()
+                self._debug_log_file = None
+            except Exception:
+                pass
     
     def draw(self, debug_visualization_mode: int = 0):
         """Draw world, chunks, player"""
@@ -359,6 +429,322 @@ class WorldRenderer:
         right_border.opacity = border_opacity
         right_border.draw()
     
+    def _get_cached_decorations(self, chunk_x: int, chunk_y: int, tiles: List[List[dict]]) -> List[Tuple[int, int, dict]]:
+        """
+        Get decorations from chunk (cached).
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+            tiles: 15x15 array of tile dictionaries
+        
+        Returns:
+            List of (tile_x, tile_y, decoration_data) tuples
+        """
+        from typing import List, Tuple
+        chunk_key = (chunk_x, chunk_y)
+        
+        # Only rebuild cache if dirty or missing (not every frame)
+        if chunk_key in self._decoration_cache_per_chunk and chunk_key not in self._decoration_cache_dirty:
+            self._decoration_cache_stats['hits'] += 1
+        else:
+            self._decoration_cache_stats['misses'] += 1
+            decorations = []
+            maple_count = 0
+            for tile_y, row in enumerate(tiles):
+                if not row:
+                    continue
+                for tile_x, tile in enumerate(row):
+                    if tile and tile.get('decoration'):
+                        decoration_data = tile['decoration']
+                        decoration_id = decoration_data.get('decoration_id')
+                        if decoration_id == 'maple_tree':
+                            maple_count += 1
+                            self._debug_log(f"[DEBUG MAPLE_TREE CACHE] Found maple_tree at tile ({tile_x}, {tile_y}) in chunk ({chunk_x}, {chunk_y})")
+                        decorations.append((tile_x, tile_y, decoration_data))
+            
+            if maple_count > 0:
+                self._debug_log(f"[DEBUG MAPLE_TREE CACHE] Chunk ({chunk_x}, {chunk_y}) has {maple_count} maple_tree(s)")
+            
+            self._decoration_cache_per_chunk[chunk_key] = decorations
+            self._decoration_cache_dirty.discard(chunk_key)
+        
+        return self._decoration_cache_per_chunk[chunk_key]
+    
+    def invalidate_decoration_cache(self, chunk_x: int, chunk_y: int):
+        """Mark chunk's decoration cache as dirty."""
+        self._decoration_cache_dirty.add((chunk_x, chunk_y))
+        # Also mark VBO cache as dirty (new decorations might have been added)
+        self._decoration_dirty_chunks.add((chunk_x, chunk_y))
+    
+    def mark_decoration_chunk_dirty(self, chunk_x: int, chunk_y: int):
+        """Mark chunk's decoration VBO as dirty (call when: mining, growth, season change)."""
+        self._decoration_dirty_chunks.add((chunk_x, chunk_y))
+        # Also invalidate decoration cache
+        self._decoration_cache_dirty.add((chunk_x, chunk_y))
+    
+    def mark_chunks_dirty_in_range(self, min_chunk_x: int, max_chunk_x: int, min_chunk_y: int, max_chunk_y: int):
+        """
+        Mark all chunks in a range as dirty (forces full redraw).
+        Useful after preloading to ensure all decorations are rendered correctly.
+        
+        Args:
+            min_chunk_x: Minimum chunk X coordinate
+            max_chunk_x: Maximum chunk X coordinate (inclusive)
+            min_chunk_y: Minimum chunk Y coordinate
+            max_chunk_y: Maximum chunk Y coordinate (inclusive)
+        """
+        for chunk_x in range(min_chunk_x, max_chunk_x + 1):
+            for chunk_y in range(min_chunk_y, max_chunk_y + 1):
+                self._decoration_dirty_chunks.add((chunk_x, chunk_y))
+                self._decoration_cache_dirty.add((chunk_x, chunk_y))
+    
+    def mark_all_decoration_chunks_dirty(self):
+        """Mark all decoration chunks as dirty (call when: season change, global updates)."""
+        # Mark all cached chunks as dirty
+        for chunk_key in self._chunk_decoration_vbos.keys():
+            self._decoration_dirty_chunks.add(chunk_key)
+            self._decoration_cache_dirty.add(chunk_key)
+        
+        # Clear sprite name cache (season change affects sprite selection)
+        self._sprite_name_cache.clear()
+    
+    def invalidate_all_caches(self):
+        """Debug: Invalidiere alle Decoration-Caches."""
+        self._decoration_cache_per_chunk.clear()
+        self._decoration_cache_dirty.clear()
+        self._sprite_name_cache.clear()
+        # Mark all VBO chunks as dirty
+        for chunk_key in self._chunk_decoration_vbos.keys():
+            self._decoration_dirty_chunks.add(chunk_key)
+        print("[DEBUG] All decoration caches invalidated!")
+    
+    # Helper methods for sprite determination (moved from Decoration class)
+    def _get_current_stage(self, deco_config: dict, tile_data: dict) -> int:
+        """
+        Get current growth stage from config and tile_data.
+        
+        Args:
+            deco_config: Decoration configuration dictionary
+            tile_data: Tile decoration data dictionary
+            
+        Returns:
+            Current growth stage (1-4) or default_stage if not set
+        """
+        growth_config = deco_config.get('growth', {})
+        if not growth_config.get('enabled', False):
+            return growth_config.get('default_stage', 4)
+        
+        return tile_data.get('current_stage', growth_config.get('default_stage', 4))
+    
+    def _get_health_percentage(self, deco_config: dict, tile_data: dict) -> float:
+        """
+        Calculate health percentage from config and tile_data.
+        
+        Args:
+            deco_config: Decoration configuration dictionary
+            tile_data: Tile decoration data dictionary
+            
+        Returns:
+            Health percentage (0.0-1.0)
+        """
+        # Check if explicit health is stored
+        if 'health' in tile_data and 'max_health' in tile_data:
+            max_health = tile_data.get('max_health', 100)
+            if max_health > 0:
+                return min(tile_data.get('health', max_health) / max_health, 1.0)
+        
+        # Calculate from mining progress
+        mining_config = deco_config.get('mining', {})
+        if not mining_config:
+            return 1.0
+        
+        elapsed_time = tile_data.get('elapsed_time', 0.0)
+        mining_time = mining_config.get('mining_time', 3.0)
+        hardness_multiplier = mining_config.get('hardness_multiplier', 1.0)
+        
+        # Calculate time_to_mine (simplified, actual calculation uses tool speed)
+        time_to_mine = mining_time * hardness_multiplier
+        
+        if time_to_mine <= 0:
+            return 1.0
+        
+        health_percent = 1.0 - (elapsed_time / time_to_mine)
+        return max(0.0, min(1.0, health_percent))
+    
+    def _is_harvestable(self, deco_config: dict) -> bool:
+        """
+        Check if decoration is harvestable.
+        
+        Args:
+            deco_config: Decoration configuration dictionary
+            
+        Returns:
+            True if harvestable, False otherwise
+        """
+        return 'harvest' in deco_config and deco_config['harvest'].get('enabled', False)
+    
+    def _get_fallback_sprite(self, deco_config: dict, health_percent: float, tile_data: dict = None) -> str:
+        """
+        Get fallback sprite using old system (for decorations without seasons).
+        
+        Args:
+            deco_config: Decoration configuration dictionary
+            health_percent: Health percentage (1.0 = full, 0.0 = destroyed)
+            tile_data: Optional tile decoration data dictionary (for harvestable items)
+            
+        Returns:
+            Sprite name
+        """
+        sprites = deco_config.get('sprites', {})
+        
+        # Check if this is a harvestable decoration (like berry bushes)
+        if self._is_harvestable(deco_config) and tile_data is not None:
+            has_fruit = tile_data.get('has_fruit', True)
+            if has_fruit:
+                sprite_name = sprites.get('with_fruit')
+            else:
+                sprite_name = sprites.get('without_fruit')
+            
+            # If sprite found, return it (unless damaged)
+            if sprite_name and health_percent > 0.1:
+                return sprite_name
+            # If damaged, fall through to damage sprites
+        
+        # Standard damage-based sprite selection
+        if health_percent > 0.5:
+            return sprites.get('default', 'default')
+        elif health_percent > 0.1:
+            return sprites.get('damaged_50', sprites.get('default', 'default'))
+        else:
+            return sprites.get('stump', sprites.get('default', 'default'))
+    
+    def _determine_sprite_name(self, deco_config: dict, deco_data_dict: dict, season_manager=None) -> str:
+        """
+        Determine sprite name based on Season + Stage + Damage + Snow.
+        (Moved from Decoration.get_current_sprite() for centralization)
+        
+        Args:
+            deco_config: Decoration configuration dictionary
+            deco_data_dict: Tile decoration data dictionary
+            season_manager: Optional SeasonManager class (for get_current_season, is_snowing)
+            
+        Returns:
+            Sprite name string
+        """
+        # Check if seasons are enabled
+        seasons_config = deco_config.get('seasons', {})
+        if not seasons_config.get('enabled', False) or season_manager is None:
+            # Fallback to old system
+            health_percent = self._get_health_percentage(deco_config, deco_data_dict)
+            return self._get_fallback_sprite(deco_config, health_percent, deco_data_dict)
+        
+        # Get current season and stage
+        current_season = season_manager.get_current_season()
+        current_stage = self._get_current_stage(deco_config, deco_data_dict)
+        health_percent = self._get_health_percentage(deco_config, deco_data_dict)
+        is_snowy = season_manager.is_snowing() and current_season == "winter"
+        
+        # Get season config
+        season_config = seasons_config.get(current_season, {})
+        
+        # Check if harvestable and has fruit state
+        has_fruit = True  # Default to having fruit
+        if self._is_harvestable(deco_config) and deco_data_dict is not None:
+            has_fruit = deco_data_dict.get('has_fruit', True)
+        
+        # Choose growth stages based on fruit state, snowy state, and season
+        growth_stages = None
+        
+        if is_snowy:
+            # Snowy variants
+            if has_fruit and 'growth_stages_snowy_with_fruit' in season_config:
+                growth_stages = season_config.get('growth_stages_snowy_with_fruit', {})
+            elif not has_fruit and 'growth_stages_snowy_without_fruit' in season_config:
+                growth_stages = season_config.get('growth_stages_snowy_without_fruit', {})
+            elif 'growth_stages_snowy' in season_config:
+                growth_stages = season_config.get('growth_stages_snowy', {})
+        else:
+            # Normal variants
+            if has_fruit and 'growth_stages_with_fruit' in season_config:
+                growth_stages = season_config.get('growth_stages_with_fruit', {})
+            elif not has_fruit and 'growth_stages_without_fruit' in season_config:
+                growth_stages = season_config.get('growth_stages_without_fruit', {})
+        
+        # Fallback to standard growth_stages if fruit variants not found
+        if not growth_stages:
+            if is_snowy and 'growth_stages_snowy' in season_config:
+                growth_stages = season_config.get('growth_stages_snowy', {})
+            else:
+                growth_stages = season_config.get('growth_stages', {})
+        
+        # Get sprite for current stage
+        sprite_name = None
+        if growth_stages:
+            # Try both string and int keys
+            stage_key = str(current_stage)
+            sprite_name = growth_stages.get(stage_key)
+            if not sprite_name:
+                # Fallback: try int key
+                sprite_name = growth_stages.get(current_stage)
+        
+        # DEBUG: Log für Maple/Apple-Trees
+        decoration_id = deco_config.get('id', 'unknown')
+        if decoration_id in ['maple_tree', 'apple_tree']:
+            self._debug_log(f"[DEBUG {decoration_id.upper()}] Season: {current_season}, Stage: {current_stage}, Snowy: {is_snowy}, HasFruit: {has_fruit}")
+            self._debug_log(f"[DEBUG {decoration_id.upper()}] Growth stages keys: {list(growth_stages.keys()) if growth_stages else 'None'}")
+            self._debug_log(f"[DEBUG {decoration_id.upper()}] Looking for stage '{str(current_stage)}' in growth_stages")
+            self._debug_log(f"[DEBUG {decoration_id.upper()}] Found sprite_name: {sprite_name}")
+        
+        # Override with damage sprite if damaged
+        if health_percent < 0.5:
+            if health_percent < 0.1:
+                # Stump
+                if is_snowy and 'stump_snowy' in season_config:
+                    sprite_name = season_config.get('stump_snowy', sprite_name)
+                else:
+                    sprite_name = season_config.get('stump', sprite_name)
+            else:
+                # Damaged (50%)
+                if is_snowy and 'damaged_sprites_snowy' in season_config:
+                    damaged_sprites = season_config.get('damaged_sprites_snowy', {})
+                    sprite_name = damaged_sprites.get('damaged_50', sprite_name)
+                else:
+                    damaged_sprites = season_config.get('damaged_sprites', {})
+                    sprite_name = damaged_sprites.get('damaged_50', sprite_name)
+            
+            # DEBUG: Log after damage override
+            if decoration_id in ['maple_tree', 'apple_tree']:
+                self._debug_log(f"[DEBUG {decoration_id.upper()}] After damage override: sprite_name = {sprite_name}")
+        
+        # Fallback to default sprite if not found
+        if not sprite_name:
+            # Versuche alle möglichen Fallback-Sprites
+            sprites = deco_config.get('sprites', {})
+            sprite_name = sprites.get('default') or sprites.get('with_fruit') or sprites.get('without_fruit')
+            
+            # DEBUG: Log fallback attempt
+            if decoration_id in ['maple_tree', 'apple_tree']:
+                self._debug_log(f"[DEBUG {decoration_id.upper()}] Fallback attempt: sprite_name = {sprite_name}")
+                self._debug_log(f"[DEBUG {decoration_id.upper()}] Available fallback sprites: {list(sprites.keys())}")
+            
+            # Wenn immer noch kein Sprite, return None (wird zu Farb-Rendering führen)
+            if not sprite_name:
+                # Log warning
+                if hasattr(self, 'world_controller') and self.world_controller and hasattr(self.world_controller, 'diagnostics') and self.world_controller.diagnostics:
+                    self.world_controller.diagnostics.warning("WorldRenderer",
+                        f"No sprite found for decoration {decoration_id}, will use color fallback")
+                # DEBUG: Log final None
+                if decoration_id in ['maple_tree', 'apple_tree']:
+                    self._debug_log(f"[DEBUG {decoration_id.upper()}] FINAL: sprite_name is None, will use color fallback")
+                return None  # None = use color rendering
+        
+        # DEBUG: Log final sprite_name
+        if decoration_id in ['maple_tree', 'apple_tree']:
+            self._debug_log(f"[DEBUG {decoration_id.upper()}] FINAL: Returning sprite_name = {sprite_name}")
+        
+        return sprite_name
+    
     def _render_decorations_and_player(self, visible_chunks, camera_x: float, camera_y: float):
         """
         Render decorations and player, sorted by Y-position for proper depth ordering.
@@ -369,6 +755,8 @@ class WorldRenderer:
             camera_x: Camera X position
             camera_y: Camera Y position
         """
+        import time
+        
         try:
             from world.decoration_registry import DecorationRegistry
             from world.decoration import Decoration
@@ -380,12 +768,50 @@ class WorldRenderer:
         
         import numpy as np
         import moderngl
+        from core.zoom_utils import calculate_visible_world_size
+        
+        # Performance tracking
+        performance_monitor = getattr(self.world_controller, 'performance_monitor', None)
+        collect_start = time.perf_counter()
         
         tile_size = settings.TILE_SIZE
         # List of (y_position, is_player, layer, x, y, width, height, color, decoration_data, sprite_name, mod_id)
         renderable_objects = []
         
+        # Calculate viewport bounds for frustum culling
+        screen_width = self.modern_gl_renderer.screen_width
+        screen_height = self.modern_gl_renderer.screen_height
+        zoom = self.world_controller.camera_zoom
+        visible_world_width, visible_world_height = calculate_visible_world_size(screen_width, screen_height, zoom)
+        
+        # Viewport bounds in world coordinates (with margin for large decorations)
+        margin = tile_size * 2  # Margin for large decorations
+        viewport_min_x = camera_x - visible_world_width / 2.0 - margin
+        viewport_max_x = camera_x + visible_world_width / 2.0 + margin
+        viewport_min_y = camera_y - visible_world_height / 2.0 - margin
+        viewport_max_y = camera_y + visible_world_height / 2.0 + margin
+        
         # Collect all decorations from visible chunks
+        # Cache decoration configs per chunk to reduce lookups
+        decoration_config_cache = {}
+        
+        # Track sprite determination time
+        sprite_time_total = 0.0
+        sprite_count = 0
+        
+        # Pre-import Season/Growth managers (avoid repeated imports in loop)
+        try:
+            from world.season_manager import SeasonManager
+            from world.growth_manager import GrowthManager
+            season_growth_available = True
+        except (ImportError, AttributeError):
+            SeasonManager = None
+            GrowthManager = None
+            season_growth_available = False
+        
+        # Cache frequently used values
+        tile_size_half = tile_size / 2.0
+        
         for chunk_x, chunk_y, tiles in visible_chunks:
             if not tiles:
                 continue
@@ -393,59 +819,110 @@ class WorldRenderer:
             chunk_world_x = chunk_x * settings.CHUNK_SIZE * tile_size
             chunk_world_y = chunk_y * settings.CHUNK_SIZE * tile_size
             
-            for tile_y in range(len(tiles)):
-                if not tiles[tile_y]:
+            # OPTIMIZATION: Use cached decorations instead of iterating all tiles
+            # This avoids iterating over tiles without decorations
+            cached_decorations = self._get_cached_decorations(chunk_x, chunk_y, tiles)
+            
+            for tile_x, tile_y, decoration_data in cached_decorations:
+                decoration_id = decoration_data.get('decoration_id')
+                if not decoration_id:
                     continue
-                for tile_x in range(len(tiles[tile_y])):
-                    tile = tiles[tile_y][tile_x]
-                    if not tile:
-                        continue
-                    
-                    decoration_data = tile.get('decoration')
-                    if not decoration_data:
-                        continue
-                    
-                    decoration_id = decoration_data.get('decoration_id')
-                    if not decoration_id:
-                        continue
-                    
-                    # Get decoration config
+                
+                # DEBUG: Log für Maple-Trees beim Sammeln
+                if decoration_id == 'maple_tree':
+                    self._debug_log(f"[DEBUG MAPLE_TREE COLLECT] Found maple_tree at tile ({tile_x}, {tile_y}) in chunk ({chunk_x}, {chunk_y})")
+                
+                # Get decoration config (cached per decoration_id)
+                if decoration_id not in decoration_config_cache:
                     deco_config = DecorationRegistry.get(decoration_id)
                     if not deco_config:
+                        decoration_config_cache[decoration_id] = None
+                        if decoration_id == 'maple_tree':
+                            self._debug_log(f"[DEBUG MAPLE_TREE COLLECT] ERROR: No config found for maple_tree!")
                         continue
-                    
+                    decoration_config_cache[decoration_id] = deco_config
+                else:
+                    deco_config = decoration_config_cache[decoration_id]
+                    if not deco_config:
+                        if decoration_id == 'maple_tree':
+                            self._debug_log(f"[DEBUG MAPLE_TREE COLLECT] ERROR: Cached config is None for maple_tree!")
+                        continue
+                
+                # Cache Decoration objects and rendering configs (don't recreate each frame)
+                if decoration_id not in self._decoration_cache:
                     decoration = Decoration(deco_config)
-                    rendering_config = decoration.get_rendering_config()
-                    
-                    # Calculate tile world position
-                    tile_world_x = chunk_world_x + tile_x * tile_size
-                    tile_world_y = chunk_world_y + tile_y * tile_size
-                    
-                    # Get rendering size and offset
-                    size = rendering_config.get('size', [tile_size, tile_size])
-                    offset = rendering_config.get('offset', [0, 0])
-                    layer = rendering_config.get('layer', 10)
-                    
-                    # Calculate decoration position (centered on tile + offset)
-                    deco_x = tile_world_x + tile_size / 2.0 + offset[0] - size[0] / 2.0
-                    deco_y = tile_world_y + tile_size / 2.0 + offset[1] - size[1] / 2.0
-                    
-                    # Get sprite name and mod_id
-                    mod_id = deco_config.get('mod_id', 'core')
-                    deco_data_dict = decoration_data.get('data', {})
-                    
+                    self._decoration_cache[decoration_id] = decoration
+                    self._rendering_config_cache[decoration_id] = decoration.get_rendering_config()
+                else:
+                    decoration = self._decoration_cache[decoration_id]
+                
+                rendering_config = self._rendering_config_cache[decoration_id]
+                
+                # Calculate tile world position (optimized: avoid repeated multiplication)
+                tile_world_x = chunk_world_x + tile_x * tile_size
+                tile_world_y = chunk_world_y + tile_y * tile_size
+                
+                # Get rendering size and offset (cache these lookups)
+                size = rendering_config.get('size', [tile_size, tile_size])
+                offset = rendering_config.get('offset', [0, 0])
+                layer = rendering_config.get('layer', 10)
+                
+                # Calculate decoration position (centered on tile + offset)
+                # OPTIMIZATION: Early frustum culling before expensive sprite name determination
+                deco_x = tile_world_x + tile_size_half + offset[0] - size[0] * 0.5
+                deco_y = tile_world_y + tile_size_half + offset[1] - size[1] * 0.5
+                
+                # Early frustum culling: Skip decorations outside viewport BEFORE sprite determination
+                deco_max_x = deco_x + size[0]
+                deco_max_y = deco_y + size[1]
+                if (deco_max_x < viewport_min_x or deco_x > viewport_max_x or
+                    deco_max_y < viewport_min_y or deco_y > viewport_max_y):
+                    continue
+                
+                # Get sprite name and mod_id
+                mod_id = deco_config.get('mod_id', 'core')
+                deco_data_dict = decoration_data.get('data', {})
+                
+                # Calculate hash of tile_data for caching (optimized: use tuple hash instead of MD5)
+                tile_data_key = (
+                    decoration_id,
+                    deco_data_dict.get('has_fruit', True),
+                    deco_data_dict.get('current_stage', None),
+                    deco_data_dict.get('sprite_state', None),
+                    deco_data_dict.get('health', None),
+                    deco_data_dict.get('max_health', None),
+                )
+                # Use built-in hash() instead of MD5 (much faster, sufficient for caching)
+                tile_data_hash = hash(tile_data_key)
+                cache_key = (decoration_id, tile_data_hash)
+                
+                # Check cache first
+                sprite_start = time.perf_counter()
+                if cache_key in self._sprite_name_cache:
+                    sprite_name = self._sprite_name_cache[cache_key]
+                else:
                     # Determine current sprite based on state (with Season/Growth support)
                     sprite_name = None
                     
-                    # Try to use Season/Growth system if available
-                    try:
-                        from world.season_manager import SeasonManager
-                        from world.growth_manager import GrowthManager
-                        
-                        # Use new get_current_sprite() method with Season/Growth support
-                        sprite_name = decoration.get_current_sprite(SeasonManager, GrowthManager, deco_data_dict)
-                    except (ImportError, AttributeError):
-                        # Fallback to old system if SeasonManager/GrowthManager not available
+                    # Use Season/Growth system if available (pre-imported)
+                    if season_growth_available and SeasonManager:
+                        try:
+                            # Use centralized _determine_sprite_name() method
+                            sprite_name = self._determine_sprite_name(deco_config, deco_data_dict, SeasonManager)
+                        except (AttributeError, TypeError, Exception) as e:
+                            # Fallback if method fails
+                            sprite_name = None
+                    
+                    # DEBUG: Log für Maple/Apple-Trees wenn sprite_name None ist
+                    if sprite_name is None:
+                        if decoration_id in ['maple_tree', 'apple_tree']:
+                            self._debug_log(f"[DEBUG {decoration_id.upper()} RENDER] sprite_name is None! deco_data: {deco_data_dict}")
+                        # Kein Sprite verfügbar - rendere mit Farbe
+                        renderable_objects.append((deco_y + size[1], False, layer, deco_x, deco_y, size[0], size[1], color, decoration_data, None, None))
+                        continue
+                    
+                    # Fallback to old system if SeasonManager not available or failed
+                    if not sprite_name:
                         # Check for sprite_state (set during mining or stump phase)
                         sprite_state = deco_data_dict.get('sprite_state')
                         if sprite_state:
@@ -454,40 +931,52 @@ class WorldRenderer:
                         
                         # Fallback to harvestable state or default
                         if not sprite_name:
-                            if decoration.is_harvestable():
+                            if self._is_harvestable(deco_config):
                                 has_fruit = deco_data_dict.get('has_fruit', True)
                                 sprite_name = deco_config['sprites'].get('with_fruit' if has_fruit else 'without_fruit')
                             else:
                                 sprite_name = deco_config['sprites'].get('default')
                     
-                    # Fallback to color if texture not available
+                    # Fallback to default if texture not available
                     if not sprite_name:
                         sprite_name = 'default'
                     
-                    # Get sprite color (fallback if texture not found)
-                    if decoration_id == 'oak_tree':
-                        color = (34, 139, 34)  # Forest green
-                    elif decoration_id == 'berry_bush':
-                        color = (0, 100, 0)  # Dark green
-                    elif decoration_id == 'stone_rock':
-                        color = (128, 128, 128)  # Gray
-                    else:
-                        color = (100, 100, 100)  # Default gray
+                    # Cache sprite name (limit cache size)
+                    if len(self._sprite_name_cache) > 200:
+                        # Remove oldest 50 entries (simple FIFO)
+                        keys_to_remove = list(self._sprite_name_cache.keys())[:50]
+                        for key in keys_to_remove:
+                            del self._sprite_name_cache[key]
                     
-                    # Add shadow if enabled (Layer 5)
-                    shadow_config = rendering_config.get('shadow', {})
-                    if shadow_config.get('enabled', False):
-                        shadow_offset = shadow_config.get('offset', [0, 0])
-                        shadow_x = tile_world_x + tile_size / 2.0 + shadow_offset[0] - size[0] / 2.0
-                        shadow_y = tile_world_y + tile_size / 2.0 + shadow_offset[1] - size[1] / 2.0
-                        shadow_size = [size[0] * 0.8, size[1] * 0.3]  # Shadow is wider but shorter
-                        shadow_sprite_name = shadow_config.get('sprite', 'shadow_small')
-                        # Use bottom Y position for sorting (shadow_y + shadow_size[1])
-                        renderable_objects.append((shadow_y + shadow_size[1], False, 5, shadow_x, shadow_y, shadow_size[0], shadow_size[1], (0, 0, 0), None, shadow_sprite_name, mod_id))
-                    
-                    # Add decoration (Layer 10 or from config) with sprite info
-                    # Use bottom Y position for sorting (deco_y + size[1])
-                    renderable_objects.append((deco_y + size[1], False, layer, deco_x, deco_y, size[0], size[1], color, decoration_data, sprite_name, mod_id))
+                    self._sprite_name_cache[cache_key] = sprite_name
+                
+                sprite_time_total += time.perf_counter() - sprite_start
+                sprite_count += 1
+                
+                # Get sprite color (fallback if texture not found)
+                if decoration_id == 'oak_tree':
+                    color = (34, 139, 34)  # Forest green
+                elif decoration_id == 'berry_bush':
+                    color = (0, 100, 0)  # Dark green
+                elif decoration_id == 'stone_rock':
+                    color = (128, 128, 128)  # Gray
+                else:
+                    color = (100, 100, 100)  # Default gray
+                
+                # Add shadow if enabled (Layer 5)
+                shadow_config = rendering_config.get('shadow', {})
+                if shadow_config.get('enabled', False):
+                    shadow_offset = shadow_config.get('offset', [0, 0])
+                    shadow_x = tile_world_x + tile_size / 2.0 + shadow_offset[0] - size[0] / 2.0
+                    shadow_y = tile_world_y + tile_size / 2.0 + shadow_offset[1] - size[1] / 2.0
+                    shadow_size = [size[0] * 0.8, size[1] * 0.3]  # Shadow is wider but shorter
+                    shadow_sprite_name = shadow_config.get('sprite', 'shadow_small')
+                    # Use bottom Y position for sorting (shadow_y + shadow_size[1])
+                    renderable_objects.append((shadow_y + shadow_size[1], False, 5, shadow_x, shadow_y, shadow_size[0], shadow_size[1], (0, 0, 0), None, shadow_sprite_name, mod_id))
+                
+                # Add decoration (Layer 10 or from config) with sprite info
+                # Use bottom Y position for sorting (deco_y + size[1])
+                renderable_objects.append((deco_y + size[1], False, layer, deco_x, deco_y, size[0], size[1], color, decoration_data, sprite_name, mod_id))
         
         # Add player to renderable objects
         if self.world_controller.player:
@@ -501,6 +990,13 @@ class WorldRenderer:
             # Player uses layer 20, but sorting by Y takes precedence
             yellow_color = (255, 255, 0)
             renderable_objects.append((player_y + player_height, True, 20, player_x, player_y, player_width, player_height, yellow_color, None, None, None))
+        
+        # Record collection time
+        collect_time = time.perf_counter() - collect_start
+        if performance_monitor:
+            performance_monitor.record_decoration_collect_time(collect_time)
+            if sprite_count > 0:
+                performance_monitor.record_decoration_sprite_time(sprite_time_total)
         
         # Sort by Y-position (bottom Y coordinate) - higher Y = rendered first (behind)
         # Then by layer as secondary sort key
@@ -535,12 +1031,20 @@ class WorldRenderer:
                 self._render_decorations_with_colors(decoration_batch)
     
     def _render_decorations_with_textures(self, decoration_sprites, camera_x: float, camera_y: float):
-        """Render decorations using texture atlas (batched rendering for performance)."""
+        """Render decorations using texture atlas (batched rendering for performance with VBO caching per chunk)."""
+        import time
         import numpy as np
         import moderngl
+        from core import settings
         
         if not decoration_sprites:
             return
+        
+        # Color batch for decorations without textures (fallback rendering)
+        color_batch = []  # Decorations ohne Textur (mit Farbe rendern)
+        
+        # Performance tracking
+        performance_monitor = getattr(self.world_controller, 'performance_monitor', None)
         
         # Use texture atlas from tile_texture_manager (includes decoration textures)
         tile_texture_manager = self.modern_gl_renderer.tile_texture_manager
@@ -553,9 +1057,160 @@ class WorldRenderer:
         self.modern_gl_renderer.ctx.enable(moderngl.BLEND)
         self.modern_gl_renderer.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
         
-        # Collect all decorations with their atlas coordinates
-        all_vertices = []  # All decorations in one batch
-        progress_bars = []  # Collect progress bars to render after ModernGL
+        # Group decorations by chunk
+        decorations_by_chunk = {}  # (chunk_x, chunk_y) -> list of sprite_data
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        
+        for sprite_data in decoration_sprites:
+            # Extract chunk coordinates from decoration position
+            if len(sprite_data) >= 9:
+                layer, x, y, width, height, color, deco_data, sprite_name, mod_id = sprite_data[:9]
+            else:
+                # Fallback for old format
+                layer, x, y, width, height, color, deco_data = sprite_data[:7]
+                sprite_name = None
+                mod_id = 'core'
+            
+            # Skip decorations without sprite_name (they won't render anyway)
+            if not sprite_name:
+                continue
+            
+            # Calculate chunk coordinates from world position
+            chunk_x = int(x // chunk_size_pixels)
+            chunk_y = int(y // chunk_size_pixels)
+            chunk_key = (chunk_x, chunk_y)
+            
+            if chunk_key not in decorations_by_chunk:
+                decorations_by_chunk[chunk_key] = []
+            decorations_by_chunk[chunk_key].append(sprite_data)
+        
+        # Render each chunk's decorations (with VBO caching)
+        all_progress_bars = []
+        total_vertex_time = 0.0
+        total_vbo_time = 0.0
+        total_render_time = 0.0
+        total_decoration_count = 0
+        
+        for chunk_key, chunk_decorations in decorations_by_chunk.items():
+            chunk_x, chunk_y = chunk_key
+            
+            # Skip empty chunks
+            if not chunk_decorations:
+                continue
+            
+            # Check if VBO exists and is not dirty
+            if chunk_key in self._chunk_decoration_vbos and chunk_key not in self._decoration_dirty_chunks:
+                # CACHED! Render immediately (no vertex creation)
+                vbo, vao, vertex_count = self._chunk_decoration_vbos[chunk_key]
+                
+                # Only render if we have vertices (safety check)
+                if vertex_count > 0:
+                    # Bind texture atlas
+                    tile_texture_manager.texture_atlas.use(0)
+                    if 'tile_texture' in self.modern_gl_renderer.chunk_program:
+                        self.modern_gl_renderer.chunk_program['tile_texture'].value = 0
+                    
+                    # Render cached VBO
+                    render_start = time.perf_counter()
+                    vao.render(moderngl.TRIANGLES, vertices=vertex_count)
+                    total_render_time += time.perf_counter() - render_start
+                    total_decoration_count += len(chunk_decorations)
+                else:
+                    # Empty VBO in cache - remove it and rebuild
+                    vbo.release()
+                    vao.release()
+                    del self._chunk_decoration_vbos[chunk_key]
+                    self._decoration_dirty_chunks.add(chunk_key)
+            else:
+                # Rebuild VBO (only for dirty chunks or new chunks)
+                # This includes chunks that are visible for the first time (e.g., after zooming out)
+                vertices, progress_bars, vertex_time, chunk_color_batch = self._create_decoration_vertices(chunk_decorations, camera_x, camera_y)
+                # Add chunk's color batch to main color_batch
+                if chunk_color_batch:
+                    color_batch.extend(chunk_color_batch)
+                all_progress_bars.extend(progress_bars)
+                total_vertex_time += vertex_time
+                
+                if vertices:
+                    vbo, vao, vertex_count, vbo_time = self._upload_decoration_vbo(vertices)
+                    total_vbo_time += vbo_time
+                    
+                    # Only cache VBO if we have vertices (safety check)
+                    if vertex_count > 0:
+                        self._chunk_decoration_vbos[chunk_key] = (vbo, vao, vertex_count)
+                        self._decoration_dirty_chunks.discard(chunk_key)
+                        # Also ensure decoration cache is not dirty for this chunk
+                        self._decoration_cache_dirty.discard(chunk_key)
+                        
+                        # Bind texture atlas
+                        tile_texture_manager.texture_atlas.use(0)
+                        if 'tile_texture' in self.modern_gl_renderer.chunk_program:
+                            self.modern_gl_renderer.chunk_program['tile_texture'].value = 0
+                        
+                        # Render
+                        render_start = time.perf_counter()
+                        vao.render(moderngl.TRIANGLES, vertices=vertex_count)
+                        total_render_time += time.perf_counter() - render_start
+                        total_decoration_count += len(chunk_decorations)
+                    else:
+                        # Empty vertices - release VBO and don't cache
+                        vbo.release()
+                        vao.release()
+                elif chunk_decorations:
+                    # If we have decorations but no vertices, it means textures are missing
+                    # Log this for debugging
+                    if hasattr(self.world_controller, 'diagnostics') and self.world_controller.diagnostics:
+                        missing_textures = []
+                        for sprite_data in chunk_decorations:
+                            if len(sprite_data) >= 9:
+                                _, _, _, _, _, _, _, sprite_name, mod_id = sprite_data[:9]
+                                if sprite_name:
+                                    missing_textures.append(f"{mod_id}/{sprite_name}")
+                        if missing_textures:
+                            self.world_controller.diagnostics.warning("WorldRenderer", 
+                                f"Chunk ({chunk_x}, {chunk_y}) has {len(chunk_decorations)} decorations but no vertices created. Missing textures: {set(missing_textures[:5])}")
+                    vao.render(moderngl.TRIANGLES, vertices=vertex_count)
+                    total_render_time += time.perf_counter() - render_start
+                    total_decoration_count += len(chunk_decorations)
+        
+        # Render color fallback decorations (those without textures)
+        if color_batch:
+            self._render_decorations_with_colors(color_batch)
+        
+        # Record performance metrics
+        if performance_monitor:
+            performance_monitor.record_decoration_vertex_time(total_vertex_time)
+            performance_monitor.record_decoration_vbo_time(total_vbo_time)
+            performance_monitor.record_decoration_render_time(total_render_time)
+            performance_monitor.record_decoration_count(total_decoration_count)
+        
+        # Render progress bars after ModernGL rendering (using pyglet.shapes)
+        if all_progress_bars:
+            for bar_type, x, y, width, height, progress in all_progress_bars:
+                if bar_type == 'regrowth':
+                    self._render_regrowth_progress_bar(x, y, width, height, progress, camera_x, camera_y)
+                elif bar_type == 'mining':
+                    self._render_mining_progress_bar(x, y, width, height, progress, camera_x, camera_y)
+    
+    def _create_decoration_vertices(self, decoration_sprites, camera_x: float, camera_y: float):
+        """Create vertex data for decorations (extracted from _render_decorations_with_textures)."""
+        import time
+        from core import settings
+        
+        vertex_start = time.perf_counter()
+        all_vertices = []
+        progress_bars = []
+        
+        # Create a new list for color batch entries from this chunk (don't modify the passed list)
+        new_color_batch = []
+        
+        # Use texture atlas from tile_texture_manager
+        tile_texture_manager = self.modern_gl_renderer.tile_texture_manager
+        if not tile_texture_manager:
+            return [], [], 0.0, new_color_batch
+        
+        # Cache texture coordinates to reduce lookups
+        texture_coords_cache = {}
         
         for sprite_data in decoration_sprites:
             if len(sprite_data) >= 9:
@@ -569,39 +1224,69 @@ class WorldRenderer:
             if not sprite_name:
                 continue
             
-            # Get UV coordinates from atlas
+            # Get UV coordinates from atlas (cached)
             atlas_name = f"decoration:{mod_id}/{sprite_name}"
-            uv_coords = tile_texture_manager.get_decoration_texture_coords(sprite_name, mod_id)
+            cache_key = (sprite_name, mod_id)
             
-            if not uv_coords:
-                # Fallback: try direct lookup
-                if atlas_name in tile_texture_manager.texture_coords:
-                    uv_coords = tile_texture_manager.texture_coords[atlas_name]
-                else:
-                    # Skip if not in atlas
+            # DEBUG: Log für Maple/Apple-Trees
+            if sprite_name and ('maple' in sprite_name.lower() or 'apple' in sprite_name.lower()):
+                self._debug_log(f"[DEBUG RENDER] Sprite: {sprite_name}, Mod: {mod_id}, Atlas: {atlas_name}")
+                self._debug_log(f"[DEBUG RENDER] In texture_coords: {atlas_name in tile_texture_manager.texture_coords}")
+            
+            if cache_key not in texture_coords_cache:
+                uv_coords = tile_texture_manager.get_decoration_texture_coords(sprite_name, mod_id)
+                if not uv_coords:
+                    # Fallback: try direct lookup
+                    if atlas_name in tile_texture_manager.texture_coords:
+                        uv_coords = tile_texture_manager.texture_coords[atlas_name]
+                    else:
+                        # Textur fehlt - Fallback auf Farb-Rendering statt zu überspringen
+                        texture_coords_cache[cache_key] = None
+                        if not sprite_name.startswith('shadow'):
+                            if hasattr(self.world_controller, 'diagnostics') and self.world_controller.diagnostics:
+                                self.world_controller.diagnostics.warning("WorldRenderer", 
+                                    f"Missing decoration texture: {atlas_name} (sprite: {sprite_name}, mod: {mod_id}), using color fallback")
+                        # DEBUG: Log missing texture
+                        if sprite_name and ('maple' in sprite_name.lower() or 'apple' in sprite_name.lower()):
+                            available = [k for k in tile_texture_manager.texture_coords.keys() 
+                                        if 'maple' in k.lower() or 'apple' in k.lower()]
+                            self._debug_log(f"[DEBUG RENDER] MISSING TEXTURE: {atlas_name}")
+                            self._debug_log(f"[DEBUG RENDER] Available tree textures (first 10): {available[:10]}")
+                        # RENDERE MIT FARBE STATT ZU ÜBERSPRINGEN
+                        if len(sprite_data) >= 7:
+                            layer, x, y, width, height, color, deco_data = sprite_data[:7]
+                            new_color_batch.append((layer, x, y, width, height, color))
+                        continue
+                texture_coords_cache[cache_key] = uv_coords
+            else:
+                uv_coords = texture_coords_cache[cache_key]
+                if not uv_coords:
+                    # Textur fehlt im Cache - Fallback auf Farb-Rendering
+                    if len(sprite_data) >= 7:
+                        layer, x, y, width, height, color, deco_data = sprite_data[:7]
+                        new_color_batch.append((layer, x, y, width, height, color))
                     continue
             
             u0, v0, u1, v1 = uv_coords
             
-            # Get regrowth progress for progress bar (if harvestable and harvested)
+            # Get regrowth progress for progress bar (only if needed - optimization)
             regrowth_progress = None
             mining_progress = None
             if deco_data:
                 deco_data_dict = deco_data.get('data', {})
+                
+                # Only calculate regrowth progress if decoration is harvested (optimization)
                 has_fruit = deco_data_dict.get('has_fruit', True)
                 if not has_fruit:
-                    # Calculate regrowth progress
                     growth_timer = deco_data_dict.get('growth_timer', 0.0)
                     initial_growth_time = deco_data_dict.get('initial_growth_time', 0.0)
                     
-                    # Calculate progress: elapsed time / total regrowth time
-                    # growth_timer starts at initial_growth_time and counts down to 0
-                    # So elapsed = initial_growth_time - growth_timer
-                    if initial_growth_time > 0 and growth_timer >= 0:
+                    # Only calculate if regrowth is in progress (optimization)
+                    if initial_growth_time > 0 and growth_timer >= 0 and growth_timer < initial_growth_time:
                         elapsed = initial_growth_time - growth_timer
                         regrowth_progress = max(0.0, min(1.0, elapsed / initial_growth_time))
                 
-                # Calculate mining progress (if being mined)
+                # Only calculate mining progress if actively being mined (optimization)
                 elapsed_time = deco_data_dict.get('elapsed_time', 0.0)
                 if elapsed_time > 0.0:
                     from world.decoration_registry import DecorationRegistry
@@ -680,36 +1365,36 @@ class WorldRenderer:
             if mining_progress is not None and mining_progress < 1.0:
                 progress_bars.append(('mining', x, y, width, height, mining_progress))
         
-        # Render all decorations in one batch using atlas
-        if all_vertices:
-            vertices_array = np.array(all_vertices, dtype=np.float32)
-            vbo = self.modern_gl_renderer.ctx.buffer(vertices_array.tobytes())
-            vao = self.modern_gl_renderer.ctx.vertex_array(
-                self.modern_gl_renderer.chunk_program,
-                [(vbo, "2f 1f 2f 1f", "in_position", "in_color_index", "in_texcoord", "in_use_texture")]
-            )
-            
-            # Bind texture atlas to unit 0
-            tile_texture_manager.texture_atlas.use(0)
-            
-            # Update shader to use texture
-            if 'tile_texture' in self.modern_gl_renderer.chunk_program:
-                self.modern_gl_renderer.chunk_program['tile_texture'].value = 0
-            
-            # Render all decorations in one draw call
-            vao.render(moderngl.TRIANGLES)
-            
-            # Cleanup
-            vao.release()
-            vbo.release()
+        vertex_time = time.perf_counter() - vertex_start
         
-        # Render progress bars after ModernGL rendering (using pyglet.shapes)
-        if progress_bars:
-            for bar_type, x, y, width, height, progress in progress_bars:
-                if bar_type == 'regrowth':
-                    self._render_regrowth_progress_bar(x, y, width, height, progress, camera_x, camera_y)
-                elif bar_type == 'mining':
-                    self._render_mining_progress_bar(x, y, width, height, progress, camera_x, camera_y)
+        return all_vertices, progress_bars, vertex_time, new_color_batch
+    
+    def _upload_decoration_vbo(self, vertices):
+        """Upload vertices to GPU and create VBO/VAO."""
+        import time
+        import numpy as np
+        import moderngl
+        import math
+        
+        vbo_start = time.perf_counter()
+        
+        vertices_array = np.array(vertices, dtype=np.float32)
+        vertices_bytes = vertices_array.tobytes()
+        vertices_size = len(vertices_bytes)
+        
+        # Create new VBO with enough space (round up to next power of 2 for efficiency)
+        target_size = max(vertices_size, 1024)  # Minimum 1KB
+        target_size = 2 ** math.ceil(math.log2(target_size))  # Round up to power of 2
+        
+        vbo = self.modern_gl_renderer.ctx.buffer(vertices_bytes)
+        vao = self.modern_gl_renderer.ctx.vertex_array(
+            self.modern_gl_renderer.chunk_program,
+            [(vbo, "2f 1f 2f 1f", "in_position", "in_color_index", "in_texcoord", "in_use_texture")]
+        )
+        
+        vbo_time = time.perf_counter() - vbo_start
+        
+        return vbo, vao, len(vertices), vbo_time
     
     def _render_decorations_with_textures_legacy(self, decoration_sprites, camera_x: float, camera_y: float):
         """Legacy rendering method using separate textures (fallback if atlas not available)."""
