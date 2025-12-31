@@ -837,7 +837,33 @@ class WorldController:
         # Step 2.5: Process texture assignment for loaded chunks (separate phase after loading)
         # This ensures textures are assigned AFTER chunks are fully loaded, before rendering
         if self.world and self.world.chunk_manager:
-            self.world.chunk_manager.process_texture_assignment(max_chunks_per_frame=10)
+            chunk_manager = self.world.chunk_manager
+            camera_x = self.camera.x if self.camera else None
+            camera_y = self.camera.y if self.camera else None
+            
+            # Force texture assignment for all chunks when:
+            # 1. Loading is complete (no chunks in queue and no pending chunks), OR
+            # 2. Many chunks are waiting (beim Rauszoomen)
+            queue_size = chunk_manager.chunk_load_queue.qsize()
+            pending_size = len(chunk_manager.pending_chunks)
+            loaded_size = len(chunk_manager.loaded_chunks)
+            
+            # force_all if: loading complete OR many chunks waiting (zoom out scenario)
+            force_all = (
+                (queue_size == 0 and pending_size == 0) or  # Loading complete
+                (loaded_size > 50 and queue_size + pending_size > 10)  # Many chunks waiting
+            )
+            
+            chunk_manager.process_texture_assignment(
+                camera_x=camera_x,
+                camera_y=camera_y,
+                max_chunks_per_frame=10,
+                force_all=force_all
+            )
+            
+            # Pre-bake chunks in larger radius (asynchronous, non-blocking)
+            # This prepares chunks before they become visible, preventing texture delays
+            chunk_manager.pre_bake_chunks_around_camera(camera_x, camera_y, pre_bake_radius_chunks=3)
         
         # Step 3: Render all chunks from stable loaded_chunks list
         # Note: render_chunks() will only render chunks with prepared_chunk_vertices (textures assigned)

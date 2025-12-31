@@ -24,7 +24,7 @@
         50,
         100
       ],
-      "tile_id": "core:water_deep",
+      
       "traversable": false
     },
     "water:shallow": {
@@ -40,7 +40,7 @@
         120,
         200
       ],
-      "tile_id": "core:water_shallow",
+      
       "traversable": false
     },
     "terrain:beach": {
@@ -60,7 +60,7 @@
         220,
         180
       ],
-      "tile_id": "core:sand",
+      
       "traversable": true
     },
     "terrain:tundra": {
@@ -78,7 +78,7 @@
         195,
         200
       ],
-      "tile_id": "core:tundra",
+      
       "traversable": true
     },
     "terrain:plains": {
@@ -96,7 +96,7 @@
         150,
         50
       ],
-      "tile_id": "core:grass",
+      
       "traversable": true
     },
     "terrain:desert": {
@@ -114,7 +114,7 @@
         190,
         110
       ],
-      "tile_id": "core:sand",
+      
       "traversable": true
     },
     "terrain:forest": {
@@ -132,7 +132,7 @@
         90,
         35
       ],
-      "tile_id": "core:forest",
+      
       "traversable": true,
       "treedensity": 0.3
     },
@@ -151,7 +151,7 @@
         105,
         95
       ],
-      "tile_id": "core:stone",
+      
       "traversable": false,
       "movementspeedmodifier": 0.6
     },
@@ -170,7 +170,7 @@
         250,
         255
       ],
-      "tile_id": "core:snow",
+      
       "traversable": false
     },
     "terrain:taiga": {
@@ -188,7 +188,7 @@
         85,
         55
       ],
-      "tile_id": "core:taiga",
+      
       "traversable": true
     },
     "terrain:savanna": {
@@ -206,7 +206,7 @@
         170,
         80
       ],
-      "tile_id": "core:savanna",
+      
       "traversable": true
     },
     "terrain:steppe": {
@@ -224,7 +224,7 @@
         145,
         95
       ],
-      "tile_id": "core:steppe",
+      
       "traversable": true
     },
     "terrain:chaparral": {
@@ -242,7 +242,7 @@
         150,
         95
       ],
-      "tile_id": "core:chaparral",
+      
       "traversable": true
     },
     "terrain:rainforest": {
@@ -260,7 +260,7 @@
         95,
         40
       ],
-      "tile_id": "core:rainforest",
+      
       "traversable": true
     }
   }

@@ -208,6 +208,10 @@ class DebugRenderer:
         # Draw decoration bounding boxes (mode >= 1)
         if debug_visualization_mode >= 1:
             self._draw_decoration_bounding_boxes(chunks_data)
+        
+        # Draw chunk status overlay (mode >= 2)
+        if debug_visualization_mode >= 2:
+            self._draw_chunk_status_overlay(chunks_data)
     
     def _build_performance_text_labels(self):
         """Build performance stats text labels (called once per second)"""
@@ -523,13 +527,15 @@ class DebugRenderer:
                     label.draw()
     
     def _draw_decoration_bounding_boxes(self, chunks_data: list):
-        """Draw decoration bounding boxes as yellow lines for debugging"""
-        if not chunks_data or not self.world_controller.world:
+        """Draw decoration bounding boxes as yellow lines for debugging.
+        Now supports decorations stored in tile metadata."""
+        if not self.world_controller.world:
             return
         
         try:
             from world.decoration_registry import DecorationRegistry
             from world.decoration import Decoration
+            from world.metadata_utils import get_metadata
         except ImportError:
             return  # Decoration system not available
         
@@ -538,8 +544,22 @@ class DebugRenderer:
         
         # Collect all decoration bounding boxes
         bbox_lines = []  # List of [x1, y1, x2, y2, r, g, b]
+        decoration_count = 0
         
-        for chunk_x, chunk_y, tiles in chunks_data:
+        # Get all loaded chunks (not just visible ones) for complete decoration display
+        chunk_manager = self.world_controller.world.chunk_manager
+        if chunk_manager and chunk_manager.loaded_chunks:
+            # Use loaded chunks instead of just chunks_data
+            chunks_to_check = []
+            for chunk_key, chunk in chunk_manager.loaded_chunks.items():
+                chunk_x, chunk_y = chunk_key
+                if chunk.tiles:
+                    chunks_to_check.append((chunk_x, chunk_y, chunk.tiles))
+        else:
+            # Fallback to chunks_data if chunk_manager not available
+            chunks_to_check = chunks_data
+        
+        for chunk_x, chunk_y, tiles in chunks_to_check:
             if not tiles:
                 continue
             
@@ -554,7 +574,16 @@ class DebugRenderer:
                     if not tile:
                         continue
                     
-                    decoration_data = tile.get('decoration')
+                    # Check BOTH old-style and metadata decorations
+                    decoration_data = None
+                    
+                    # Method 1: Check metadata (preferred)
+                    decoration_data = get_metadata(tile, 'decoration')
+                    
+                    # Method 2: Check old-style dict (fallback)
+                    if not decoration_data:
+                        decoration_data = tile.get('decoration')
+                    
                     if not decoration_data:
                         continue
                     
@@ -596,6 +625,7 @@ class DebugRenderer:
                     bbox_lines.append([bbox_x, bbox_max_y, bbox_max_x, bbox_max_y, 1.0, 1.0, 0.0])  # Top
                     bbox_lines.append([bbox_x, bbox_y, bbox_x, bbox_max_y, 1.0, 1.0, 0.0])  # Left
                     bbox_lines.append([bbox_max_x, bbox_y, bbox_max_x, bbox_max_y, 1.0, 1.0, 0.0])  # Right
+                    decoration_count += 1
         
         if bbox_lines:
             # Render bounding box lines using the same system as chunk boundaries
@@ -614,6 +644,92 @@ class DebugRenderer:
                 vertices.extend([
                     [x1, y1, color_index],
                     [x2, y2, color_index]
+                ])
+            
+            if vertices:
+                vertices_array = np.array(vertices, dtype=np.float32)
+                vbo = self.modern_gl_renderer.ctx.buffer(vertices_array.tobytes())
+                vao = self.modern_gl_renderer.ctx.vertex_array(
+                    self.modern_gl_renderer.chunk_program,
+                    [(vbo, "2f 1f", "in_position", "in_color_index")]
+                )
+                
+                # Render
+                vao.render(moderngl.LINES)
+                
+                # Cleanup
+                vao.release()
+                vbo.release()
+    
+    def _draw_chunk_status_overlay(self, chunks_data: list):
+        """
+        Draw overlay showing chunk status (loaded, decorated, textured).
+        Color coding: Green (fully ready), Yellow (textures only), Orange (decorations only), Red (incomplete)
+        """
+        if not self.world_controller.world or not self.world_controller.world.chunk_manager:
+            return
+        
+        chunk_manager = self.world_controller.world.chunk_manager
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        
+        # Collect status rectangles
+        status_rects = []  # List of [x, y, width, height, r, g, b, a]
+        
+        # Get all loaded chunks
+        for chunk_key, chunk in chunk_manager.loaded_chunks.items():
+            chunk_x, chunk_y = chunk_key
+            
+            # Determine chunk status
+            has_textures = chunk_manager._chunk_has_valid_textures(chunk)
+            has_decorations = chunk_manager._chunk_has_decorations(chunk)
+            
+            # Determine color based on status
+            if has_textures and has_decorations:
+                color = (0, 255, 0, 50)  # Green: fully ready
+            elif has_textures:
+                color = (255, 255, 0, 50)  # Yellow: textures but no decorations
+            elif has_decorations:
+                color = (255, 128, 0, 50)  # Orange: decorations but no textures
+            else:
+                color = (255, 0, 0, 50)  # Red: incomplete
+            
+            # Calculate chunk world position
+            chunk_world_x = chunk_x * chunk_size_pixels
+            chunk_world_y = chunk_y * chunk_size_pixels
+            
+            # Add status rectangle (semi-transparent overlay)
+            status_rects.append([
+                chunk_world_x, chunk_world_y,
+                chunk_size_pixels, chunk_size_pixels,
+                color[0] / 255.0, color[1] / 255.0, color[2] / 255.0, color[3] / 255.0
+            ])
+        
+        if status_rects:
+            # Render status rectangles as quads
+            vertices = []
+            for x, y, w, h, r, g, b, a in status_rects:
+                # Create quad vertices (2 triangles = 6 vertices)
+                # Note: We use a simple color overlay approach here
+                # For proper alpha blending, we'd need a separate shader, but this gives visual feedback
+                rgb_color = (int(r * 255), int(g * 255), int(b * 255))
+                color_index = float(self.modern_gl_renderer.tile_color_palette.get_color_index(rgb_color))
+                
+                # If color not in palette, add it
+                if color_index == 0 and rgb_color not in self.modern_gl_renderer.tile_color_palette.color_to_index:
+                    color_index = float(self.modern_gl_renderer.tile_color_palette.add_color(rgb_color))
+                    self.modern_gl_renderer._update_palette_uniform()
+                
+                # Quad vertices (simplified - full quad rendering would need proper shader)
+                # For now, just draw border lines
+                vertices.extend([
+                    [x, y, color_index],  # Bottom-left
+                    [x + w, y, color_index],  # Bottom-right
+                    [x + w, y, color_index],  # Bottom-right
+                    [x + w, y + h, color_index],  # Top-right
+                    [x + w, y + h, color_index],  # Top-right
+                    [x, y + h, color_index],  # Top-left
+                    [x, y + h, color_index],  # Top-left
+                    [x, y, color_index],  # Bottom-left
                 ])
             
             if vertices:

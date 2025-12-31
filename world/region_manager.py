@@ -2078,6 +2078,7 @@ class RegionManager:
                             'biome': biome_id,
                             'height': height_float,
                             'tile_id': biome_id,  # Use biome_id as tile_id
+                            'tileid': biome_id,  # Also set tileid for compatibility
                             'color': (r, g, b),
                             'traversable': traversable
                         }
@@ -2127,6 +2128,7 @@ class RegionManager:
                             'biome': biome_id,
                             'height': height_float,
                             'tile_id': biome_id,  # Use biome_id as tile_id
+                            'tileid': biome_id,  # Also set tileid for compatibility
                             'color': (r, g, b),
                             'traversable': traversable
                         }

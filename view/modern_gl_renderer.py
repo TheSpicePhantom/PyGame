@@ -497,6 +497,15 @@ class ModernGLRenderer:
             vertex_count = len(vertex_array)
         else:
             # Prepare synchronously (new chunk or dirty chunk - textures might have changed)
+            # CRITICAL: Ensure textures are assigned before preparing vertices
+            # This prevents missing textures when chunks are loaded quickly
+            if hasattr(self, 'chunk_manager') and self.chunk_manager:
+                chunk = self.chunk_manager.loaded_chunks.get(chunk_key)
+                if chunk:
+                    # Ensure textures are assigned (thread-safe)
+                    if not self.chunk_manager._chunk_has_valid_textures(chunk):
+                        self.chunk_manager._assign_textures_to_chunk(chunk)
+            
             vertex_array = self._prepare_chunk_vertices(chunk_x, chunk_y, tiles)
             vertex_count = len(vertex_array)
             self.prepared_chunk_vertices[chunk_key] = vertex_array
@@ -543,46 +552,35 @@ class ModernGLRenderer:
                 
                 # Get tile_id to check for texture
                 tile_id = tile.get('tile_id') or tile.get('tileid', '')
-                has_texture = (hasattr(self, 'tile_texture_manager') and 
-                              self.tile_texture_manager is not None and 
-                              self.tile_texture_manager.has_texture(tile_id))
-                
-                # Debug: Log first few texture lookups for new chunks
-                if not hasattr(self, '_new_chunk_texture_log_count'):
-                    self._new_chunk_texture_log_count = 0
-                if self._new_chunk_texture_log_count < 20 and tile_id:
-                    self._new_chunk_texture_log_count += 1
-                    if hasattr(self, 'diagnostics') and self.diagnostics:
-                        self.diagnostics.debug("ModernGLRenderer", 
-                            f"New chunk tile: tile_id={tile_id}, has_texture={has_texture}, chunk=({chunk_x}, {chunk_y})")
                 
                 # Calculate world position for deterministic variant selection
                 world_tile_x = int((chunk_world_x + tile_x_pos) / tile_size)
                 world_tile_y = int((chunk_world_y + tile_y_pos) / tile_size)
                 
-                # Get UV coordinates from atlas if texture exists (with variant support)
-                if has_texture:
-                    uv_coords = self.tile_texture_manager.get_texture_coords(tile_id, world_tile_x, world_tile_y)
-                    if uv_coords:
-                        u0, v0, u1, v1 = uv_coords
-                        # OpenGL: (0,0) bottom-left, but PIL/our coords are top-left
-                        # So we flip V coordinates
-                        tex_coords = [
-                            (u0, v1),  # Bottom-left (tex)
-                            (u1, v1),  # Bottom-right (tex)
-                            (u1, v0),  # Top-right (tex)
-                            (u0, v1),  # Bottom-left (tex)
-                            (u1, v0),  # Top-right (tex)
-                            (u0, v0),  # Top-left (tex)
-                        ]
-                    else:
-                        # Fallback to full texture if coords not found
-                        tex_coords = [
-                            (0.0, 1.0), (1.0, 1.0), (1.0, 0.0),
-                            (0.0, 1.0), (1.0, 0.0), (0.0, 0.0)
-                        ]
+                # Get UV coordinates from atlas
+                uv_coords = None
+                has_texture = False
+                
+                if hasattr(self, 'tile_texture_manager') and self.tile_texture_manager is not None:
+                    if tile_id and self.tile_texture_manager.has_texture(tile_id):
+                        uv_coords = self.tile_texture_manager.get_texture_coords(tile_id, world_tile_x, world_tile_y)
+                        has_texture = uv_coords is not None
+                
+                # Build texture coordinates
+                if has_texture and uv_coords:
+                    u0, v0, u1, v1 = uv_coords
+                    # OpenGL: (0,0) bottom-left, but PIL/our coords are top-left
+                    # So we flip V coordinates
+                    tex_coords = [
+                        (u0, v1),  # Bottom-left (tex)
+                        (u1, v1),  # Bottom-right (tex)
+                        (u1, v0),  # Top-right (tex)
+                        (u0, v1),  # Bottom-left (tex)
+                        (u1, v0),  # Top-right (tex)
+                        (u0, v0),  # Top-left (tex)
+                    ]
                 else:
-                    # No texture, use default coords (won't be used anyway)
+                    # No texture available - use default coords (color rendering)
                     tex_coords = [
                         (0.0, 1.0), (1.0, 1.0), (1.0, 0.0),
                         (0.0, 1.0), (1.0, 0.0), (0.0, 0.0)

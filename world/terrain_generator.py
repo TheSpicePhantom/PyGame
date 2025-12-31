@@ -864,7 +864,13 @@ class TerrainGenerator:
                     self.statistics.add_sample(biome_id, height, temperature, humidity)
                 
                 # Support both "tile_id" and "tileid" for compatibility
-                tile_id = biome_data.get("tile_id") or biome_data.get("tileid", "terrain:unknown")
+                # If no tile_id specified in biome_data, use biome_id as tile_id
+                # This ensures all biomes have a valid tile_id for texture lookup
+                tile_id = biome_data.get("tile_id") or biome_data.get("tileid")
+                if not tile_id:
+                    # Use biome_id as tile_id if no explicit tile_id is defined
+                    # This allows biomes like terrain:steppe to work without explicit tile_id
+                    tile_id = biome_id
                 
                 # Ensure tileid is terrain:* format (not core:*)
                 if tile_id.startswith("core:"):
@@ -927,7 +933,13 @@ class TerrainGenerator:
         biome_id, biome_data = self._get_biome_for_height_temp_humidity(height, temperature, humidity)
         
         # Support both "tile_id" and "tileid" for compatibility
-        tile_id = biome_data.get("tile_id") or biome_data.get("tileid", "terrain:unknown")
+        # If no tile_id specified in biome_data, use biome_id as tile_id
+        # This ensures all biomes have a valid tile_id for texture lookup
+        tile_id = biome_data.get("tile_id") or biome_data.get("tileid")
+        if not tile_id:
+            # Use biome_id as tile_id if no explicit tile_id is defined
+            # This allows biomes like terrain:steppe to work without explicit tile_id
+            tile_id = biome_id
         
         # Ensure tileid is terrain:* format (not core:*)
         if tile_id.startswith("core:"):

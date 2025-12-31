@@ -1512,8 +1512,31 @@ class WorldRenderer:
                             f"{available_decorations[:20]}"
                         )
                         
-                        # Textur fehlt - Use fallback texture (pink 16x16) instead of color rendering
-                        fallback_uv = tile_texture_manager.get_decoration_texture_coords("fallback", "fallback")
+                        # Textur fehlt - Try to find similar decoration texture as fallback
+                        # First, try to find any decoration texture with similar name
+                        fallback_uv = None
+                        available_decorations = [
+                            k for k in tile_texture_manager.texture_coords.keys() 
+                            if k.startswith('decoration:')
+                        ]
+                        
+                        # Try to find fallback texture (e.g., "default" or first available)
+                        for fallback_name in ["default", "berry_bush_0", "apple_tree_0"]:
+                            fallback_uv = tile_texture_manager.get_decoration_texture_coords(fallback_name, mod_id)
+                            if fallback_uv:
+                                break
+                        
+                        # If still no fallback, use first available decoration texture
+                        if not fallback_uv and available_decorations:
+                            # Extract sprite name from first available decoration
+                            first_deco = available_decorations[0]
+                            if '/' in first_deco:
+                                parts = first_deco.split('/')
+                                if len(parts) >= 2:
+                                    fallback_mod = parts[0].replace('decoration:', '')
+                                    fallback_sprite = parts[1]
+                                    fallback_uv = tile_texture_manager.get_decoration_texture_coords(fallback_sprite, fallback_mod)
+                        
                         if fallback_uv:
                             uv_coords = fallback_uv
                             self._decoration_debug_log(f"[TEXTURE_FALLBACK] Using fallback texture for {atlas_name}")

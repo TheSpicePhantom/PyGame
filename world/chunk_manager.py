@@ -12,6 +12,7 @@ from core.zoom_utils import calculate_visible_world_size
 import threading
 import queue
 import heapq
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from world.region_manager import (
     RegionManager,
     ChunkNotFoundError,
@@ -245,6 +246,16 @@ class ChunkManager:
             thread = threading.Thread(target=self._chunk_loader_worker, daemon=True)
             thread.start()
             self.worker_threads.append(thread)
+        
+        # ThreadPool für CPU-Vorbereitung (Vertex-Erstellung)
+        # 4-8 Worker für gute Parallelisierung ohne Overhead
+        num_prep_workers = min(8, max(4, (os.cpu_count() or 4) // 2))
+        self.preparation_executor = ThreadPoolExecutor(
+            max_workers=num_prep_workers,
+            thread_name_prefix="ChunkPrep"
+        )
+        self.preparation_futures = {}  # Dict[Future, chunk_key] - Tracking aktiver Vorbereitungen
+        self.preparation_results = queue.Queue()  # Thread-safe Queue für fertige Ergebnisse
 
     def _load_metadata(self) -> dict:
         """Load world metadata (seed, player position, etc.)"""
@@ -1905,10 +1916,36 @@ class ChunkManager:
                     tiles = self.terrain_gen.generate_chunk(chunk_x, chunk_y)
                     generation_time = time.perf_counter() - gen_start_time
                     chunk = Chunk(chunk_x, chunk_y, tiles)
+                    
+                    # KRITISCH: Sofortige Texturzuweisung für neue Chunks
+                    # BEFORE decoration/save to prevent rendering without textures
+                    self._assign_textures_to_chunk(chunk)
+                else:
+                    # Loaded from disk - verify textures are assigned
+                    if not self._chunk_has_valid_textures(chunk):
+                        self._assign_textures_to_chunk(chunk)
                 
                 # Populate chunk with decorations if it doesn't have any (for both generated and loaded chunks)
+                # Always check actual decorations, not just the flag, to ensure chunks are fully decorated
                 if not self._chunk_has_decorations(chunk):
-                    self.populate_chunk(chunk)
+                    try:
+                        stats = self.populate_chunk(chunk)
+                        # Verify decorations were actually placed
+                        if stats and stats.get('decorations_placed', 0) == 0:
+                            # No decorations were placed - check if this is expected
+                            expected = self._estimate_expected_decorations(chunk)
+                            if expected > 0:
+                                # Expected decorations but none placed - log warning
+                                if self.diagnostics:
+                                    self.diagnostics.warning("ChunkManager",
+                                        f"Chunk ({chunk_x}, {chunk_y}) expected {expected} decorations but none were placed")
+                    except Exception as e:
+                        if self.diagnostics:
+                            self.diagnostics.error("ChunkManager",
+                                f"Error populating chunk ({chunk_x}, {chunk_y})",
+                                error=str(e))
+                        else:
+                            print(f"[ChunkManager] Error populating chunk ({chunk_x}, {chunk_y}): {e}")
                 
                 # Update chunks_generated in metadata (only for newly generated chunks)
                 if was_generated:
@@ -1965,17 +2002,23 @@ class ChunkManager:
                     print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
                 self.pending_chunks.discard((chunk_x, chunk_y))
 
-    def populate_chunk(self, chunk: Chunk) -> None:
+    def populate_chunk(self, chunk: Chunk, retry_count: int = 0) -> dict:
         """
         Populate chunk with decorations based on tile raster.
         Uses deterministic noise based on world coordinates for consistent placement across chunk boundaries.
         
         Args:
             chunk: Chunk instance to populate
+            retry_count: Internal retry counter (for recursive retries)
+        
+        Returns:
+            Statistics dict with decoration counts
         """
         import random
         from world.decoration_registry import DecorationRegistry
         from world.metadata_utils import get_metadata, set_metadata
+        
+        MAX_RETRIES = 3
         
         # Initialize statistics for debugging
         stats = {
@@ -1988,6 +2031,8 @@ class ChunkManager:
             'tiles_skipped_noise_threshold': 0,
             'tiles_skipped_density': 0,
             'tiles_skipped_clustering': 0,
+            'by_biome': {},
+            'retry_count': retry_count
         }
         
         # Check if DecorationRegistry is available
@@ -1998,13 +2043,15 @@ class ChunkManager:
             if self.diagnostics:
                 self.diagnostics.debug("ChunkManager", 
                     f"DecorationRegistry not available, skipping populate for chunk ({chunk.chunk_x}, {chunk.chunk_y})")
-            return
+            # Return empty stats if DecorationRegistry not available
+            return stats
         
         if not all_decorations:
             if self.diagnostics:
                 self.diagnostics.debug("ChunkManager", 
                     f"No decorations available, skipping populate for chunk ({chunk.chunk_x}, {chunk.chunk_y})")
-            return
+            # Return empty stats if no decorations available
+            return stats
         
         chunk_size = settings.CHUNK_SIZE
         tiles = chunk.tiles
@@ -2211,6 +2258,42 @@ class ChunkManager:
                     chunk.decoration_lookup[(tile_x, tile_y)] = None
                     
                     stats['decorations_placed'] += 1
+                    
+                    # Track by biome
+                    if biome_id not in stats['by_biome']:
+                        stats['by_biome'][biome_id] = 0
+                    stats['by_biome'][biome_id] += 1
+        
+        # Verify we actually placed decorations (for biomes that should have them)
+        expected_decorations = self._estimate_expected_decorations(chunk)
+        if expected_decorations > 0 and stats['decorations_placed'] < expected_decorations * 0.5 and retry_count < MAX_RETRIES:
+            # Less than 50% of expected decorations - retry with increased density
+            if self.diagnostics:
+                self.diagnostics.warning("ChunkManager",
+                    f"Chunk ({chunk.chunk_x}, {chunk.chunk_y}) has too few decorations "
+                    f"({stats['decorations_placed']}/{expected_decorations}), retrying...")
+            
+            # Retry with increased chance (by temporarily increasing density)
+            # Note: This is a simplified retry - in a full implementation, we might adjust density per biome
+            return self.populate_chunk(chunk, retry_count + 1)
+        
+        # Mark chunk as decorated ONLY if decorations were actually placed
+        # This prevents marking empty chunks as decorated
+        from world.metadata_utils import set_metadata as set_chunk_metadata
+        if not hasattr(chunk, 'metadata'):
+            chunk.metadata = {}
+        
+        # Only set _decorated flag if we actually placed decorations OR if chunk was already decorated
+        # This ensures we don't mark chunks as decorated when they have no decorations
+        if stats['decorations_placed'] > 0:
+            chunk.metadata['_decorated'] = True
+        else:
+            # If no decorations were placed, check if chunk already has decorations from previous population
+            # If not, explicitly mark as not decorated
+            if not self._chunk_has_decorations_actual(chunk):
+                chunk.metadata['_decorated'] = False
+        
+        chunk.metadata['_decoration_stats'] = stats
         
         # Log statistics for debugging
         if self.diagnostics:
@@ -2224,11 +2307,33 @@ class ChunkManager:
                 f"no_valid={stats['tiles_skipped_no_valid_decoration']}, "
                 f"noise={stats['tiles_skipped_noise_threshold']}, "
                 f"density={stats['tiles_skipped_density']}, "
-                f"clustering={stats['tiles_skipped_clustering']}")
+                f"clustering={stats['tiles_skipped_clustering']}, "
+                f"retry_count={retry_count}")
+        
+        return stats
     
     def _chunk_has_decorations(self, chunk: Chunk) -> bool:
         """
         Check if chunk has any decorations.
+        Uses metadata flag for fast path, but verifies actual decorations exist.
+        
+        Args:
+            chunk: Chunk instance to check
+            
+        Returns:
+            True if chunk has at least one decoration, False otherwise
+        """
+        if not chunk.tiles:
+            return False
+        
+        # Always verify actual decorations exist (don't trust flag alone)
+        # This ensures chunks aren't marked as decorated when they have no decorations
+        return self._chunk_has_decorations_actual(chunk)
+    
+    def _chunk_has_decorations_actual(self, chunk: Chunk) -> bool:
+        """
+        Actually scan tiles to check if decorations exist.
+        This is the authoritative check.
         
         Args:
             chunk: Chunk instance to check
@@ -2252,11 +2357,168 @@ class ChunkManager:
                     continue
                 tile = chunk.tiles[tile_y][tile_x]
                 if tile:
-                    # Check new metadata format
+                    # Check new metadata format first
                     decoration = get_metadata(tile, 'decoration')
                     if decoration:
+                        # Update flag for future fast checks
+                        if not hasattr(chunk, 'metadata'):
+                            chunk.metadata = {}
+                        chunk.metadata['_decorated'] = True
+                        return True
+                    # Also check old format for backwards compatibility
+                    if tile.get('decoration'):
+                        # Update flag and migrate to metadata
+                        if not hasattr(chunk, 'metadata'):
+                            chunk.metadata = {}
+                        chunk.metadata['_decorated'] = True
                         return True
         return False
+    
+    def _chunk_has_valid_textures(self, chunk: Chunk) -> bool:
+        """
+        Check if all tiles in chunk have valid tileid.
+        
+        Args:
+            chunk: Chunk instance to check
+            
+        Returns:
+            True if all tiles have valid tileid, False otherwise
+        """
+        if not chunk.tiles:
+            return False
+        
+        chunk_size = settings.CHUNK_SIZE
+        for tile_y in range(chunk_size):
+            if tile_y >= len(chunk.tiles):
+                continue
+            if not chunk.tiles[tile_y]:
+                continue
+            for tile_x in range(chunk_size):
+                if tile_x >= len(chunk.tiles[tile_y]):
+                    continue
+                tile = chunk.tiles[tile_y][tile_x]
+                if tile:
+                    tile_id = tile.get('tile_id') or tile.get('tileid', '')
+                    if not tile_id or tile_id == 'terrain:unknown':
+                        return False
+        return True
+    
+    def _assign_textures_to_chunk(self, chunk: Chunk) -> None:
+        """
+        Assign textures to all tiles in chunk.
+        Called from worker thread for immediate assignment.
+        Verifies tileid exists (all tiles should have tileid assigned).
+        
+        Args:
+            chunk: Chunk instance to assign textures to
+        """
+        if not chunk.tiles:
+            return
+        
+        chunk_size = settings.CHUNK_SIZE
+        tiles_updated = 0
+        
+        for tile_y in range(chunk_size):
+            if tile_y >= len(chunk.tiles):
+                continue
+            if not chunk.tiles[tile_y]:
+                continue
+            for tile_x in range(chunk_size):
+                if tile_x >= len(chunk.tiles[tile_y]):
+                    continue
+                tile = chunk.tiles[tile_y][tile_x]
+                if not tile:
+                    continue
+                
+                # Verify tileid exists (all tiles should have tileid assigned)
+                tile_id = tile.get('tile_id') or tile.get('tileid', '')
+                
+                # If tileid is missing or terrain:unknown, assign it from biome_id
+                if not tile_id or tile_id == 'terrain:unknown':
+                    biome_id = tile.get('biome', '')
+                    if biome_id and biome_id != 'unknown':
+                        # Use biome_id as tileid (ensures compatibility with texture_mapping.json)
+                        tile['tile_id'] = biome_id
+                        tile['tileid'] = biome_id
+                        tiles_updated += 1
+                    else:
+                        # Log detailed warning if biome_id is also missing
+                        if self.diagnostics:
+                            height = tile.get('height', 'unknown')
+                            color = tile.get('color', 'unknown')
+                            traversable = tile.get('traversable', 'unknown')
+                            tile_id_value = tile.get('tile_id', None)
+                            tileid_value = tile.get('tileid', None)
+                            
+                            self.diagnostics.warning("ChunkManager",
+                                f"Missing tileid at ({tile_x}, {tile_y}) in chunk ({chunk.chunk_x}, {chunk.chunk_y}): "
+                                f"tile_id={tile_id_value}, tileid={tileid_value}, biome={biome_id}, "
+                                f"height={height}, traversable={traversable}, color={color}")
+                        tiles_updated += 1
+        
+        if tiles_updated > 0 and self.diagnostics:
+            self.diagnostics.warning("ChunkManager",
+                f"Found {tiles_updated} tiles without tileid in chunk ({chunk.chunk_x}, {chunk.chunk_y})")
+    
+    def _estimate_expected_decorations(self, chunk: Chunk) -> int:
+        """
+        Estimate how many decorations this chunk should have based on biomes.
+        
+        Args:
+            chunk: Chunk instance to estimate for
+            
+        Returns:
+            Estimated number of decorations
+        """
+        if not chunk.tiles:
+            return 0
+        
+        try:
+            from world.decoration_registry import DecorationRegistry
+            all_decorations = DecorationRegistry.get_all()
+        except (ImportError, AttributeError):
+            return 0
+        
+        if not all_decorations:
+            return 0
+        
+        chunk_size = settings.CHUNK_SIZE
+        tiles = chunk.tiles
+        biome_counts = {}
+        
+        # Count tiles by biome
+        for tile_y in range(chunk_size):
+            if tile_y >= len(tiles):
+                continue
+            if not tiles[tile_y]:
+                continue
+            for tile_x in range(chunk_size):
+                if tile_x >= len(tiles[tile_y]):
+                    continue
+                tile = tiles[tile_y][tile_x]
+                if tile:
+                    biome_id = tile.get('biome', '')
+                    if biome_id and not biome_id.startswith('water:') and tile.get('traversable', True):
+                        biome_counts[biome_id] = biome_counts.get(biome_id, 0) + 1
+        
+        # Estimate expected decorations based on decoration density per biome
+        expected = 0
+        for biome_id, count in biome_counts.items():
+            # Find decorations that can spawn in this biome
+            for decoration_id, deco_config in all_decorations.items():
+                placement_config = deco_config.get('placement', {})
+                if not placement_config:
+                    continue
+                
+                valid_biomes = placement_config.get('valid_biomes', [])
+                if not valid_biomes:
+                    valid_biomes = placement_config.get('biomes', [])
+                
+                if biome_id in valid_biomes:
+                    density = placement_config.get('density', 0.1)
+                    expected += int(count * density)
+        
+        return expected
     
     def _is_tile_valid_for_decoration(self, tiles, tile_x, tile_y, chunk_size, valid_biomes, invalid_biomes, stray_factor, current_biome_id):
         """
@@ -2435,15 +2697,20 @@ class ChunkManager:
         
         return loaded_count
     
-    def process_texture_assignment(self, max_chunks_per_frame: int = 10):
+    def process_texture_assignment(self, camera_x: float = None, camera_y: float = None,
+                                   max_chunks_per_frame: int = 10, force_all: bool = False):
         """
-        Process texture assignment for loaded chunks (separate phase after chunk loading).
+        Process texture assignment for loaded chunks using parallel CPU preparation.
         
         This ensures textures are assigned AFTER chunks are fully loaded, preventing
         race conditions where chunks are rendered before textures are available.
+        Uses ThreadPool for parallel CPU preparation, GPU uploads happen in main thread.
         
         Args:
+            camera_x: Camera X position for prioritization (optional)
+            camera_y: Camera Y position for prioritization (optional)
             max_chunks_per_frame: Maximum number of chunks to process per frame (default: 10)
+            force_all: If True, process ALL chunks without budget limit
         
         Returns:
             Number of chunks processed
@@ -2451,55 +2718,248 @@ class ChunkManager:
         if not hasattr(self, 'renderer') or self.renderer is None:
             return 0
         
+        if not self.loaded_chunks:
+            return 0
+        
         frame_start = time.perf_counter()
         processed_count = 0
         
-        # Process chunks that need texture assignment
-        # Only process chunks that are loaded but don't have prepared vertices yet
+        # Step 1: Collect chunks that need texture assignment
         chunks_to_process = []
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        
         for chunk_key, chunk in self.loaded_chunks.items():
-            if chunk_key not in self.renderer.prepared_chunk_vertices:
-                chunks_to_process.append((chunk_key[0], chunk_key[1], chunk))
-        
-        # Prioritize visible chunks (if renderer has visible_chunks set)
-        if hasattr(self.renderer, 'visible_chunks') and self.renderer.visible_chunks:
-            visible_chunks = []
-            other_chunks = []
-            for chunk_x, chunk_y, chunk in chunks_to_process:
-                chunk_key = (chunk_x, chunk_y)
-                if chunk_key in self.renderer.visible_chunks:
-                    visible_chunks.append((chunk_x, chunk_y, chunk))
+            chunk_x, chunk_y = chunk_key
+            
+            # Skip if already has prepared vertices
+            if chunk_key in self.renderer.prepared_chunk_vertices:
+                continue
+            
+            # Skip if already being prepared
+            if chunk_key in [f[1] for f in self.preparation_futures.values()]:
+                continue
+            
+            # Ensure textures are assigned (thread-safe, can be called from any thread)
+            if not self._chunk_has_valid_textures(chunk):
+                self._assign_textures_to_chunk(chunk)
+            
+            # Calculate priority based on distance to camera
+            if camera_x is not None and camera_y is not None:
+                chunk_center_x = chunk_x * chunk_size_pixels + chunk_size_pixels / 2.0
+                chunk_center_y = chunk_y * chunk_size_pixels + chunk_size_pixels / 2.0
+                distance = ((chunk_center_x - camera_x) ** 2 + 
+                           (chunk_center_y - camera_y) ** 2) ** 0.5
+            else:
+                # Prioritize visible chunks if renderer has visible_chunks set
+                if hasattr(self.renderer, 'visible_chunks') and self.renderer.visible_chunks:
+                    if chunk_key in self.renderer.visible_chunks:
+                        distance = 0.0  # Visible chunks have highest priority
+                    else:
+                        distance = float('inf')
                 else:
-                    other_chunks.append((chunk_x, chunk_y, chunk))
-            # Process visible chunks first
-            chunks_to_process = visible_chunks + other_chunks
+                    distance = 0.0  # No prioritization if no camera/visible_chunks
+            
+            chunks_to_process.append((distance, chunk_x, chunk_y, chunk))
         
-        # Limit processing to max_chunks_per_frame to prevent frame drops
-        for chunk_x, chunk_y, chunk in chunks_to_process[:max_chunks_per_frame]:
+        if not chunks_to_process:
+            # Still check for completed preparations from previous frames
+            processed_count += self._process_preparation_results(force_all, frame_start)
+            return processed_count
+        
+        # Sort by distance (closest first)
+        chunks_to_process.sort(key=lambda x: x[0])
+        
+        # Step 2: Submit chunks to ThreadPool for CPU preparation
+        # Process chunks (all if force_all, otherwise limited)
+        limit = len(chunks_to_process) if force_all else max_chunks_per_frame
+        
+        for _, chunk_x, chunk_y, chunk in chunks_to_process[:limit]:
             chunk_key = (chunk_x, chunk_y)
             
-            # Budget check: Stop if we've exceeded time budget
-            elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
-            if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS:
-                break
+            # Budget check: Stop if we've exceeded time budget (unless force_all)
+            if not force_all:
+                elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
+                if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS:
+                    break
             
+            # Submit to ThreadPool for CPU preparation
             try:
-                # Prepare vertices with texture assignment
-                vertex_array = self.renderer._prepare_chunk_vertices(chunk_x, chunk_y, chunk.tiles)
-                self.renderer.prepared_chunk_vertices[chunk_key] = vertex_array
-                processed_count += 1
+                future = self.preparation_executor.submit(
+                    self._prepare_chunk_async, chunk_x, chunk_y, chunk
+                )
+                self.preparation_futures[future] = chunk_key
             except Exception as e:
-                # If preparation fails, log but continue
                 if self.diagnostics:
-                    self.diagnostics.warning("ChunkManager", f"Failed to assign textures for chunk {chunk_key}: {e}")
+                    self.diagnostics.warning("ChunkManager", 
+                        f"Failed to submit chunk {chunk_key} for preparation: {e}")
+        
+        # Step 3: Process completed preparations (non-blocking)
+        processed_count += self._process_preparation_results(force_all, frame_start)
         
         return processed_count
+    
+    def _prepare_chunk_async(self, chunk_x: int, chunk_y: int, chunk: Chunk):
+        """
+        Prepare chunk vertices asynchronously in background thread.
+        This is CPU-intensive work that can run in parallel.
         
-        # Clean up old priority entries
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+            chunk: Chunk instance (read-only access, thread-safe)
+        
+        Returns:
+            Tuple of (chunk_key, vertex_array) or None on error
+        """
+        chunk_key = (chunk_x, chunk_y)
+        try:
+            # CRITICAL: Always ensure textures are assigned before preparing vertices
+            # This prevents missing textures when chunks are loaded quickly
+            # Check if textures are valid, and assign if not
+            if not self._chunk_has_valid_textures(chunk):
+                self._assign_textures_to_chunk(chunk)
+                # Double-check after assignment
+                if not self._chunk_has_valid_textures(chunk):
+                    # If still invalid, force assignment again (shouldn't happen, but safety check)
+                    if self.diagnostics:
+                        self.diagnostics.warning("ChunkManager",
+                            f"Chunk {chunk_key} still has invalid textures after assignment, retrying...")
+                    self._assign_textures_to_chunk(chunk)
+            
+            # Prepare vertices (CPU-intensive, thread-safe - only reads chunk.tiles)
+            # Fallback logic in _prepare_chunk_vertices() ensures valid textures are always found
+            vertex_array = self.renderer._prepare_chunk_vertices(chunk_x, chunk_y, chunk.tiles)
+            return (chunk_key, vertex_array)
+        except Exception as e:
+            if self.diagnostics:
+                self.diagnostics.warning("ChunkManager", 
+                    f"Error preparing chunk {chunk_key} in background thread: {e}")
+            return None
+    
+    def _process_preparation_results(self, force_all: bool, frame_start: float) -> int:
+        """
+        Process completed chunk preparations from ThreadPool.
+        GPU uploads happen here in main thread.
+        
+        Args:
+            force_all: If True, process all results without budget limit
+            frame_start: Frame start time for budget calculation
+        
+        Returns:
+            Number of chunks processed
+        """
+        processed_count = 0
+        
+        # Check for completed futures (non-blocking)
+        completed_futures = []
+        for future in list(self.preparation_futures.keys()):
+            if future.done():
+                completed_futures.append(future)
+        
+        # Process completed futures
+        for future in completed_futures:
+            chunk_key = self.preparation_futures.pop(future)
+            
+            # Budget check: Stop if we've exceeded time budget (unless force_all)
+            if not force_all:
+                elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
+                if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS:
+                    # Re-add to futures dict for next frame
+                    self.preparation_futures[future] = chunk_key
+                    break
+            
+            try:
+                result = future.result(timeout=0.001)  # Non-blocking check
+                if result is None:
+                    continue
+                
+                result_chunk_key, vertex_array = result
+                
+                # GPU upload in main thread (OpenGL context must be in main thread)
+                self.renderer.prepared_chunk_vertices[result_chunk_key] = vertex_array
+                processed_count += 1
+            except Exception as e:
+                if self.diagnostics:
+                    self.diagnostics.warning("ChunkManager", 
+                        f"Error processing preparation result for chunk {chunk_key}: {e}")
+        
+        # Clean up old priority entries periodically
         if len(self.chunk_priority) > 100:
             # Keep only loaded chunks in priority dict
             self.chunk_priority = {k: v for k, v in self.chunk_priority.items() 
                                    if k in self.loaded_chunks or k in self.pending_chunks}
+        
+        return processed_count
+    
+    def pre_bake_chunks_around_camera(self, camera_x: float, camera_y: float, 
+                                       pre_bake_radius_chunks: int = 3):
+        """
+        Pre-bake chunks in a larger radius around camera before they become visible.
+        This prepares chunks asynchronously in background threads to prevent texture
+        assignment delays when zooming out.
+        
+        Args:
+            camera_x: Camera X position in world coordinates
+            camera_y: Camera Y position in world coordinates
+            pre_bake_radius_chunks: Number of chunks beyond visible area to pre-bake (default: 3)
+        """
+        if not hasattr(self, 'renderer') or self.renderer is None:
+            return
+        
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        camera_chunk_x = int(camera_x // chunk_size_pixels)
+        camera_chunk_y = int(camera_y // chunk_size_pixels)
+        
+        # Calculate pre-bake area (larger than visible area)
+        min_chunk_x = camera_chunk_x - pre_bake_radius_chunks
+        max_chunk_x = camera_chunk_x + pre_bake_radius_chunks
+        min_chunk_y = camera_chunk_y - pre_bake_radius_chunks
+        max_chunk_y = camera_chunk_y + pre_bake_radius_chunks
+        
+        # Submit chunks for pre-baking (only if loaded and not already prepared)
+        pre_baked_count = 0
+        for chunk_x in range(min_chunk_x, max_chunk_x + 1):
+            for chunk_y in range(min_chunk_y, max_chunk_y + 1):
+                # Check world bounds
+                if not (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
+                        0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
+                    continue
+                
+                chunk_key = (chunk_x, chunk_y)
+                
+                # Skip if not loaded
+                if chunk_key not in self.loaded_chunks:
+                    continue
+                
+                # Skip if already prepared
+                if chunk_key in self.renderer.prepared_chunk_vertices:
+                    continue
+                
+                # Skip if already being prepared
+                if chunk_key in [f[1] for f in self.preparation_futures.values()]:
+                    continue
+                
+                chunk = self.loaded_chunks[chunk_key]
+                
+                # Ensure textures are assigned
+                if not self._chunk_has_valid_textures(chunk):
+                    self._assign_textures_to_chunk(chunk)
+                
+                # Submit to ThreadPool for pre-baking
+                try:
+                    future = self.preparation_executor.submit(
+                        self._prepare_chunk_async, chunk_x, chunk_y, chunk
+                    )
+                    self.preparation_futures[future] = chunk_key
+                    pre_baked_count += 1
+                except Exception as e:
+                    if self.diagnostics:
+                        self.diagnostics.debug("ChunkManager", 
+                            f"Failed to pre-bake chunk {chunk_key}: {e}")
+        
+        # Process any completed pre-baking results
+        if pre_baked_count > 0:
+            self._process_preparation_results(force_all=False, frame_start=time.perf_counter())
     
     def refresh_visible_chunks(self, player_pos: Tuple[float, float]):
         """Refresh chunk loading after screen size change (e.g., fullscreen toggle)
@@ -2610,6 +3070,7 @@ class ChunkManager:
         - Worker threads are gracefully stopped
         - All queues are processed
         - Region file handles are closed
+        - ThreadPool for CPU preparation is shut down
         """
         if self.diagnostics:
             self.diagnostics.info("ChunkManager", "Starting shutdown...")
@@ -2618,6 +3079,25 @@ class ChunkManager:
         
         # Set running flag to False to signal workers to stop
         self.running = False
+        
+        # Shutdown ThreadPool for CPU preparation
+        if hasattr(self, 'preparation_executor') and self.preparation_executor:
+            if self.diagnostics:
+                self.diagnostics.info("ChunkManager", "Shutting down ThreadPool for CPU preparation...")
+            # Cancel pending futures
+            for future in list(self.preparation_futures.keys()):
+                try:
+                    future.cancel()
+                except Exception:
+                    pass
+            self.preparation_futures.clear()
+            
+            # Shutdown executor (wait for running tasks to complete, max 5 seconds)
+            try:
+                self.preparation_executor.shutdown(wait=True, timeout=5.0)
+            except Exception as e:
+                if self.diagnostics:
+                    self.diagnostics.warning("ChunkManager", f"Error shutting down ThreadPool: {e}")
         
         # Save all loaded chunks before shutdown (ensures no data loss)
         if self.diagnostics:
