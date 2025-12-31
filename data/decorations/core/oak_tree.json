@@ -45,12 +45,7 @@
     "size": [48, 64],
     "offset": [0, -16],
     "bounding_box": [24, 48],
-    "layer": 10,
-    "shadow": {
-      "enabled": true,
-      "sprite": "shadow_medium",
-      "offset": [0, 0]
-    }
+    "layer": 10
   },
   "animation": {
     "enabled": false,

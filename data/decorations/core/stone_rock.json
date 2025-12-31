@@ -37,12 +37,7 @@
   "rendering": {
     "size": [32, 32],
     "offset": [0, 0],
-    "layer": 10,
-    "shadow": {
-      "enabled": true,
-      "sprite": "shadow_small",
-      "offset": [0, 0]
-    }
+    "layer": 10
   },
   "animation": {
     "enabled": false,

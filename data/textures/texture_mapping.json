@@ -2,7 +2,7 @@
   "texture_mappings": {
     "terrain:plains": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles/core",
+      "base_path": "assets",
       "variance_system": {
         "mode": "organic_growth",
         "rotation_enabled": true,
@@ -64,55 +64,55 @@
     },
     "terrain:forest": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     },
     "terrain:rainforest": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     },
     "terrain:desert": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     },
     "terrain:beach": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     },
     "terrain:tundra": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     },
     "terrain:taiga": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     },
     "terrain:savanna": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     },
     "terrain:steppe": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     },
     "terrain:chaparral": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     },
     "terrain:mountains": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     },
     "terrain:snow": {
       "base_texture": "plains_grass_1",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     },
     "water:shallow": {
       "base_texture": "water_shallow",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     },
     "water:deep": {
       "base_texture": "water_deep",
-      "base_path": "assets/tiles"
+      "base_path": "assets"
     }
   }
 }

@@ -890,8 +890,8 @@ class TerrainGenerator:
         # Restore original world_height
         self.world_height = old_world_height
         
-        # Generate decorations for this chunk
-        self.generate_decorations(tiles, chunk_x, chunk_y, chunk_size)
+        # Decorations are now populated by ChunkManager.populate_chunk() after chunk generation
+        # This ensures deterministic placement based on world coordinates
         
         return tiles
     

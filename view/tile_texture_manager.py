@@ -22,6 +22,9 @@ class TileTextureManager:
     - terrain:plains -> assets/tiles/core/grass.png (oder plains.png falls vorhanden)
     """
     
+    # Fallback color for missing textures (pink)
+    FALLBACK_COLOR = (255, 0, 255, 255)
+    
     def __init__(self, ctx: moderngl.Context, base_path: str = "assets/tiles/core", mapping_file: str = "data/textures/texture_mapping.json", diagnostics=None):
         """
         Initialize Texture Manager with dynamic texture atlas and variant support
@@ -43,6 +46,7 @@ class TileTextureManager:
         self.variant_coords: Dict[str, List[tuple]] = {}  # tile_id -> list of (u0, v0, u1, v1) for variants
         self.atlas_size = 0  # Atlas size (will be calculated)
         self.tile_size = settings.TILE_SIZE
+        self.failed_textures = set()  # Track failed texture loads
         
         # Overlay noise generator for deterministic placement
         # Use a fixed seed offset to ensure consistency across game sessions
@@ -98,22 +102,32 @@ class TileTextureManager:
         except Exception as e:
             self._log("error", f"Error loading texture mapping: {e}")
     
+    def _create_fallback_texture(self, texture_id: str) -> Image.Image:
+        """Create pink fallback texture for missing assets."""
+        img = Image.new('RGBA', (self.tile_size, self.tile_size), self.FALLBACK_COLOR)
+        self._log("debug", f"Created fallback texture for: {texture_id}")
+        return img
+    
     def _load_texture_from_path(self, texture_path: Path) -> Optional[Image.Image]:
         """Load a single texture from file path"""
         if not texture_path.exists():
-            return None
+            self._log("warning", f"Texture not found: {texture_path}")
+            self.failed_textures.add(str(texture_path))
+            return self._create_fallback_texture(str(texture_path))  # Fallback statt None
         
         try:
             img = Image.open(texture_path).convert("RGBA")
             
             # Resize to tile size (TILE_SIZE x TILE_SIZE)
             if img.size[0] != self.tile_size or img.size[1] != self.tile_size:
+                self._log("warning", f"Resizing {texture_path.name} from {img.size} to {self.tile_size}x{self.tile_size}")
                 img = img.resize((self.tile_size, self.tile_size), Image.Resampling.LANCZOS)
             
             return img
         except Exception as e:
             self._log("error", f"Error loading texture {texture_path}: {e}")
-            return None
+            self.failed_textures.add(str(texture_path))
+            return self._create_fallback_texture(str(texture_path))  # Fallback statt None
     
     def _colorize_texture(self, source_img: Image.Image, target_rgb: List[int]) -> Image.Image:
         """
@@ -877,8 +891,29 @@ class TileTextureManager:
             (u0, v0, u1, v1) tuple or None if not found
         """
         atlas_name = f"decoration:{mod_id}/{sprite_name}"
+        
+        # DEBUG: Log lookup attempt (if debug logging available)
+        if hasattr(self, 'decoration_debug_logger'):
+            self.decoration_debug_logger(
+                f"[TEXTURE_MANAGER] Looking up: atlas_name={atlas_name}, "
+                f"sprite_name={sprite_name}, mod_id={mod_id}"
+            )
+        
         if atlas_name in self.texture_coords:
-            return self.texture_coords[atlas_name]
+            uv_coords = self.texture_coords[atlas_name]
+            if hasattr(self, 'decoration_debug_logger'):
+                self.decoration_debug_logger(
+                    f"[TEXTURE_MANAGER] Found: {atlas_name}, UV={uv_coords}"
+                )
+            return uv_coords
+        
+        # DEBUG: Log missing texture
+        if hasattr(self, 'decoration_debug_logger'):
+            self.decoration_debug_logger(
+                f"[TEXTURE_MANAGER] Missing: {atlas_name} not in texture_coords "
+                f"(total textures: {len(self.texture_coords)})"
+            )
+        
         return None
     
     def _get_rotated_texture_coords(self, base_name: str, world_x: int, world_y: int, rotation_enabled: bool = True) -> Optional[tuple]:
@@ -1121,6 +1156,15 @@ class TileTextureManager:
                 # Include both base textures and rotation variants in tile_textures
                 tile_textures[name] = img
         
+        # Add pink fallback texture for decorations (16x16)
+        decoration_fallback_name = "decoration:fallback"
+        if decoration_fallback_name not in decoration_textures:
+            fallback_img = Image.new('RGBA', (16, 16), self.FALLBACK_COLOR)
+            decoration_textures[decoration_fallback_name] = fallback_img
+            # Also store in texture_images for consistency
+            self.texture_images[decoration_fallback_name] = fallback_img
+            self._log("debug", f"Added decoration fallback texture: {decoration_fallback_name} (16x16)")
+        
         # Build atlas: first pack tiles, then decorations
         import math
         
@@ -1291,6 +1335,38 @@ class TileTextureManager:
         num_textures = len(self.texture_coords)
         self._log("info", f"Built texture atlas: {self.atlas_size}x{self.atlas_size} with {num_textures} textures")
         self._log("info", f"Variant mappings: {len(self.variant_coords)} biomes with variants")
+        
+        # Validate atlas after building
+        if self.texture_atlas:
+            self._validate_atlas()
+            self._log("info", f"✓ Atlas built: {len(self.texture_coords)} textures, {len(self.failed_textures)} failed")
+    
+    def _validate_atlas(self):
+        """Validate texture atlas and UV coordinates."""
+        invalid = []
+        for texture_id, (u0, v0, u1, v1) in self.texture_coords.items():
+            if not (0.0 <= u0 <= 1.0 and 0.0 <= v0 <= 1.0 and 
+                   0.0 <= u1 <= 1.0 and 0.0 <= v1 <= 1.0):
+                invalid.append(texture_id)
+        
+        if invalid:
+            self._log("error", f"Invalid UV coordinates: {invalid[:5]}...")  # Show first 5
+        else:
+            self._log("debug", "All UV coordinates valid")
+        
+        # Log statistics with detailed failed textures
+        failed_count = len(self.failed_textures)
+        if failed_count > 0:
+            # Log failed textures (limit to first 10 to avoid spam)
+            failed_list = list(self.failed_textures)[:10]
+            failed_text = ", ".join(failed_list)
+            if failed_count > 10:
+                failed_text += f" ... und {failed_count - 10} weitere"
+            self._log("warning", f"Failed texture loads ({failed_count}): {failed_text}")
+        
+        self._log("info", f"Atlas size: {self.atlas_size}x{self.atlas_size}, "
+                         f"Textures: {len(self.texture_coords)}, "
+                         f"Failed: {failed_count}")
     
     def get_texture_coords(self, tile_id: str, world_x: int = None, world_y: int = None) -> Optional[tuple]:
         """

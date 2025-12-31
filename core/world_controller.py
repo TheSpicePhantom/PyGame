@@ -767,7 +767,11 @@ class WorldController:
         #             f"Unloading {len(chunks_to_unload)} chunks. Closest 5: {closest_unload}")
         
         for chunk_key in chunks_to_unload[:3]:  # Unload max 3 chunks per frame
-            self.world.chunk_manager.unload_chunk(chunk_key[0], chunk_key[1])
+            chunk_x, chunk_y = chunk_key
+            # Clear prepared vertices when chunk is unloaded
+            if hasattr(self.modern_gl_renderer, 'clear_prepared_chunk'):
+                self.modern_gl_renderer.clear_prepared_chunk(chunk_x, chunk_y)
+            self.world.chunk_manager.unload_chunk(chunk_x, chunk_y)
     
     def draw(self, debug_visualization_mode: int = 0):
         """Draw world, chunks, player and debug visualization"""
@@ -830,7 +834,13 @@ class WorldController:
             # Add chunk to render list
             chunks_data.append((chunk.chunk_x, chunk.chunk_y, chunk.tiles))
         
+        # Step 2.5: Process texture assignment for loaded chunks (separate phase after loading)
+        # This ensures textures are assigned AFTER chunks are fully loaded, before rendering
+        if self.world and self.world.chunk_manager:
+            self.world.chunk_manager.process_texture_assignment(max_chunks_per_frame=10)
+        
         # Step 3: Render all chunks from stable loaded_chunks list
+        # Note: render_chunks() will only render chunks with prepared_chunk_vertices (textures assigned)
         if chunks_data:
             self.modern_gl_renderer.render_chunks(chunks_data, performance_monitor=self.performance_monitor)
         

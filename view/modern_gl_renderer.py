@@ -7,7 +7,7 @@ from typing import List, Tuple, Optional
 from core import settings
 from view.chunk_vbo_pool import ChunkVboPool
 from view.tile_color_palette import TileColorPalette
-from view.tile_texture_manager import TileTextureManager
+from view.unified_texture_manager import UnifiedTextureManager
 
 
 class ModernGLRenderer:
@@ -38,7 +38,7 @@ class ModernGLRenderer:
         
         # Initialize texture manager (may fail if assets don't exist, that's OK)
         try:
-            self.tile_texture_manager = TileTextureManager(ctx, diagnostics=self.diagnostics)
+            self.tile_texture_manager = UnifiedTextureManager(ctx, diagnostics=self.diagnostics)
             if self.diagnostics and self.tile_texture_manager.texture_atlas:
                 self.diagnostics.info("ModernGLRenderer", f"Texture atlas initialized: {self.tile_texture_manager.atlas_size}x{self.tile_texture_manager.atlas_size}")
         except Exception as e:
@@ -49,19 +49,8 @@ class ModernGLRenderer:
                 traceback.print_exc()
             self.tile_texture_manager = None
         
-        # Initialize decoration texture manager
-        try:
-            from view.decoration_texture_manager import DecorationTextureManager
-            self.decoration_texture_manager = DecorationTextureManager(ctx, diagnostics=self.diagnostics)
-            if self.diagnostics:
-                self.diagnostics.info("ModernGLRenderer", "Decoration texture manager initialized")
-        except Exception as e:
-            if self.diagnostics:
-                self.diagnostics.warning("ModernGLRenderer", f"Failed to initialize decoration texture manager: {e}")
-            else:
-                import traceback
-                traceback.print_exc()
-            self.decoration_texture_manager = None
+        # Decoration textures are now loaded via TileTextureManager (integrated into atlas)
+        # No separate DecorationTextureManager needed
         
         # Initialize item texture manager
         try:
@@ -86,6 +75,9 @@ class ModernGLRenderer:
         # (tile modifications) require buffer invalidation.
         self.chunk_buffers = {}  # (chunk_x, chunk_y) -> (vbo, vao, vertex_count, pool_index)
         self.chunk_dirty = set()  # Set[(chunk_x, chunk_y)] - Chunks, deren Daten sich geändert haben
+        
+        # Cache für CPU-seitig vorbereitete Vertex-Daten
+        self.prepared_chunk_vertices = {}  # Dict[(chunk_x, chunk_y), np.ndarray]
         self.last_camera_pos = (0.0, 0.0)  # Track camera changes (for reference, no invalidation needed)
         self.last_zoom = 1.0  # Track zoom changes (for reference, no invalidation needed)
         
@@ -498,6 +490,36 @@ class ModernGLRenderer:
             # Remove from cache (will be re-added below)
             del self.chunk_buffers[chunk_key]
         
+        # Check if vertices are already prepared
+        # IMPORTANT: Always re-prepare if chunk is dirty (textures might have changed)
+        if chunk_key in self.prepared_chunk_vertices and chunk_key not in self.chunk_dirty:
+            vertex_array = self.prepared_chunk_vertices[chunk_key]
+            vertex_count = len(vertex_array)
+        else:
+            # Prepare synchronously (new chunk or dirty chunk - textures might have changed)
+            vertex_array = self._prepare_chunk_vertices(chunk_x, chunk_y, tiles)
+            vertex_count = len(vertex_array)
+            self.prepared_chunk_vertices[chunk_key] = vertex_array
+            # Remove from dirty set after re-preparation
+            self.chunk_dirty.discard(chunk_key)
+        
+        # Buffer aus Pool holen (mit Recycling)
+        vbo, vao, pool_index = self.chunk_vbo_pool.get_vbo_for_chunk(chunk_key)
+        self.chunk_vbo_pool.write_data(vbo, vertex_array)
+        self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, pool_index)
+        
+        # Nach Upload ist der Chunk wieder "clean"
+        self.mark_chunk_clean(chunk_x, chunk_y)
+        
+        return (vbo, vao, vertex_count)
+    
+    def _prepare_chunk_vertices(self, chunk_x: int, chunk_y: int, tiles: List[List[dict]]) -> np.ndarray:
+        """
+        Prepare vertex data for chunk on CPU (can run asynchronously).
+        Returns numpy array ready for GPU upload.
+        
+        This is the same logic as in _create_chunk_buffer(), but without GPU operations.
+        """
         chunk_size = settings.CHUNK_SIZE
         tile_size = float(settings.TILE_SIZE)
         
@@ -505,7 +527,7 @@ class ModernGLRenderer:
         chunk_world_x = chunk_x * chunk_size * tile_size
         chunk_world_y = chunk_y * chunk_size * tile_size
         
-        # Build vertex data for chunk
+        # Build vertex data for chunk (same logic as _create_chunk_buffer)
         vertices = []
         
         for tile_y in range(chunk_size):
@@ -524,6 +546,15 @@ class ModernGLRenderer:
                 has_texture = (hasattr(self, 'tile_texture_manager') and 
                               self.tile_texture_manager is not None and 
                               self.tile_texture_manager.has_texture(tile_id))
+                
+                # Debug: Log first few texture lookups for new chunks
+                if not hasattr(self, '_new_chunk_texture_log_count'):
+                    self._new_chunk_texture_log_count = 0
+                if self._new_chunk_texture_log_count < 20 and tile_id:
+                    self._new_chunk_texture_log_count += 1
+                    if hasattr(self, 'diagnostics') and self.diagnostics:
+                        self.diagnostics.debug("ModernGLRenderer", 
+                            f"New chunk tile: tile_id={tile_id}, has_texture={has_texture}, chunk=({chunk_x}, {chunk_y})")
                 
                 # Calculate world position for deterministic variant selection
                 world_tile_x = int((chunk_world_x + tile_x_pos) / tile_size)
@@ -558,20 +589,12 @@ class ModernGLRenderer:
                     ]
                 
                 # World position (top-left corner of tile) in pixels
-                # Store as world coordinates - transformation happens in shader
                 world_x0 = chunk_world_x + tile_x_pos
                 world_y0 = chunk_world_y + tile_y_pos
                 world_x1 = world_x0 + tile_size
                 world_y1 = world_y0 + tile_size
                 
-                # Store world coordinates directly (no transformation here)
-                # View matrix and zoom are applied in shader via uniforms
-                x0_world = world_x0
-                y0_world = world_y0
-                x1_world = world_x1
-                y1_world = world_y1
-                
-                # Get color index from palette (instead of storing RGB directly)
+                # Get color index from palette
                 color_index = float(self.tile_color_palette.get_color_index(color))
                 
                 # Use texture flag (1.0 if texture available, 0.0 for color)
@@ -580,33 +603,17 @@ class ModernGLRenderer:
                 # Create quad vertices (2 triangles = 6 vertices)
                 # Format: [in_position (2f), in_color_index (1f), in_texcoord (2f), in_use_texture (1f)]
                 base_vertices = [
-                    [x0_world, y0_world, color_index, tex_coords[0][0], tex_coords[0][1], use_texture],  # Bottom-left
-                    [x1_world, y0_world, color_index, tex_coords[1][0], tex_coords[1][1], use_texture],  # Bottom-right
-                    [x1_world, y1_world, color_index, tex_coords[2][0], tex_coords[2][1], use_texture],  # Top-right
-                    [x0_world, y0_world, color_index, tex_coords[3][0], tex_coords[3][1], use_texture],  # Bottom-left
-                    [x1_world, y1_world, color_index, tex_coords[4][0], tex_coords[4][1], use_texture],  # Top-right
-                    [x0_world, y1_world, color_index, tex_coords[5][0], tex_coords[5][1], use_texture],  # Top-left
+                    [world_x0, world_y0, color_index, tex_coords[0][0], tex_coords[0][1], use_texture],  # Bottom-left
+                    [world_x1, world_y0, color_index, tex_coords[1][0], tex_coords[1][1], use_texture],  # Bottom-right
+                    [world_x1, world_y1, color_index, tex_coords[2][0], tex_coords[2][1], use_texture],  # Top-right
+                    [world_x0, world_y0, color_index, tex_coords[3][0], tex_coords[3][1], use_texture],  # Bottom-left
+                    [world_x1, world_y1, color_index, tex_coords[4][0], tex_coords[4][1], use_texture],  # Top-right
+                    [world_x0, world_y1, color_index, tex_coords[5][0], tex_coords[5][1], use_texture],  # Top-left
                 ]
                 vertices.extend(base_vertices)
-                
-                # NOTE: Overlays are now handled in get_texture_coords() - they replace the base texture
-                # instead of being rendered on top. This means variants 2-6 replace plains_grass_1,
-                # not overlay it. If you want true overlays (like flowers/bushes), use get_overlay_texture()
-                # separately for non-variant textures.
         
-        # Convert to numpy array
-        vertex_array = np.array(vertices, dtype=np.float32)
-        vertex_count = len(vertices)
-        
-        # Buffer aus Pool holen (mit Recycling)
-        vbo, vao, pool_index = self.chunk_vbo_pool.get_vbo_for_chunk(chunk_key)
-        self.chunk_vbo_pool.write_data(vbo, vertex_array)
-        self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, pool_index)
-        
-        # Nach Upload ist der Chunk wieder "clean"
-        self.mark_chunk_clean(chunk_x, chunk_y)
-        
-        return (vbo, vao, vertex_count)
+        # Convert to numpy array (ready for GPU)
+        return np.array(vertices, dtype=np.float32)
     
     def _bind_chunk_texture(self, tiles: List[List[dict]]):
         """
@@ -744,6 +751,7 @@ class ModernGLRenderer:
         if use_merged_buffer:
             try:
                 # Build or update merged chunk buffer (handles incremental updates automatically)
+                # NOTE: If chunks don't have prepared vertices yet, they will be prepared during buffer building
                 self._build_merged_chunk_buffer(chunks_data)
                 
                 # Render all chunks in a single draw call using merged buffer
@@ -762,29 +770,57 @@ class ModernGLRenderer:
         if not use_merged_buffer:
             # Fallback: per-chunk rendering (old method)
             new_chunks_uploaded = 0
+            
+            # First pass: Process new chunks (not in buffers) - these MUST be uploaded
+            # even if budget is exceeded, to prevent gray tiles
+            # NOTE: If chunk doesn't have prepared vertices yet, _create_chunk_buffer will prepare them synchronously
+            new_chunks = []
+            existing_chunks = []
             for chunk_x, chunk_y, tiles in chunks_data:
                 chunk_key = (chunk_x, chunk_y)
-                is_dirty = chunk_key in self.chunk_dirty or chunk_key not in self.chunk_buffers
+                if chunk_key not in self.chunk_buffers:
+                    new_chunks.append((chunk_x, chunk_y, tiles))
+                else:
+                    existing_chunks.append((chunk_x, chunk_y, tiles))
+            
+            # Process new chunks first (prioritize them to prevent gray tiles)
+            for chunk_x, chunk_y, tiles in new_chunks:
+                chunk_key = (chunk_x, chunk_y)
+                # Always upload new chunks, even if budget is exceeded
+                # This ensures tiles are textured correctly when chunks are first loaded
+                # Note: prepared_chunk_vertices check above ensures textures are assigned
+                vbo, vao, vertex_count = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
+                new_chunks_uploaded += 1
+                uploaded_chunks.append(chunk_key)
                 
-                # Upload-Budget begrenzen
+                if vao and vertex_count > 0:
+                    vao.render(moderngl.TRIANGLES, vertices=vertex_count)
+                    rendered_chunks.append(chunk_key)
+            
+            # Second pass: Process existing chunks (with budget limit)
+            # Note: Only chunks with prepared_chunk_vertices are in existing_chunks (filtered above)
+            for chunk_x, chunk_y, tiles in existing_chunks:
+                chunk_key = (chunk_x, chunk_y)
+                is_dirty = chunk_key in self.chunk_dirty
+                
+                # Upload-Budget begrenzen (nur für bestehende Chunks)
                 if is_dirty and new_chunks_uploaded >= max_new_chunks_per_frame:
-                    # Noch nicht im GPU-Cache? Dann diesen Chunk in diesem Frame überspringen
-                    if chunk_key not in self.chunk_buffers:
-                        skipped_chunks.append(chunk_key)
-                        continue
                     # Im Cache aber dirty? Mit altem Buffer rendern (ohne Upload)
                     if chunk_key in self.chunk_buffers:
                         vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
                         if vao and vertex_count > 0:
                             vao.render(moderngl.TRIANGLES, vertices=vertex_count)
                             rendered_chunks.append(chunk_key)
-                        continue
+                    continue
                 
-                # Normaler Pfad: Buffer erstellen/aktualisieren
-                vbo, vao, vertex_count = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
+                # Normaler Pfad: Buffer aktualisieren
                 if is_dirty:
+                    vbo, vao, vertex_count = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
                     new_chunks_uploaded += 1
                     uploaded_chunks.append(chunk_key)
+                else:
+                    # Chunk ist nicht dirty - verwende existierenden Buffer
+                    vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
                 
                 if vao and vertex_count > 0:
                     vao.render(moderngl.TRIANGLES, vertices=vertex_count)
@@ -1192,6 +1228,12 @@ class ModernGLRenderer:
             chunk_y: Chunk Y coordinate
         """
         self.chunk_dirty.discard((chunk_x, chunk_y))
+    
+    def clear_prepared_chunk(self, chunk_x: int, chunk_y: int):
+        """Clear prepared vertex data for a chunk (called when chunk is unloaded)."""
+        chunk_key = (chunk_x, chunk_y)
+        if chunk_key in self.prepared_chunk_vertices:
+            del self.prepared_chunk_vertices[chunk_key]
     
     def is_chunk_dirty(self, chunk_x: int, chunk_y: int) -> bool:
         """

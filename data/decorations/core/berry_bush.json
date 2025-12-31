@@ -29,12 +29,7 @@
     "size": [32, 32],
     "offset": [0, 0],
     "layer": 10,
-    "bounding_box": [16, 16],
-    "shadow": {
-      "enabled": true,
-      "sprite": "shadow_small",
-      "offset": [0, 0]
-    }
+    "bounding_box": [16, 16]
   },
   "animation": {
     "enabled": false,

@@ -87,6 +87,7 @@ import os
 import json
 import threading
 import time
+from typing import List, Dict, Tuple, Optional
 import asyncio
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List
@@ -1964,74 +1965,9 @@ class RegionManager:
         # Entity count (0 for now, future expansion)
         parts.append(struct.pack('>h', 0))  # int16 entity_count
         
-        # Decoration data (Sparse-Format with Flags)
-        # Collect all decorations from tiles
-        decorations = []
-        for tile_y in range(len(tiles)):
-            if tile_y >= len(tiles):
-                continue
-            for tile_x in range(len(tiles[tile_y])):
-                if tile_x >= len(tiles[tile_y]):
-                    continue
-                tile = tiles[tile_y][tile_x]
-                if not tile:
-                    continue
-                
-                decoration_data = tile.get('decoration')
-                if decoration_data:
-                    deco_data = decoration_data.get('data', {})
-                    
-                    # Build flags for changed data
-                    flags = 0
-                    growth_timer = deco_data.get('growth_timer', 0.0)
-                    has_fruit = deco_data.get('has_fruit', True)
-                    damage = deco_data.get('damage', 0.0)
-                    last_interaction = deco_data.get('last_interaction', 0.0)
-                    initial_growth_time = deco_data.get('initial_growth_time', 0.0)
-                    
-                    if growth_timer != 0.0:
-                        flags |= 0x01
-                    if not has_fruit:
-                        flags |= 0x02
-                    if damage != 0.0:
-                        flags |= 0x04
-                    if last_interaction != 0.0:
-                        flags |= 0x08
-                    if initial_growth_time != 0.0:
-                        flags |= 0x10
-                    
-                    # Only save if flags are set (sparse format)
-                    if flags != 0:
-                        decorations.append((
-                            tile_x, tile_y,
-                            decoration_data.get('decoration_id', ''),
-                            flags, growth_timer, has_fruit, damage, last_interaction, initial_growth_time
-                        ))
-        
-        # Decoration count
-        parts.append(struct.pack('B', len(decorations)))  # uint8 decoration_count
-        
-        # Decoration data (only changed data based on flags)
-        for tile_x, tile_y, decoration_id, flags, growth_timer, has_fruit, damage, last_interaction, initial_growth_time in decorations:
-            parts.append(struct.pack('B', flags))  # uint8 flags
-            parts.append(struct.pack('BB', tile_x, tile_y))  # uint8 tile_x, tile_y (0-14)
-            
-            # Decoration ID
-            deco_id_bytes = decoration_id.encode('utf-8')
-            parts.append(struct.pack('B', len(deco_id_bytes)))  # uint8 decoration_id_length
-            parts.append(deco_id_bytes)  # decoration_id string
-            
-            # Only save data based on flags
-            if flags & 0x01:
-                parts.append(struct.pack('>f', growth_timer))  # float32 growth_timer
-            if flags & 0x02:
-                parts.append(struct.pack('B', 1 if has_fruit else 0))  # uint8 has_fruit
-            if flags & 0x04:
-                parts.append(struct.pack('>f', damage))  # float32 damage
-            if flags & 0x08:
-                parts.append(struct.pack('>f', last_interaction))  # float32 last_interaction
-            if flags & 0x10:
-                parts.append(struct.pack('>f', initial_growth_time))  # float32 initial_growth_time
+        # Tile Metadata (v3 format)
+        metadata_bytes = self._serialize_metadata(tiles)
+        parts.append(metadata_bytes)
         
         # Join all parts at once (much faster than extend in loop)
         return b''.join(parts)
@@ -2202,84 +2138,97 @@ class RegionManager:
                 entity_count = struct.unpack('>h', data[offset:offset+2])[0]
                 offset += 2
             
-            # Read decoration data (if available)
+            # Read old decoration format (backward compatibility - will be migrated to metadata)
+            # Check if this is old format (uint8 decoration_count) vs new format (uint16 metadata_count)
             if offset < len(data):
                 try:
-                    decoration_count = struct.unpack('B', data[offset:offset+1])[0]
-                    offset += 1
-                    
-                    # Load decorations
-                    for i in range(decoration_count):
-                        if offset >= len(data):
-                            break
-                        
-                        # Read flags
-                        flags = struct.unpack('B', data[offset:offset+1])[0]
-                        offset += 1
-                        
-                        # Read tile coordinates
-                        if offset + 2 > len(data):
-                            break
-                        tile_x, tile_y = struct.unpack('BB', data[offset:offset+2])
-                        offset += 2
-                        
-                        # Read decoration ID
-                        if offset + 1 > len(data):
-                            break
-                        deco_id_len = struct.unpack('B', data[offset:offset+1])[0]
-                        offset += 1
-                        if offset + deco_id_len > len(data):
-                            break
-                        decoration_id = data[offset:offset+deco_id_len].decode('utf-8')
-                        offset += deco_id_len
-                        
-                        # Initialize decoration data with defaults
-                        deco_data = {
-                            'growth_timer': 0.0,
-                            'has_fruit': True,
-                            'damage': 0.0,
-                            'last_interaction': 0.0,
-                            'initial_growth_time': 0.0
-                        }
-                        
-                        # Read data based on flags
-                        if flags & 0x01:  # growth_timer
-                            if offset + 4 > len(data):
-                                break
-                            deco_data['growth_timer'] = struct.unpack('>f', data[offset:offset+4])[0]
-                            offset += 4
-                        if flags & 0x02:  # has_fruit
-                            if offset + 1 > len(data):
-                                break
-                            deco_data['has_fruit'] = bool(struct.unpack('B', data[offset:offset+1])[0])
+                    # Try to read as old format first (uint8)
+                    old_decoration_count = struct.unpack('B', data[offset:offset+1])[0]
+                    # If count is reasonable and we have enough data, assume old format
+                    if old_decoration_count > 0 and old_decoration_count < 50:  # Reasonable limit
+                        # Check if next bytes look like old format (flags + tile_x, tile_y)
+                        if offset + 1 + (old_decoration_count * 3) <= len(data):
+                            # Old format detected - read and migrate
                             offset += 1
-                        if flags & 0x04:  # damage
-                            if offset + 4 > len(data):
-                                break
-                            deco_data['damage'] = struct.unpack('>f', data[offset:offset+4])[0]
-                            offset += 4
-                        if flags & 0x08:  # last_interaction
-                            if offset + 4 > len(data):
-                                break
-                            deco_data['last_interaction'] = struct.unpack('>f', data[offset:offset+4])[0]
-                            offset += 4
-                        if flags & 0x10:  # initial_growth_time
-                            if offset + 4 > len(data):
-                                break
-                            deco_data['initial_growth_time'] = struct.unpack('>f', data[offset:offset+4])[0]
-                            offset += 4
-                        
-                        # Add decoration to tile
-                        if 0 <= tile_y < len(tiles) and 0 <= tile_x < len(tiles[tile_y]):
-                            tile = tiles[tile_y][tile_x]
-                            if tile:
-                                tile['decoration'] = {
-                                    'decoration_id': decoration_id,
-                                    'data': deco_data
+                            for i in range(old_decoration_count):
+                                if offset + 3 > len(data):
+                                    break
+                                flags = struct.unpack('B', data[offset:offset+1])[0]
+                                tile_x, tile_y = struct.unpack('BB', data[offset+1:offset+3])
+                                offset += 3
+                                
+                                # Read decoration ID
+                                if offset + 1 > len(data):
+                                    break
+                                deco_id_len = struct.unpack('B', data[offset:offset+1])[0]
+                                offset += 1
+                                if offset + deco_id_len > len(data):
+                                    break
+                                decoration_id = data[offset:offset+deco_id_len].decode('utf-8')
+                                offset += deco_id_len
+                                
+                                # Initialize decoration data with defaults
+                                deco_data = {
+                                    'growth_timer': 0.0,
+                                    'has_fruit': True,
+                                    'damage': 0.0,
+                                    'last_interaction': 0.0,
+                                    'initial_growth_time': 0.0
                                 }
+                                
+                                # Read data based on flags
+                                if flags & 0x01 and offset + 4 <= len(data):
+                                    deco_data['growth_timer'] = struct.unpack('>f', data[offset:offset+4])[0]
+                                    offset += 4
+                                if flags & 0x02 and offset + 1 <= len(data):
+                                    deco_data['has_fruit'] = bool(struct.unpack('B', data[offset:offset+1])[0])
+                                    offset += 1
+                                if flags & 0x04 and offset + 4 <= len(data):
+                                    deco_data['damage'] = struct.unpack('>f', data[offset:offset+4])[0]
+                                    offset += 4
+                                if flags & 0x08 and offset + 4 <= len(data):
+                                    deco_data['last_interaction'] = struct.unpack('>f', data[offset:offset+4])[0]
+                                    offset += 4
+                                if flags & 0x10 and offset + 4 <= len(data):
+                                    deco_data['initial_growth_time'] = struct.unpack('>f', data[offset:offset+4])[0]
+                                    offset += 4
+                                
+                                # Add decoration to tile (will be migrated to metadata later)
+                                if 0 <= tile_y < len(tiles) and 0 <= tile_x < len(tiles[tile_y]):
+                                    tile = tiles[tile_y][tile_x]
+                                    if tile:
+                                        tile['decoration'] = {
+                                            'decoration_id': decoration_id,
+                                            'data': deco_data
+                                        }
+                        else:
+                            # Not old format, try new format
+                            offset -= 1  # Go back
+                            offset = self._deserialize_metadata(data, offset, tiles)
+                    else:
+                        # Not old format, try new format
+                        offset = self._deserialize_metadata(data, offset, tiles)
                 except Exception:
-                    # Silently ignore decoration loading errors (backward compatibility)
-                    pass
+                    # Try new format on error
+                    try:
+                        offset = self._deserialize_metadata(data, offset, tiles)
+                    except Exception:
+                        # Ignore metadata deserialization errors (backward compatibility)
+                        pass
+            
+            # Migrate old decoration format to metadata format
+            from world.metadata_utils import migrate_decoration_to_metadata
+            for row in tiles:
+                for tile in row:
+                    if tile and 'decoration' in tile:
+                        migrate_decoration_to_metadata(tile)
+            
+            # Migrate old decoration format to metadata format
+            from world.metadata_utils import migrate_decoration_to_metadata
+            for row in tiles:
+                for tile in row:
+                    if tile and 'decoration' in tile:
+                        migrate_decoration_to_metadata(tile)
             
             return {
                 'chunk_x': chunk_x,
@@ -2291,4 +2240,648 @@ class RegionManager:
             raise
         except Exception as e:
             raise ChunkCorruptedError(f"Error deserializing chunk: {type(e).__name__}: {e}") from e
+    
+    def _serialize_metadata(self, tiles: List[List[Dict]]) -> bytes:
+        """
+        Serialize all tile metadata for a chunk.
+        
+        Format:
+        - uint16: metadata_count (Big-Endian)
+        - For each tile with metadata:
+          - uint8: tile_x (0-14)
+          - uint8: tile_y (0-14)
+          - uint8: metadata_flags (bitmask)
+          - [Metadata data based on flags]
+        
+        Args:
+            tiles: 15x15 array of tile dictionaries
+            
+        Returns:
+            Serialized metadata bytes
+        """
+        metadata_entries = []
+        
+        # Collect all tiles with metadata
+        for tile_y in range(len(tiles)):
+            if tile_y >= len(tiles):
+                continue
+            for tile_x in range(len(tiles[tile_y])):
+                if tile_x >= len(tiles[tile_y]):
+                    continue
+                tile = tiles[tile_y][tile_x]
+                if not tile:
+                    continue
+                
+                # Check if tile has metadata
+                metadata = tile.get('metadata')
+                if not metadata:
+                    continue
+                
+                # Build metadata flags
+                flags = 0
+                if 'decoration' in metadata:
+                    flags |= 0x01  # bit 0: has_decoration
+                if 'tile_entity' in metadata:
+                    flags |= 0x02  # bit 1: has_tile_entity
+                if 'entities' in metadata:
+                    flags |= 0x04  # bit 2: has_entities
+                if 'texture_override' in metadata:
+                    flags |= 0x08  # bit 3: has_texture_override
+                if 'state' in metadata:
+                    flags |= 0x10  # bit 4: has_state
+                
+                # Only add if at least one metadata type is present
+                if flags != 0:
+                    metadata_entries.append((tile_x, tile_y, flags, metadata))
+        
+        # Serialize metadata entries
+        parts = [struct.pack('>H', len(metadata_entries))]  # uint16 metadata_count
+        
+        for tile_x, tile_y, flags, metadata in metadata_entries:
+            parts.append(struct.pack('BB', tile_x, tile_y))  # uint8 tile_x, tile_y
+            parts.append(struct.pack('B', flags))  # uint8 metadata_flags
+            
+            # Serialize each metadata type based on flags
+            if flags & 0x01:  # has_decoration
+                parts.append(self._serialize_decoration(metadata['decoration']))
+            if flags & 0x02:  # has_tile_entity
+                parts.append(self._serialize_tile_entity(metadata['tile_entity']))
+            if flags & 0x04:  # has_entities
+                parts.append(self._serialize_entities(metadata['entities']))
+            if flags & 0x08:  # has_texture_override
+                parts.append(self._serialize_texture_override(metadata['texture_override']))
+            if flags & 0x10:  # has_state
+                parts.append(self._serialize_state(metadata['state']))
+        
+        return b''.join(parts)
+    
+    def _serialize_decoration(self, decoration: dict) -> bytes:
+        """
+        Serialize decoration metadata.
+        
+        Format:
+        - uint8: decoration_id_length
+        - string: decoration_id (UTF-8)
+        - uint8: mod_id_length
+        - string: mod_id (UTF-8)
+        - uint8: data_flags (bitmask)
+        - [Data fields based on flags]
+        """
+        decoration_id = decoration.get('decoration_id', '')
+        mod_id = decoration.get('mod_id', 'core')
+        data = decoration.get('data', {})
+        
+        # Build data flags
+        data_flags = 0
+        growth_timer = data.get('growth_timer', 0.0)
+        has_fruit = data.get('has_fruit', True)
+        damage = data.get('damage', 0.0)
+        current_stage = data.get('current_stage', 0)
+        health = data.get('health', 100.0)
+        last_interaction = data.get('last_interaction', 0.0)
+        
+        if growth_timer != 0.0:
+            data_flags |= 0x01  # bit 0: has_growth_timer
+        if not has_fruit:
+            data_flags |= 0x02  # bit 1: has_fruit (inverted, False means set)
+        if damage != 0.0:
+            data_flags |= 0x04  # bit 2: has_damage
+        if current_stage != 0:
+            data_flags |= 0x08  # bit 3: has_stage
+        if health != 100.0:
+            data_flags |= 0x10  # bit 4: has_health
+        if last_interaction != 0.0:
+            data_flags |= 0x20  # bit 5: has_last_interaction
+        
+        parts = []
+        
+        # Decoration ID
+        deco_id_bytes = decoration_id.encode('utf-8')
+        parts.append(struct.pack('B', len(deco_id_bytes)))
+        parts.append(deco_id_bytes)
+        
+        # Mod ID
+        mod_id_bytes = mod_id.encode('utf-8')
+        parts.append(struct.pack('B', len(mod_id_bytes)))
+        parts.append(mod_id_bytes)
+        
+        # Data flags
+        parts.append(struct.pack('B', data_flags))
+        
+        # Data fields based on flags
+        if data_flags & 0x01:
+            parts.append(struct.pack('>f', growth_timer))
+        if data_flags & 0x02:
+            parts.append(struct.pack('B', 1 if has_fruit else 0))
+        if data_flags & 0x04:
+            parts.append(struct.pack('>f', damage))
+        if data_flags & 0x08:
+            parts.append(struct.pack('B', current_stage))
+        if data_flags & 0x10:
+            parts.append(struct.pack('>f', health))
+        if data_flags & 0x20:
+            parts.append(struct.pack('>d', last_interaction))  # float64
+        
+        return b''.join(parts)
+    
+    def _serialize_tile_entity(self, tile_entity: dict) -> bytes:
+        """
+        Serialize tile entity metadata.
+        
+        Format:
+        - uint8: type_length
+        - string: type (UTF-8)
+        - uint8: mod_id_length
+        - string: mod_id (UTF-8)
+        - uint16: data_size (Big-Endian)
+        - bytes: data (JSON-encoded)
+        """
+        entity_type = tile_entity.get('type', '')
+        mod_id = tile_entity.get('mod_id', 'core')
+        data = tile_entity.get('data', {})
+        
+        # Serialize data as JSON
+        data_json = json.dumps(data).encode('utf-8')
+        data_size = len(data_json)
+        
+        parts = []
+        
+        # Type
+        type_bytes = entity_type.encode('utf-8')
+        parts.append(struct.pack('B', len(type_bytes)))
+        parts.append(type_bytes)
+        
+        # Mod ID
+        mod_id_bytes = mod_id.encode('utf-8')
+        parts.append(struct.pack('B', len(mod_id_bytes)))
+        parts.append(mod_id_bytes)
+        
+        # Data size and data
+        parts.append(struct.pack('>H', data_size))
+        parts.append(data_json)
+        
+        return b''.join(parts)
+    
+    def _serialize_entities(self, entities: List[dict]) -> bytes:
+        """
+        Serialize entities metadata.
+        
+        Format:
+        - uint8: entity_count
+        - For each entity:
+          - uint8: entity_id_length
+          - string: entity_id (UTF-8)
+          - uint16: data_size (Big-Endian)
+          - bytes: data (JSON-encoded)
+        """
+        parts = [struct.pack('B', len(entities))]  # uint8 entity_count
+        
+        for entity in entities:
+            entity_id = entity.get('entity_id', '')
+            data = entity.get('data', {})
+            
+            # Serialize data as JSON
+            data_json = json.dumps(data).encode('utf-8')
+            data_size = len(data_json)
+            
+            # Entity ID
+            entity_id_bytes = entity_id.encode('utf-8')
+            parts.append(struct.pack('B', len(entity_id_bytes)))
+            parts.append(entity_id_bytes)
+            
+            # Data size and data
+            parts.append(struct.pack('>H', data_size))
+            parts.append(data_json)
+        
+        return b''.join(parts)
+    
+    def _serialize_texture_override(self, override: dict) -> bytes:
+        """
+        Serialize texture override metadata.
+        
+        Format:
+        - uint8: type (0=overlay, 1=replace)
+        - uint8: texture_id_length
+        - string: texture_id (UTF-8)
+        - uint8: blend_mode (0=normal, 1=multiply, 2=add, 3=overlay)
+        - float32: opacity
+        - float32: duration
+        - float32: age
+        """
+        override_type = 0 if override.get('type', 'overlay') == 'overlay' else 1
+        texture_id = override.get('texture_id', '')
+        blend_mode_map = {'normal': 0, 'multiply': 1, 'add': 2, 'overlay': 3}
+        blend_mode = blend_mode_map.get(override.get('blend_mode', 'normal'), 0)
+        opacity = override.get('opacity', 1.0)
+        duration = override.get('duration', -1.0)
+        age = override.get('age', 0.0)
+        
+        parts = []
+        
+        # Type
+        parts.append(struct.pack('B', override_type))
+        
+        # Texture ID
+        texture_id_bytes = texture_id.encode('utf-8')
+        parts.append(struct.pack('B', len(texture_id_bytes)))
+        parts.append(texture_id_bytes)
+        
+        # Blend mode, opacity, duration, age
+        parts.append(struct.pack('B', blend_mode))
+        parts.append(struct.pack('>f', opacity))
+        parts.append(struct.pack('>f', duration))
+        parts.append(struct.pack('>f', age))
+        
+        return b''.join(parts)
+    
+    def _serialize_state(self, state: dict) -> bytes:
+        """
+        Serialize tile state metadata.
+        
+        Format:
+        - uint8: state_flags (bitmask)
+        - float32: fire_intensity (if on_fire)
+        - float32: fire_duration (if on_fire)
+        - float64: last_update
+        """
+        state_flags = 0
+        on_fire = state.get('on_fire', False)
+        wet = state.get('wet', False)
+        frozen = state.get('frozen', False)
+        radioactive = state.get('radioactive', False)
+        
+        if on_fire:
+            state_flags |= 0x01  # bit 0: on_fire
+        if wet:
+            state_flags |= 0x02  # bit 1: wet
+        if frozen:
+            state_flags |= 0x04  # bit 2: frozen
+        if radioactive:
+            state_flags |= 0x08  # bit 3: radioactive
+        
+        parts = [struct.pack('B', state_flags)]
+        
+        # Fire data (if on_fire)
+        if on_fire:
+            fire_intensity = state.get('fire_intensity', 1.0)
+            fire_duration = state.get('fire_duration', 0.0)
+            parts.append(struct.pack('>f', fire_intensity))
+            parts.append(struct.pack('>f', fire_duration))
+        
+        # Last update
+        last_update = state.get('last_update', 0.0)
+        parts.append(struct.pack('>d', last_update))  # float64
+        
+        return b''.join(parts)
+    
+    def _deserialize_metadata(self, data: bytes, offset: int, tiles: List[List[Dict]]) -> int:
+        """
+        Deserialize tile metadata from chunk data.
+        
+        Args:
+            data: Serialized chunk data bytes
+            offset: Current offset in data
+            tiles: 15x15 array of tile dictionaries (will be modified)
+            
+        Returns:
+            New offset after deserialization
+        """
+        if offset + 2 > len(data):
+            return offset
+        
+        # Read metadata count
+        metadata_count = struct.unpack('>H', data[offset:offset+2])[0]
+        offset += 2
+        
+        # Deserialize each metadata entry
+        for i in range(metadata_count):
+            if offset + 3 > len(data):
+                break
+            
+            # Read tile coordinates and flags
+            tile_x, tile_y, flags = struct.unpack('BBB', data[offset:offset+3])
+            offset += 3
+            
+            # Validate tile coordinates
+            if tile_y >= len(tiles) or tile_x >= len(tiles[tile_y]):
+                # Skip invalid coordinates
+                continue
+            
+            tile = tiles[tile_y][tile_x]
+            if not tile:
+                continue
+            
+            # Initialize metadata dict if needed
+            if 'metadata' not in tile:
+                tile['metadata'] = {}
+            
+            # Deserialize each metadata type based on flags
+            if flags & 0x01:  # has_decoration
+                decoration, offset = self._deserialize_decoration(data, offset)
+                if decoration:
+                    tile['metadata']['decoration'] = decoration
+            
+            if flags & 0x02:  # has_tile_entity
+                tile_entity, offset = self._deserialize_tile_entity(data, offset)
+                if tile_entity:
+                    tile['metadata']['tile_entity'] = tile_entity
+            
+            if flags & 0x04:  # has_entities
+                entities, offset = self._deserialize_entities(data, offset)
+                if entities:
+                    tile['metadata']['entities'] = entities
+            
+            if flags & 0x08:  # has_texture_override
+                texture_override, offset = self._deserialize_texture_override(data, offset)
+                if texture_override:
+                    tile['metadata']['texture_override'] = texture_override
+            
+            if flags & 0x10:  # has_state
+                state, offset = self._deserialize_state(data, offset)
+                if state:
+                    tile['metadata']['state'] = state
+        
+        return offset
+    
+    def _deserialize_decoration(self, data: bytes, offset: int) -> Tuple[Optional[dict], int]:
+        """
+        Deserialize decoration metadata.
+        
+        Returns:
+            Tuple of (decoration dict or None, new offset)
+        """
+        try:
+            # Read decoration ID
+            if offset + 1 > len(data):
+                return None, offset
+            deco_id_len = struct.unpack('B', data[offset:offset+1])[0]
+            offset += 1
+            if offset + deco_id_len > len(data):
+                return None, offset
+            decoration_id = data[offset:offset+deco_id_len].decode('utf-8')
+            offset += deco_id_len
+            
+            # Read mod ID
+            if offset + 1 > len(data):
+                return None, offset
+            mod_id_len = struct.unpack('B', data[offset:offset+1])[0]
+            offset += 1
+            if offset + mod_id_len > len(data):
+                return None, offset
+            mod_id = data[offset:offset+mod_id_len].decode('utf-8')
+            offset += mod_id_len
+            
+            # Read data flags
+            if offset + 1 > len(data):
+                return None, offset
+            data_flags = struct.unpack('B', data[offset:offset+1])[0]
+            offset += 1
+            
+            # Initialize data dict with defaults
+            deco_data = {
+                'growth_timer': 0.0,
+                'has_fruit': True,
+                'damage': 0.0,
+                'current_stage': 0,
+                'health': 100.0,
+                'last_interaction': 0.0
+            }
+            
+            # Read data fields based on flags
+            if data_flags & 0x01:  # has_growth_timer
+                if offset + 4 > len(data):
+                    return None, offset
+                deco_data['growth_timer'] = struct.unpack('>f', data[offset:offset+4])[0]
+                offset += 4
+            
+            if data_flags & 0x02:  # has_fruit
+                if offset + 1 > len(data):
+                    return None, offset
+                deco_data['has_fruit'] = bool(struct.unpack('B', data[offset:offset+1])[0])
+                offset += 1
+            
+            if data_flags & 0x04:  # has_damage
+                if offset + 4 > len(data):
+                    return None, offset
+                deco_data['damage'] = struct.unpack('>f', data[offset:offset+4])[0]
+                offset += 4
+            
+            if data_flags & 0x08:  # has_stage
+                if offset + 1 > len(data):
+                    return None, offset
+                deco_data['current_stage'] = struct.unpack('B', data[offset:offset+1])[0]
+                offset += 1
+            
+            if data_flags & 0x10:  # has_health
+                if offset + 4 > len(data):
+                    return None, offset
+                deco_data['health'] = struct.unpack('>f', data[offset:offset+4])[0]
+                offset += 4
+            
+            if data_flags & 0x20:  # has_last_interaction
+                if offset + 8 > len(data):
+                    return None, offset
+                deco_data['last_interaction'] = struct.unpack('>d', data[offset:offset+8])[0]
+                offset += 8
+            
+            return {
+                'decoration_id': decoration_id,
+                'mod_id': mod_id,
+                'data': deco_data
+            }, offset
+        except Exception:
+            return None, offset
+    
+    def _deserialize_tile_entity(self, data: bytes, offset: int) -> Tuple[Optional[dict], int]:
+        """
+        Deserialize tile entity metadata.
+        
+        Returns:
+            Tuple of (tile_entity dict or None, new offset)
+        """
+        try:
+            # Read type
+            if offset + 1 > len(data):
+                return None, offset
+            type_len = struct.unpack('B', data[offset:offset+1])[0]
+            offset += 1
+            if offset + type_len > len(data):
+                return None, offset
+            entity_type = data[offset:offset+type_len].decode('utf-8')
+            offset += type_len
+            
+            # Read mod ID
+            if offset + 1 > len(data):
+                return None, offset
+            mod_id_len = struct.unpack('B', data[offset:offset+1])[0]
+            offset += 1
+            if offset + mod_id_len > len(data):
+                return None, offset
+            mod_id = data[offset:offset+mod_id_len].decode('utf-8')
+            offset += mod_id_len
+            
+            # Read data size and data
+            if offset + 2 > len(data):
+                return None, offset
+            data_size = struct.unpack('>H', data[offset:offset+2])[0]
+            offset += 2
+            if offset + data_size > len(data):
+                return None, offset
+            data_json = data[offset:offset+data_size].decode('utf-8')
+            offset += data_size
+            
+            # Parse JSON data
+            entity_data = json.loads(data_json)
+            
+            return {
+                'type': entity_type,
+                'mod_id': mod_id,
+                'data': entity_data
+            }, offset
+        except Exception:
+            return None, offset
+    
+    def _deserialize_entities(self, data: bytes, offset: int) -> Tuple[Optional[List[dict]], int]:
+        """
+        Deserialize entities metadata.
+        
+        Returns:
+            Tuple of (entities list or None, new offset)
+        """
+        try:
+            # Read entity count
+            if offset + 1 > len(data):
+                return None, offset
+            entity_count = struct.unpack('B', data[offset:offset+1])[0]
+            offset += 1
+            
+            entities = []
+            for i in range(entity_count):
+                # Read entity ID
+                if offset + 1 > len(data):
+                    break
+                entity_id_len = struct.unpack('B', data[offset:offset+1])[0]
+                offset += 1
+                if offset + entity_id_len > len(data):
+                    break
+                entity_id = data[offset:offset+entity_id_len].decode('utf-8')
+                offset += entity_id_len
+                
+                # Read data size and data
+                if offset + 2 > len(data):
+                    break
+                data_size = struct.unpack('>H', data[offset:offset+2])[0]
+                offset += 2
+                if offset + data_size > len(data):
+                    break
+                data_json = data[offset:offset+data_size].decode('utf-8')
+                offset += data_size
+                
+                # Parse JSON data
+                try:
+                    entity_data = json.loads(data_json)
+                    entities.append({
+                        'entity_id': entity_id,
+                        'data': entity_data
+                    })
+                except Exception:
+                    continue
+            
+            return entities if entities else None, offset
+        except Exception:
+            return None, offset
+    
+    def _deserialize_texture_override(self, data: bytes, offset: int) -> Tuple[Optional[dict], int]:
+        """
+        Deserialize texture override metadata.
+        
+        Returns:
+            Tuple of (texture_override dict or None, new offset)
+        """
+        try:
+            # Read type
+            if offset + 1 > len(data):
+                return None, offset
+            override_type = struct.unpack('B', data[offset:offset+1])[0]
+            offset += 1
+            
+            # Read texture ID
+            if offset + 1 > len(data):
+                return None, offset
+            texture_id_len = struct.unpack('B', data[offset:offset+1])[0]
+            offset += 1
+            if offset + texture_id_len > len(data):
+                return None, offset
+            texture_id = data[offset:offset+texture_id_len].decode('utf-8')
+            offset += texture_id_len
+            
+            # Read blend mode, opacity, duration, age
+            if offset + 13 > len(data):  # 1 + 4 + 4 + 4 = 13 bytes
+                return None, offset
+            blend_mode = struct.unpack('B', data[offset:offset+1])[0]
+            offset += 1
+            opacity = struct.unpack('>f', data[offset:offset+4])[0]
+            offset += 4
+            duration = struct.unpack('>f', data[offset:offset+4])[0]
+            offset += 4
+            age = struct.unpack('>f', data[offset:offset+4])[0]
+            offset += 4
+            
+            # Convert blend mode back to string
+            blend_mode_map = {0: 'normal', 1: 'multiply', 2: 'add', 3: 'overlay'}
+            blend_mode_str = blend_mode_map.get(blend_mode, 'normal')
+            
+            return {
+                'type': 'overlay' if override_type == 0 else 'replace',
+                'texture_id': texture_id,
+                'blend_mode': blend_mode_str,
+                'opacity': opacity,
+                'duration': duration,
+                'age': age
+            }, offset
+        except Exception:
+            return None, offset
+    
+    def _deserialize_state(self, data: bytes, offset: int) -> Tuple[Optional[dict], int]:
+        """
+        Deserialize tile state metadata.
+        
+        Returns:
+            Tuple of (state dict or None, new offset)
+        """
+        try:
+            # Read state flags
+            if offset + 1 > len(data):
+                return None, offset
+            state_flags = struct.unpack('B', data[offset:offset+1])[0]
+            offset += 1
+            
+            state = {
+                'on_fire': bool(state_flags & 0x01),
+                'wet': bool(state_flags & 0x02),
+                'frozen': bool(state_flags & 0x04),
+                'radioactive': bool(state_flags & 0x08)
+            }
+            
+            # Read fire data if on_fire
+            if state['on_fire']:
+                if offset + 8 > len(data):  # 4 + 4 = 8 bytes
+                    return None, offset
+                fire_intensity = struct.unpack('>f', data[offset:offset+4])[0]
+                offset += 4
+                fire_duration = struct.unpack('>f', data[offset:offset+4])[0]
+                offset += 4
+                state['fire_intensity'] = fire_intensity
+                state['fire_duration'] = fire_duration
+            
+            # Read last update
+            if offset + 8 > len(data):
+                return None, offset
+            last_update = struct.unpack('>d', data[offset:offset+8])[0]
+            offset += 8
+            state['last_update'] = last_update
+            
+            return state, offset
+        except Exception:
+            return None, offset
 

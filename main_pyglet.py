@@ -8,23 +8,13 @@ import os
 import time
 import math
 import numpy as np
+import logging
 from core import settings
-# from core.input import InputHandler  # Pygame version
 from core.input_pyglet import InputHandler  # Pyglet version
 from world.world import World
 from combat.player import Player
 from factory.recipes import load_recipes
 from core.camera import Camera
-from ui.pause_menu import PauseMenu
-from ui.settings_menu import SettingsMenu
-from ui.audio_settings import AudioSettings
-from ui.graphics_settings import GraphicsSettings
-from ui.controls_settings import ControlsSettings
-from ui.save_menu import SaveMenu
-from ui.world_select_menu import WorldSelectMenu
-from ui.create_world_menu import CreateWorldMenu
-from ui.inventory_menu import InventoryMenu
-from ui.hotbar_overlay import HotbarOverlay
 from world.player_data_manager import PlayerDataManager
 from world.auto_save import AutoSaveSystem
 from analytics.diagnostics_service import DiagnosticsService
@@ -629,19 +619,20 @@ class GameWindow(pyglet.window.Window):
                     import traceback
                     traceback.print_exc()
         
-        # Rendering-Pipeline: World -> Debug -> UI -> Performance Stats
+        # Rendering-Pipeline: World (Layer-System) -> Debug -> UI -> Performance Stats
         import time
         perf_times = {}
         performance_monitor = self.diagnostics.get_performance_monitor() if hasattr(self.diagnostics, 'get_performance_monitor') else None
         
         current_state = self.game_app.current_state
         
-        # 1. Render world (chunks, player) - only if in game
+        # 1. Render world using layer-based system - only if in game
         t1 = time.perf_counter()
         if current_state == GameState.INGAME or current_state == GameState.PAUSED:
+            # WorldRenderer.draw() now uses RenderLayerManager internally
             self.world_renderer.draw(debug_visualization_mode=0)  # Debug handled separately
             
-            # Render tile highlight if in game
+            # Render tile highlight if in game (UI World layer)
             if current_state == GameState.INGAME and self.world_controller.player:
                 self.world_renderer.draw_tile_highlight(
                     mouse_x=self.world_controller.mouse_x,

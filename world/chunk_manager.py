@@ -80,13 +80,18 @@ class Chunk:
         if not self.tiles:
             return
         
+        from world.metadata_utils import get_metadata
+        
         for tile_y in range(len(self.tiles)):
             if not self.tiles[tile_y]:
                 continue
             for tile_x in range(len(self.tiles[tile_y])):
                 tile = self.tiles[tile_y][tile_x]
-                if tile and tile.get('decoration'):
-                    self.decoration_lookup[(tile_x, tile_y)] = None  # Decoration is stored in tile['decoration']
+                if tile:
+                    # Check both old format (tile['decoration']) and new format (tile['metadata']['decoration'])
+                    decoration = tile.get('decoration') or get_metadata(tile, 'decoration')
+                    if decoration:
+                        self.decoration_lookup[(tile_x, tile_y)] = None  # Decoration is stored in tile
     
     def get_decoration_at(self, tile_x: int, tile_y: int):
         """
@@ -103,7 +108,9 @@ class Chunk:
             if tile_y < len(self.tiles) and tile_x < len(self.tiles[tile_y]):
                 tile = self.tiles[tile_y][tile_x]
                 if tile:
-                    return tile.get('decoration')
+                    from world.metadata_utils import get_metadata
+                    # Check both old format and new format
+                    return tile.get('decoration') or get_metadata(tile, 'decoration')
         return None
     
     def set_decoration_at(self, tile_x: int, tile_y: int, decoration_data: dict, world_renderer=None):
@@ -123,12 +130,20 @@ class Chunk:
         if not tile:
             return
         
+        from world.metadata_utils import set_metadata, remove_metadata, migrate_decoration_to_metadata
+        
         if decoration_data:
-            tile['decoration'] = decoration_data
+            # Migrate old format to new format if needed
+            if 'decoration' in tile:
+                migrate_decoration_to_metadata(tile)
+            # Use new metadata format
+            set_metadata(tile, 'decoration', decoration_data)
             self.decoration_lookup[(tile_x, tile_y)] = None
         else:
+            # Remove from both old and new format
             if 'decoration' in tile:
                 del tile['decoration']
+            remove_metadata(tile, 'decoration')
             self.decoration_lookup.pop((tile_x, tile_y), None)
         
         # Invalidate decoration cache in WorldRenderer if available
@@ -1028,6 +1043,12 @@ class ChunkManager:
             if self._chunk_exists_on_disk(chunk_x, chunk_y):
                 loaded_chunk = self._load_chunk_from_file(chunk_x, chunk_y)
                 if loaded_chunk:
+                    # Populate chunk with decorations if it doesn't have any
+                    if not self._chunk_has_decorations(loaded_chunk):
+                        self.populate_chunk(loaded_chunk)
+                        # Save chunk after decoration population
+                        self._save_chunk_to_file(loaded_chunk)
+                    
                     self.loaded_chunks[key] = loaded_chunk
                     # Track when chunk was loaded (for cooldown before unloading)
                     self.chunk_load_times[key] = current_time
@@ -1036,12 +1057,17 @@ class ChunkManager:
             # File doesn't exist - generate new chunk synchronously
             tiles = self.terrain_gen.generate_chunk(chunk_x, chunk_y)
             chunk = Chunk(chunk_x, chunk_y, tiles)
+            
+            # Populate chunk with decorations (deterministic based on tile raster)
+            self.populate_chunk(chunk)
+            
             self.loaded_chunks[key] = chunk
             
             # Track when chunk was loaded (for cooldown before unloading)
             self.chunk_load_times[key] = current_time
             
             # Save newly generated chunk IMMEDIATELY (synchronously for preload)
+            # Note: Chunk is saved AFTER decoration population
             if not async_load:
                 # Save synchronously during preload to prevent empty slots
                 seed = self.get_seed()
@@ -1879,8 +1905,13 @@ class ChunkManager:
                     tiles = self.terrain_gen.generate_chunk(chunk_x, chunk_y)
                     generation_time = time.perf_counter() - gen_start_time
                     chunk = Chunk(chunk_x, chunk_y, tiles)
-                    
-                    # Update chunks_generated in metadata
+                
+                # Populate chunk with decorations if it doesn't have any (for both generated and loaded chunks)
+                if not self._chunk_has_decorations(chunk):
+                    self.populate_chunk(chunk)
+                
+                # Update chunks_generated in metadata (only for newly generated chunks)
+                if was_generated:
                     if "size" not in self.metadata:
                         self.metadata["size"] = {}
                     if "chunks_generated" not in self.metadata["size"]:
@@ -1889,6 +1920,7 @@ class ChunkManager:
                     # Note: save_metadata() is called periodically, not on every chunk generation
                     
                     # Save chunk asynchronously (batch operation for better performance)
+                    # Note: Chunk is saved AFTER decoration population
                     self._save_chunk_to_file(chunk)
                     
                     # Record generation time (chunk was generated, not loaded from disk)
@@ -1932,6 +1964,362 @@ class ChunkManager:
                 else:
                     print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
                 self.pending_chunks.discard((chunk_x, chunk_y))
+
+    def populate_chunk(self, chunk: Chunk) -> None:
+        """
+        Populate chunk with decorations based on tile raster.
+        Uses deterministic noise based on world coordinates for consistent placement across chunk boundaries.
+        
+        Args:
+            chunk: Chunk instance to populate
+        """
+        import random
+        from world.decoration_registry import DecorationRegistry
+        from world.metadata_utils import get_metadata, set_metadata
+        
+        # Initialize statistics for debugging
+        stats = {
+            'tiles_checked': 0,
+            'decorations_placed': 0,
+            'tiles_skipped_already_has_decoration': 0,
+            'tiles_skipped_water_biome': 0,
+            'tiles_skipped_not_traversable': 0,
+            'tiles_skipped_no_valid_decoration': 0,
+            'tiles_skipped_noise_threshold': 0,
+            'tiles_skipped_density': 0,
+            'tiles_skipped_clustering': 0,
+        }
+        
+        # Check if DecorationRegistry is available
+        try:
+            all_decorations = DecorationRegistry.get_all()
+        except (ImportError, AttributeError):
+            # DecorationRegistry not available, skip decoration generation
+            if self.diagnostics:
+                self.diagnostics.debug("ChunkManager", 
+                    f"DecorationRegistry not available, skipping populate for chunk ({chunk.chunk_x}, {chunk.chunk_y})")
+            return
+        
+        if not all_decorations:
+            if self.diagnostics:
+                self.diagnostics.debug("ChunkManager", 
+                    f"No decorations available, skipping populate for chunk ({chunk.chunk_x}, {chunk.chunk_y})")
+            return
+        
+        chunk_size = settings.CHUNK_SIZE
+        tiles = chunk.tiles
+        
+        # Calculate world offset for this chunk
+        world_offset_x = chunk.chunk_x * chunk_size
+        world_offset_y = chunk.chunk_y * chunk_size
+        
+        # Iterate through all tiles in chunk
+        for tile_y in range(chunk_size):
+            if tile_y >= len(tiles):
+                continue
+            for tile_x in range(chunk_size):
+                if tile_x >= len(tiles[tile_y]):
+                    continue
+                
+                tile = tiles[tile_y][tile_x]
+                if not tile:
+                    continue
+                
+                stats['tiles_checked'] += 1
+                
+                # Skip if tile already has decoration (check both old and new format)
+                if tile.get('decoration') or get_metadata(tile, 'decoration'):
+                    stats['tiles_skipped_already_has_decoration'] += 1
+                    continue
+                
+                biome_id = tile.get('biome', '')
+                if not biome_id or biome_id.startswith('water:'):
+                    stats['tiles_skipped_water_biome'] += 1
+                    continue  # Skip water biomes
+                
+                # Skip if not traversable (e.g., water, mountains)
+                if not tile.get('traversable', True):
+                    stats['tiles_skipped_not_traversable'] += 1
+                    continue
+                
+                # Calculate world coordinates for noise (deterministic based on world position)
+                world_x = world_offset_x + tile_x
+                world_y = world_offset_y + tile_y
+                
+                # Get noise value for this position (deterministic based on world coordinates)
+                raw_noise = self.terrain_gen._get_noise_value(world_x, world_y)
+                noise_value = (raw_noise + 1.0) / 2.0  # Normalize from [-1, 1] to [0, 1]
+                
+                # Collect all valid decorations for this tile (instead of using first match)
+                valid_decorations = []
+                
+                for decoration_id, deco_config in all_decorations.items():
+                    placement_config = deco_config.get('placement', {})
+                    if not placement_config:
+                        continue
+                    
+                    # Get placement settings (support both old 'biomes' and new 'valid_biomes')
+                    valid_biomes = placement_config.get('valid_biomes', [])
+                    if not valid_biomes:
+                        # Fallback to old 'biomes' field for backwards compatibility
+                        valid_biomes = placement_config.get('biomes', [])
+                    invalid_biomes = placement_config.get('invalid_biomes', [])
+                    stray_factor = placement_config.get('stray_factor', 0)
+                    
+                    # CRITICAL: Check biome validity FIRST (before any other checks)
+                    # Decorations MUST only spawn in valid_biomes (with optional stray_factor blending)
+                    # If no valid_biomes specified, skip this decoration entirely
+                    if not valid_biomes:
+                        continue
+                    
+                    # Check if current biome is explicitly invalid (hard block)
+                    if invalid_biomes and biome_id in invalid_biomes:
+                        continue
+                    
+                    # Check if tile is valid for this decoration (includes stray_factor check)
+                    is_valid = self._is_tile_valid_for_decoration(
+                        tiles, tile_x, tile_y, chunk_size,
+                        valid_biomes, invalid_biomes, stray_factor, biome_id
+                    )
+                    
+                    if not is_valid:
+                        continue
+                    
+                    # Only continue with other checks if biome is valid
+                    density = placement_config.get('density', 0.1)
+                    noise_threshold = placement_config.get('noise_threshold', {})
+                    clustering = placement_config.get('clustering', {})
+                    
+                    # Check noise threshold
+                    noise_min = noise_threshold.get('min', 0.0)
+                    noise_max = noise_threshold.get('max', 1.0)
+                    noise_check = (noise_min <= noise_value <= noise_max)
+                    if not noise_check:
+                        stats['tiles_skipped_noise_threshold'] += 1
+                        continue
+                    
+                    # Density check
+                    density_roll = random.random()
+                    density_check = density_roll <= density
+                    if not density_check:
+                        stats['tiles_skipped_density'] += 1
+                        continue
+                    
+                    # Check clustering if enabled
+                    clustering_valid = True
+                    if clustering.get('enabled', False):
+                        cluster_radius = clustering.get('cluster_radius', 3)
+                        nearby_count = 0
+                        for dy in range(-cluster_radius, cluster_radius + 1):
+                            for dx in range(-cluster_radius, cluster_radius + 1):
+                                if dx == 0 and dy == 0:
+                                    continue
+                                check_x = tile_x + dx
+                                check_y = tile_y + dy
+                                if 0 <= check_x < chunk_size and 0 <= check_y < chunk_size:
+                                    if check_y < len(tiles) and check_x < len(tiles[check_y]):
+                                        check_tile = tiles[check_y][check_x]
+                                        if check_tile:
+                                            # Check new format for decorations
+                                            check_decoration = get_metadata(check_tile, 'decoration')
+                                            if check_decoration and check_decoration.get('decoration_id') == decoration_id:
+                                                nearby_count += 1
+                        
+                        # Clustering logic: prefer spawning near other decorations, but allow isolated spawns
+                        if nearby_count == 0:
+                            isolated_spawn_chance = clustering.get('isolated_spawn_chance', 0.7)  # Default 70% chance
+                            if random.random() > isolated_spawn_chance:
+                                clustering_valid = False
+                    
+                    if clustering_valid:
+                        valid_decorations.append((decoration_id, deco_config))
+                
+                # Randomly select one decoration from valid decorations (if any)
+                if not valid_decorations:
+                    stats['tiles_skipped_no_valid_decoration'] += 1
+                
+                if valid_decorations:
+                    decoration_id, deco_config = random.choice(valid_decorations)
+                    
+                    # Spawn decoration
+                    decoration_data = {
+                        'decoration_id': decoration_id,
+                        'data': {
+                            'growth_timer': 0.0,
+                            'has_fruit': True,  # Default for harvestable items
+                            'damage': 0.0,
+                            'last_interaction': 0.0
+                        }
+                    }
+                    
+                    # Initialize harvestable-specific data
+                    if deco_config.get('harvest', {}).get('enabled'):
+                        decoration_data['data']['has_fruit'] = True
+                        decoration_data['data']['growth_timer'] = 0.0
+                    
+                    # Initialize growth stage if growth is enabled
+                    growth_config = deco_config.get('growth', {})
+                    if growth_config.get('enabled', False):
+                        placement_config = deco_config.get('placement', {})
+                        spawn_stage_mode = placement_config.get('spawn_stage', 'default')
+                        
+                        if spawn_stage_mode == 'random':
+                            # Use weighted random selection
+                            spawn_weights = placement_config.get('spawn_stage_weights', {})
+                            if spawn_weights:
+                                # Convert weights to list for random.choices
+                                stages = []
+                                weights = []
+                                for stage_str, weight in spawn_weights.items():
+                                    try:
+                                        stage = int(stage_str)
+                                        stages.append(stage)
+                                        weights.append(weight)
+                                    except ValueError:
+                                        continue
+                                
+                                if stages and weights:
+                                    selected_stage = random.choices(stages, weights=weights)[0]
+                                    decoration_data['data']['current_stage'] = selected_stage
+                                    
+                                    # Initialize health based on stage
+                                    stages_list = growth_config.get('stages', [])
+                                    for stage_config in stages_list:
+                                        if stage_config.get('stage') == selected_stage:
+                                            decoration_data['data']['health'] = stage_config.get('health', 100)
+                                            decoration_data['data']['max_health'] = stage_config.get('health', 100)
+                                            decoration_data['data']['growth_progress'] = 0.0
+                                            break
+                        else:
+                            # Use default_stage
+                            default_stage = growth_config.get('default_stage', 4)
+                            decoration_data['data']['current_stage'] = default_stage
+                            
+                            # Initialize health based on default stage
+                            stages_list = growth_config.get('stages', [])
+                            for stage_config in stages_list:
+                                if stage_config.get('stage') == default_stage:
+                                    decoration_data['data']['health'] = stage_config.get('health', 100)
+                                    decoration_data['data']['max_health'] = stage_config.get('health', 100)
+                                    decoration_data['data']['growth_progress'] = 0.0
+                                    break
+                    
+                    # Store decoration in tile metadata (new format)
+                    set_metadata(tile, 'decoration', decoration_data)
+                    
+                    # Update chunk's decoration lookup
+                    chunk.decoration_lookup[(tile_x, tile_y)] = None
+                    
+                    stats['decorations_placed'] += 1
+        
+        # Log statistics for debugging
+        if self.diagnostics:
+            self.diagnostics.debug("ChunkManager", 
+                f"Populated chunk ({chunk.chunk_x}, {chunk.chunk_y}): "
+                f"{stats['decorations_placed']} decorations placed, "
+                f"{stats['tiles_checked']} tiles checked, "
+                f"skipped: already_has={stats['tiles_skipped_already_has_decoration']}, "
+                f"water={stats['tiles_skipped_water_biome']}, "
+                f"not_traversable={stats['tiles_skipped_not_traversable']}, "
+                f"no_valid={stats['tiles_skipped_no_valid_decoration']}, "
+                f"noise={stats['tiles_skipped_noise_threshold']}, "
+                f"density={stats['tiles_skipped_density']}, "
+                f"clustering={stats['tiles_skipped_clustering']}")
+    
+    def _chunk_has_decorations(self, chunk: Chunk) -> bool:
+        """
+        Check if chunk has any decorations.
+        
+        Args:
+            chunk: Chunk instance to check
+            
+        Returns:
+            True if chunk has at least one decoration, False otherwise
+        """
+        from world.metadata_utils import get_metadata
+        
+        if not chunk.tiles:
+            return False
+        
+        chunk_size = settings.CHUNK_SIZE
+        for tile_y in range(chunk_size):
+            if tile_y >= len(chunk.tiles):
+                continue
+            if not chunk.tiles[tile_y]:
+                continue
+            for tile_x in range(chunk_size):
+                if tile_x >= len(chunk.tiles[tile_y]):
+                    continue
+                tile = chunk.tiles[tile_y][tile_x]
+                if tile:
+                    # Check new metadata format
+                    decoration = get_metadata(tile, 'decoration')
+                    if decoration:
+                        return True
+        return False
+    
+    def _is_tile_valid_for_decoration(self, tiles, tile_x, tile_y, chunk_size, valid_biomes, invalid_biomes, stray_factor, current_biome_id):
+        """
+        Check if a tile is valid for spawning a decoration.
+        
+        Args:
+            tiles: 2D list of tile dictionaries
+            tile_x: Tile X coordinate within chunk
+            tile_y: Tile Y coordinate within chunk
+            chunk_size: Size of chunk
+            valid_biomes: List of valid biome IDs (empty list = no valid biomes)
+            invalid_biomes: List of invalid biome IDs
+            stray_factor: Maximum distance in tiles from valid biome (0 = no stray)
+            current_biome_id: Current biome ID of the tile
+            
+        Returns:
+            bool: True if tile is valid for spawning
+        """
+        from world.metadata_utils import get_metadata
+        
+        # If no valid biomes specified, decoration cannot spawn
+        if not valid_biomes:
+            return False
+        
+        # Check if current biome is explicitly invalid
+        if invalid_biomes and current_biome_id in invalid_biomes:
+            return False
+        
+        # Check if current biome is directly valid
+        if current_biome_id in valid_biomes:
+            return True
+        
+        # If stray_factor is 0, only allow exact biome match
+        if stray_factor <= 0:
+            return False
+        
+        # Check if within stray_factor of a valid biome
+        # Search in a square around the tile (using Manhattan distance)
+        for dy in range(-stray_factor, stray_factor + 1):
+            for dx in range(-stray_factor, stray_factor + 1):
+                # Skip the center tile (already checked)
+                if dx == 0 and dy == 0:
+                    continue
+                
+                # Calculate Manhattan distance
+                distance = abs(dx) + abs(dy)
+                if distance > stray_factor:
+                    continue
+                
+                # Check neighboring tile
+                check_x = tile_x + dx
+                check_y = tile_y + dy
+                
+                # Check bounds
+                if 0 <= check_x < chunk_size and 0 <= check_y < chunk_size:
+                    if check_y < len(tiles) and check_x < len(tiles[check_y]):
+                        check_tile = tiles[check_y][check_x]
+                        if check_tile:
+                            check_biome_id = check_tile.get('biome', '')
+                            if check_biome_id in valid_biomes:
+                                return True
+        
+        return False
 
     def request_chunk_load(self, chunk_x: int, chunk_y: int, priority: int = 0):
         """
@@ -2016,6 +2404,9 @@ class ChunkManager:
                 # Track when chunk was loaded (for cooldown before unloading)
                 self.chunk_load_times[chunk_key] = current_time
                 
+                # NOTE: Vertex preparation with texture assignment is now done separately
+                # in process_texture_assignment() to ensure textures are assigned AFTER chunk loading
+                
                 # Add chunk sprites to sprite groups (if any)
                 for entity in chunk.entities:
                     all_sprites.add(entity)
@@ -2035,6 +2426,74 @@ class ChunkManager:
                     break
             except queue.Empty:
                 break
+        
+        # Clean up old priority entries
+        if len(self.chunk_priority) > 100:
+            # Keep only loaded chunks in priority dict
+            self.chunk_priority = {k: v for k, v in self.chunk_priority.items() 
+                                   if k in self.loaded_chunks or k in self.pending_chunks}
+        
+        return loaded_count
+    
+    def process_texture_assignment(self, max_chunks_per_frame: int = 10):
+        """
+        Process texture assignment for loaded chunks (separate phase after chunk loading).
+        
+        This ensures textures are assigned AFTER chunks are fully loaded, preventing
+        race conditions where chunks are rendered before textures are available.
+        
+        Args:
+            max_chunks_per_frame: Maximum number of chunks to process per frame (default: 10)
+        
+        Returns:
+            Number of chunks processed
+        """
+        if not hasattr(self, 'renderer') or self.renderer is None:
+            return 0
+        
+        frame_start = time.perf_counter()
+        processed_count = 0
+        
+        # Process chunks that need texture assignment
+        # Only process chunks that are loaded but don't have prepared vertices yet
+        chunks_to_process = []
+        for chunk_key, chunk in self.loaded_chunks.items():
+            if chunk_key not in self.renderer.prepared_chunk_vertices:
+                chunks_to_process.append((chunk_key[0], chunk_key[1], chunk))
+        
+        # Prioritize visible chunks (if renderer has visible_chunks set)
+        if hasattr(self.renderer, 'visible_chunks') and self.renderer.visible_chunks:
+            visible_chunks = []
+            other_chunks = []
+            for chunk_x, chunk_y, chunk in chunks_to_process:
+                chunk_key = (chunk_x, chunk_y)
+                if chunk_key in self.renderer.visible_chunks:
+                    visible_chunks.append((chunk_x, chunk_y, chunk))
+                else:
+                    other_chunks.append((chunk_x, chunk_y, chunk))
+            # Process visible chunks first
+            chunks_to_process = visible_chunks + other_chunks
+        
+        # Limit processing to max_chunks_per_frame to prevent frame drops
+        for chunk_x, chunk_y, chunk in chunks_to_process[:max_chunks_per_frame]:
+            chunk_key = (chunk_x, chunk_y)
+            
+            # Budget check: Stop if we've exceeded time budget
+            elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
+            if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS:
+                break
+            
+            try:
+                # Prepare vertices with texture assignment
+                vertex_array = self.renderer._prepare_chunk_vertices(chunk_x, chunk_y, chunk.tiles)
+                self.renderer.prepared_chunk_vertices[chunk_key] = vertex_array
+                processed_count += 1
+            except Exception as e:
+                # If preparation fails, log but continue
+                if self.diagnostics:
+                    self.diagnostics.warning("ChunkManager", f"Failed to assign textures for chunk {chunk_key}: {e}")
+        
+        return processed_count
         
         # Clean up old priority entries
         if len(self.chunk_priority) > 100:
