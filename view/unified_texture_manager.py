@@ -1079,6 +1079,47 @@ class UnifiedTextureManager:
         # Rebuild
         self._build_atlas()
     
+    def reload_decoration_textures_and_rebuild_atlas(self):
+        """
+        Reload decoration textures and rebuild atlas.
+        This should be called after DecorationRegistry is loaded.
+        """
+        self._log("info", "Reloading decoration textures and rebuilding atlas...")
+        
+        # Delete texture cache file to force re-collection
+        # This ensures DecorationRegistry changes are picked up
+        cache_file = Path("data/texture_references.json")
+        if cache_file.exists():
+            try:
+                cache_file.unlink()
+                self._log("debug", "Deleted texture cache file to force re-collection")
+            except Exception as e:
+                self._log("warning", f"Failed to delete texture cache: {e}")
+        
+        # Release old atlas if it exists
+        if self.texture_atlas:
+            self.texture_atlas.release()
+            self.texture_atlas = None
+        
+        # Clear texture_coords and variant_coords to force rebuild
+        self.texture_coords.clear()
+        self.variant_coords.clear()
+        
+        # Clear builder state to force rebuild
+        if hasattr(self.builder, 'atlas_image'):
+            self.builder.atlas_image = None
+        if hasattr(self.builder, 'uv_map'):
+            self.builder.uv_map.clear()
+        if hasattr(self.builder, 'texture_images'):
+            # Keep non-decoration textures, only clear decoration textures
+            # Actually, better to clear all and rebuild - ensures consistency
+            self.builder.texture_images.clear()
+        
+        # Rebuild atlas (will re-collect all textures including decorations)
+        self._build_atlas()
+        
+        self._log("info", "Decoration textures reloaded and atlas rebuilt")
+    
     def has_texture(self, tile_id: str) -> bool:
         """
         Check if texture exists for tile_id.

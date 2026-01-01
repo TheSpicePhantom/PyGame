@@ -71,6 +71,22 @@ class PerformanceMonitor:
         self.decoration_render_times = deque(maxlen=300)  # Time for actual GPU rendering
         self.decoration_counts = deque(maxlen=300)  # Number of decorations rendered per frame
         
+        # GPU performance tracking (per frame) - Phase 4.2: ModernGL Query Objects
+        self.gpu_chunk_render_times = deque(maxlen=300)  # GPU time for chunk rendering (from query)
+        self.gpu_decoration_render_times = deque(maxlen=300)  # GPU time for decoration rendering (from query)
+        self.gpu_shadow_render_times = deque(maxlen=300)  # GPU time for shadow rendering (from query)
+        self.gpu_total_render_times = deque(maxlen=300)  # Total GPU render time per frame
+        
+        # Generic metrics storage (Phase 5: Multi-Threading Mesh-Generation)
+        # Dictionary of metric_name -> deque of values
+        self.generic_metrics = {}
+        self._generic_metrics_lock = threading.Lock()  # Thread-safe access to generic_metrics
+        
+        # Sprite cache statistics (cumulative, reset periodically)
+        self.sprite_cache_hits = 0
+        self.sprite_cache_misses = 0
+        self.sprite_cache_stats_events = []  # List of {'timestamp': float, 'hits': int, 'misses': int, 'hit_rate': float}
+        
         # UI performance tracking (per frame)
         self.world_render_times = deque(maxlen=300)  # Time to render world (chunks, player)
         self.debug_render_times = deque(maxlen=300)  # Time to render debug visualization
@@ -310,6 +326,95 @@ class PerformanceMonitor:
             return
         self.decoration_counts.append(count)
     
+    def record_gpu_chunk_render_time(self, gpu_time_ms: float):
+        """
+        Record GPU time for chunk rendering (from ModernGL query).
+        
+        Args:
+            gpu_time_ms: GPU time in milliseconds
+        """
+        if not self.enabled:
+            return
+        self.gpu_chunk_render_times.append(gpu_time_ms)
+    
+    def record_gpu_decoration_render_time(self, gpu_time_ms: float):
+        """
+        Record GPU time for decoration rendering (from ModernGL query).
+        
+        Args:
+            gpu_time_ms: GPU time in milliseconds
+        """
+        if not self.enabled:
+            return
+        self.gpu_decoration_render_times.append(gpu_time_ms)
+    
+    def record_gpu_shadow_render_time(self, gpu_time_ms: float):
+        """
+        Record GPU time for shadow rendering (from ModernGL query).
+        
+        Args:
+            gpu_time_ms: GPU time in milliseconds
+        """
+        if not self.enabled:
+            return
+        self.gpu_shadow_render_times.append(gpu_time_ms)
+    
+    def record_gpu_total_render_time(self, gpu_time_ms: float):
+        """
+        Record total GPU render time per frame (from ModernGL query).
+        
+        Args:
+            gpu_time_ms: GPU time in milliseconds
+        """
+        if not self.enabled:
+            return
+        self.gpu_total_render_times.append(gpu_time_ms)
+    
+    def record_sprite_cache_stats(self, hits: int, misses: int):
+        """
+        Record sprite cache statistics (cumulative).
+        This should be called periodically (e.g., every 5 seconds).
+        
+        Args:
+            hits: Number of cache hits since last call
+            misses: Number of cache misses since last call
+        """
+        if not self.enabled:
+            return
+        
+        # Update cumulative counters
+        self.sprite_cache_hits += hits
+        self.sprite_cache_misses += misses
+        
+        # Calculate hit rate
+        total = hits + misses
+        hit_rate = (hits / total * 100) if total > 0 else 0.0
+        
+        # Record event
+        event = {
+            'hits': hits,
+            'misses': misses,
+            'total': total,
+            'hit_rate': hit_rate,
+            'cumulative_hits': self.sprite_cache_hits,
+            'cumulative_misses': self.sprite_cache_misses,
+            'cumulative_total': self.sprite_cache_hits + self.sprite_cache_misses,
+            'cumulative_hit_rate': (self.sprite_cache_hits / (self.sprite_cache_hits + self.sprite_cache_misses) * 100) if (self.sprite_cache_hits + self.sprite_cache_misses) > 0 else 0.0,
+            'timestamp': time.time()
+        }
+        self.sprite_cache_stats_events.append(event)
+        
+        # Automatically log to logger if available
+        if self.logger:
+            if not hasattr(self.logger, 'log_sprite_cache_stats'):
+                # Add method to logger if it doesn't exist
+                def log_sprite_cache_stats(event):
+                    if 'sprite_cache_stats' not in self.logger.session_data:
+                        self.logger.session_data['sprite_cache_stats'] = []
+                    self.logger.session_data['sprite_cache_stats'].append(event)
+                self.logger.log_sprite_cache_stats = log_sprite_cache_stats
+            self.logger.log_sprite_cache_stats(event)
+    
     def record_world_render_time(self, render_time):
         """Record time spent rendering world (chunks, player) (in seconds)"""
         if not self.enabled:
@@ -456,6 +561,30 @@ class PerformanceMonitor:
             'timestamp': time.time()
         })
     
+    def record_metric(self, metric_name: str, value: float):
+        """
+        Record a generic performance metric.
+        
+        Phase 5: Multi-Threading Mesh-Generation - Used for chunk_prep_time_ms,
+        chunk_batch_prep_time_ms, chunk_batch_size, etc.
+        
+        Thread-safe: Can be called from multiple threads (e.g., ThreadPool workers).
+        
+        Args:
+            metric_name: Name of the metric (e.g., 'chunk_prep_time_ms')
+            value: Value to record
+        """
+        if not self.enabled:
+            return
+        
+        # Thread-safe: Use lock to protect generic_metrics dictionary
+        with self._generic_metrics_lock:
+            # Initialize deque for this metric if it doesn't exist
+            if metric_name not in self.generic_metrics:
+                self.generic_metrics[metric_name] = deque(maxlen=1000)  # Store up to 1000 values
+            
+            self.generic_metrics[metric_name].append(value)
+    
     def get_stats(self):
         """Get current performance statistics"""
         stats = {
@@ -590,8 +719,63 @@ class PerformanceMonitor:
                 'avg': mean(self.gpu_usage_samples) if self.gpu_usage_samples else 0,
                 'max': max(self.gpu_usage_samples) if self.gpu_usage_samples else 0,
             },
+            'sprite_cache_stats': {
+                'cumulative_hits': self.sprite_cache_hits,
+                'cumulative_misses': self.sprite_cache_misses,
+                'cumulative_total': self.sprite_cache_hits + self.sprite_cache_misses,
+                'cumulative_hit_rate': (self.sprite_cache_hits / (self.sprite_cache_hits + self.sprite_cache_misses) * 100) if (self.sprite_cache_hits + self.sprite_cache_misses) > 0 else 0.0,
+                'total_events': len(self.sprite_cache_stats_events),
+            },
+            'gpu_performance': {
+                'chunk_render_times': {
+                    'min': min(self.gpu_chunk_render_times) if self.gpu_chunk_render_times else 0,
+                    'max': max(self.gpu_chunk_render_times) if self.gpu_chunk_render_times else 0,
+                    'avg': mean(self.gpu_chunk_render_times) if self.gpu_chunk_render_times else 0,
+                    'median': median(self.gpu_chunk_render_times) if self.gpu_chunk_render_times else 0,
+                },
+                'decoration_render_times': {
+                    'min': min(self.gpu_decoration_render_times) if self.gpu_decoration_render_times else 0,
+                    'max': max(self.gpu_decoration_render_times) if self.gpu_decoration_render_times else 0,
+                    'avg': mean(self.gpu_decoration_render_times) if self.gpu_decoration_render_times else 0,
+                    'median': median(self.gpu_decoration_render_times) if self.gpu_decoration_render_times else 0,
+                },
+                'shadow_render_times': {
+                    'min': min(self.gpu_shadow_render_times) if self.gpu_shadow_render_times else 0,
+                    'max': max(self.gpu_shadow_render_times) if self.gpu_shadow_render_times else 0,
+                    'avg': mean(self.gpu_shadow_render_times) if self.gpu_shadow_render_times else 0,
+                    'median': median(self.gpu_shadow_render_times) if self.gpu_shadow_render_times else 0,
+                },
+                'total_render_times': {
+                    'min': min(self.gpu_total_render_times) if self.gpu_total_render_times else 0,
+                    'max': max(self.gpu_total_render_times) if self.gpu_total_render_times else 0,
+                    'avg': mean(self.gpu_total_render_times) if self.gpu_total_render_times else 0,
+                    'median': median(self.gpu_total_render_times) if self.gpu_total_render_times else 0,
+                },
+            },
+            # Phase 5: Generic metrics (chunk_prep_time_ms, chunk_batch_prep_time_ms, etc.)
+            # Thread-safe: Use lock to protect generic_metrics dictionary
+            'generic_metrics': self._get_generic_metrics_stats(),
         }
         return stats
+    
+    def _get_generic_metrics_stats(self):
+        """Get statistics for generic metrics (thread-safe)"""
+        with self._generic_metrics_lock:
+            generic_metrics_copy = {
+                metric_name: list(values)  # Convert deque to list for safe iteration
+                for metric_name, values in self.generic_metrics.items()
+            }
+        
+        return {
+            metric_name: {
+                'min': min(values) if values else 0,
+                'max': max(values) if values else 0,
+                'avg': mean(values) if values else 0,
+                'median': median(values) if values else 0,
+                'count': len(values),
+            }
+            for metric_name, values in generic_metrics_copy.items()
+        }
     
     def _percentile(self, data, percentile):
         """Calculate percentile of a list"""

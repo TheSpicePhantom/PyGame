@@ -19,17 +19,19 @@ data/
 │   ├── berry_bush_loot.json
 │   ├── oak_tree_loot.json
 │   └── stone_rock_loot.json
-└── biomes/
+└── biomes/                # Optional: Biome-Erweiterungen
     ├── forest.json
     ├── plains.json
     └── mountains.json
 ```
 
+**Wichtig:** Alle JSON-Dateien werden beim Spielstart automatisch geladen. Du kannst während der Entwicklung mit `F5` neu laden (Hot-Reload).
+
 ---
 
 ## 🏷️ 1. Tags System
 
-Tags kategorisieren Decorations und ermöglichen logische Gruppierungen.
+Tags kategorisieren Decorations und ermöglichen logische Gruppierungen. Sie werden in der Decoration-Datei als Array referenziert.
 
 ### Tag-Datei erstellen
 
@@ -55,14 +57,16 @@ Tags kategorisieren Decorations und ermöglichen logische Gruppierungen.
 
 ### Verwendung in Decorations
 
-Tags werden in der Decoration-Datei referenziert:
+Tags werden in der Decoration-Datei als Array referenziert:
 
 ```json
 {
   "decoration_id": "berry_bush",
-  "tags": ["harvestable", "decorative"]
+  "tags": ["harvestable", "decorative", "mineable"]
 }
 ```
+
+**Hinweis:** Die Tags müssen in der Decoration-Datei angegeben werden. Die Tag-Dateien dienen hauptsächlich der Dokumentation und logischen Gruppierung.
 
 ### Verfügbare Tags (Beispiele)
 
@@ -88,7 +92,7 @@ Loot Tables definieren, welche Items beim Ernten/Abbauen fallen.
   "rolls": 1,
   "entries": [
     {
-      "item_id": "berries",
+      "item_id": "berry",
       "weight": 100,
       "quantity": {
         "min": 2,
@@ -97,10 +101,10 @@ Loot Tables definieren, welche Items beim Ernten/Abbauen fallen.
       "conditions": []
     },
     {
-      "item_id": "seeds",
+      "item_id": "berry_seed",
       "weight": 30,
       "quantity": {
-        "min": 1,
+        "min": 0,
         "max": 2
       },
       "conditions": [
@@ -125,7 +129,7 @@ Loot Tables definieren, welche Items beim Ernten/Abbauen fallen.
 
 #### Entry-Felder
 
-- **`item_id`** (string, erforderlich): Item-ID, die gedroppt wird
+- **`item_id`** (string, erforderlich): Item-ID, die gedroppt wird (muss in ItemRegistry existieren)
 - **`weight`** (integer, erforderlich): Gewichtung für Wahrscheinlichkeit (höher = häufiger)
 - **`quantity`** (object, erforderlich):
   - **`min`** (integer): Minimale Anzahl
@@ -142,6 +146,8 @@ Loot Tables definieren, welche Items beim Ernten/Abbauen fallen.
   "chance": 0.3
 }
 ```
+
+**Beispiel:** 30% Chance, dass dieser Eintrag gedroppt wird.
 
 ### Beispiel: Komplexe Loot Table
 
@@ -172,20 +178,6 @@ Loot Tables definieren, welche Items beim Ernten/Abbauen fallen.
           "chance": 0.3
         }
       ]
-    },
-    {
-      "item_id": "stick",
-      "weight": 50,
-      "quantity": {
-        "min": 1,
-        "max": 3
-      },
-      "conditions": [
-        {
-          "type": "random_chance",
-          "chance": 0.5
-        }
-      ]
     }
   ]
 }
@@ -210,7 +202,7 @@ Decorations sind Objekte in der Welt (Bäume, Büsche, Steine, etc.).
   "decoration_id": "berry_bush",
   "display_name": "Berry Bush",
   "mod_id": "core",
-  "tags": ["harvestable", "decorative"],
+  "tags": ["harvestable", "decorative", "mineable"],
   "collision": {
     "enabled": false,
     "type": "none",
@@ -225,12 +217,7 @@ Decorations sind Objekte in der Welt (Bäume, Büsche, Steine, etc.).
     "size": [32, 32],
     "offset": [0, 0],
     "layer": 10,
-    "bounding_box": [16, 16],
-    "shadow": {
-      "enabled": true,
-      "sprite": "shadow_small",
-      "offset": [0, 0]
-    }
+    "bounding_box": [16, 16]
   },
   "animation": {
     "enabled": false,
@@ -247,18 +234,22 @@ Decorations sind Objekte in der Welt (Bäume, Büsche, Steine, etc.).
     }
   },
   "mining": {
-    "tool_required": "axe",
-    "mining_time": 3.0,
-    "durability": 100,
-    "loot_table": "oak_tree_loot",
+    "tool_required": null,
+    "hardness": "wood",
+    "mining_time": 1.0,
+    "hardness_multiplier": 1.0,
+    "durability": 20,
+    "loot_table": "berry_bush_loot",
     "particles": {
-      "hit": "wood_particle",
+      "hit": "leaf_particle",
       "break": "wood_break"
     }
   },
   "placement": {
-    "biomes": ["terrain:forest", "terrain:plains"],
-    "density": 1,
+    "valid_biomes": ["terrain:forest", "terrain:plains"],
+    "invalid_biomes": ["terrain:desert", "terrain:snow", "water:deep", "water:shallow"],
+    "stray_factor": 3,
+    "density": 0.015,
     "noise_threshold": {
       "min": 0.3,
       "max": 0.7
@@ -290,7 +281,7 @@ Definiert Kollisionsverhalten:
 "collision": {
   "enabled": true,
   "type": "circle",      // "circle", "rectangle", "none"
-  "radius": 0.3          // In Tiles (0.3 = 30% des Tiles)
+  "radius": 0.4          // In Tiles (0.4 = 40% des Tiles)
 }
 ```
 
@@ -304,29 +295,29 @@ Definiert Sprite-Namen für verschiedene Zustände:
 
 ```json
 "sprites": {
-  "default": "oak_tree",
-  "with_fruit": "berry_bush_2",
-  "without_fruit": "berry_bush_1",
-  "damaged_50": "oak_tree_damaged",
-  "stump": "oak_tree_stump"
+  "default": "oak_tree_1",           // Standard-Sprite (für mineable)
+  "with_fruit": "berry_bush_2",       // Mit Früchten (für harvestable)
+  "without_fruit": "berry_bush_1",   // Ohne Früchte (für harvestable)
+  "damaged_50": "oak_tree_2",        // Bei 50% Gesundheit (für mineable)
+  "stump": "tree_stump_1"            // Stumpf/Überrest (für mineable)
 }
 ```
 
 **Sprite-Namen:**
-- **`default`**: Standard-Sprite (immer erforderlich)
-- **`with_fruit`**: Mit Früchten (für harvestable)
-- **`without_fruit`**: Ohne Früchte (für harvestable)
+- **`default`**: Standard-Sprite (für mineable Decorations)
+- **`with_fruit`**: Mit Früchten (für harvestable, initialer Zustand)
+- **`without_fruit`**: Ohne Früchte (für harvestable, nach Ernte)
 - **`damaged_50`**: Bei 50% Gesundheit (für mineable)
-- **`stump`**: Stumpf/Überrest (für mineable)
+- **`stump`**: Stumpf/Überrest (für mineable, bei <10% Gesundheit)
 
 **Sprite-Dateien müssen hier liegen:**
 ```
 assets/decorations/{mod_id}/{sprite_name}.png
 ```
 
-**Beispiel:**
+**Beispiele:**
 - `assets/decorations/core/berry_bush_2.png`
-- `assets/decorations/core/oak_tree.png`
+- `assets/decorations/core/oak_tree_1.png`
 
 #### Rendering
 
@@ -337,23 +328,16 @@ Definiert visuelle Darstellung:
   "size": [32, 32],           // [width, height] in Pixeln
   "offset": [0, 0],           // [x, y] Offset vom Tile-Zentrum
   "layer": 10,                // Rendering-Layer (höher = weiter oben)
-  "bounding_box": [16, 16],   // [width, height] für Maus-Auswahl
-  "shadow": {
-    "enabled": true,
-    "sprite": "shadow_small",  // Shadow-Sprite-Name
-    "offset": [0, 0]           // Shadow-Offset
-  }
+  "bounding_box": [16, 16]    // [width, height] für Maus-Auswahl
 }
 ```
 
-- **`size`** (array): Sprite-Größe in Pixeln `[width, height]`
-- **`offset`** (array): Offset vom Tile-Zentrum `[x, y]` (negativ Y = höher)
-- **`layer`** (integer): Rendering-Layer (0=Tiles, 5=Shadows, 10=Decorations, 20=Player)
+- **`size`** (array, erforderlich): Sprite-Größe in Pixeln `[width, height]`
+- **`offset`** (array, erforderlich): Offset vom Tile-Zentrum `[x, y]` (negativ Y = höher)
+- **`layer`** (integer, erforderlich): Rendering-Layer (0=Tiles, 5=Shadows, 10=Decorations, 20=Player)
 - **`bounding_box`** (array, optional): Maus-Auswahl-Box `[width, height]` (Standard: `size`)
-- **`shadow`** (object, optional):
-  - **`enabled`** (boolean): Ob Shadow gerendert wird
-  - **`sprite`** (string): Shadow-Sprite-Name
-  - **`offset`** (array): Shadow-Offset `[x, y]`
+
+**Hinweis:** Shadows werden separat gehandhabt und müssen nicht in der Decoration-Konfiguration definiert werden.
 
 #### Animation
 
@@ -378,22 +362,23 @@ Definiert Ernte-Verhalten (Right-Click):
   "loot_table": "berry_bush_loot",
   "regrowth": {
     "min_time": 30.0,    // Minimale Regrowth-Zeit (Sekunden)
-    "max_time": 180.0    // Maximale Regrowth-Zeit (Sekunden)
+    "max_time": 180.0     // Maximale Regrowth-Zeit (Sekunden)
   }
 }
 ```
 
 - **`enabled`** (boolean): Ob Harvest aktiviert ist
-- **`loot_table`** (string): Loot Table-ID
+- **`loot_table`** (string, erforderlich wenn enabled): Loot Table-ID
 - **`regrowth`** (object, erforderlich wenn enabled):
   - **`min_time`** (float): Minimale Regrowth-Zeit in Sekunden
   - **`max_time`** (float): Maximale Regrowth-Zeit in Sekunden
 
 **Regrowth-Mechanik:**
 - Nach dem Ernten wird `has_fruit = false` gesetzt
+- Sprite wechselt von `with_fruit` zu `without_fruit`
 - Ein zufälliger Timer zwischen `min_time` und `max_time` startet
 - Während des Timers wird eine Progress-Bar angezeigt
-- Nach Ablauf wird `has_fruit = true` und das Sprite wechselt zu `with_fruit`
+- Nach Ablauf wird `has_fruit = true` und das Sprite wechselt zurück zu `with_fruit`
 
 #### Mining
 
@@ -401,8 +386,10 @@ Definiert Abbau-Verhalten (Left-Click + Hold):
 
 ```json
 "mining": {
-  "tool_required": "axe",      // "axe", "pickaxe", "hand", etc.
-  "mining_time": 3.0,          // Zeit bis Abbau abgeschlossen (Sekunden)
+  "tool_required": null,        // "axe", "pickaxe", "hand", null (kein Werkzeug)
+  "hardness": "wood",           // "wood", "stone", "metal", etc.
+  "mining_time": 3.0,           // Basis-Zeit bis Abbau abgeschlossen (Sekunden)
+  "hardness_multiplier": 1.0,   // Multiplikator für Mining-Zeit
   "durability": 100,            // Lebenspunkte (wird durch Mining reduziert)
   "loot_table": "oak_tree_loot",
   "particles": {
@@ -412,15 +399,17 @@ Definiert Abbau-Verhalten (Left-Click + Hold):
 }
 ```
 
-- **`tool_required`** (string, optional): Benötigtes Werkzeug (null = kein Werkzeug)
-- **`mining_time`** (float): Zeit bis Abbau abgeschlossen (Sekunden)
+- **`tool_required`** (string, optional): Benötigtes Werkzeug (null = kein Werkzeug nötig)
+- **`hardness`** (string, optional): Härte-Kategorie (für Tool-Mapping)
+- **`mining_time`** (float): Basis-Zeit bis Abbau abgeschlossen (Sekunden)
+- **`hardness_multiplier`** (float, optional): Multiplikator für Mining-Zeit (Standard: 1.0)
 - **`durability`** (integer): Lebenspunkte (wird durch Mining reduziert)
-- **`loot_table`** (string): Loot Table-ID
+- **`loot_table`** (string, optional): Loot Table-ID (falls vorhanden)
 - **`particles`** (object, optional): Partikel-Effekte
 
 **Mining-Mechanik:**
 - Spieler hält Left-Click gedrückt
-- `damage` wird kontinuierlich erhöht (basierend auf `mining_speed` des Werkzeugs)
+- `damage` wird kontinuierlich erhöht (basierend auf `mining_speed` des Werkzeugs und `hardness`)
 - Bei `damage >= durability` wird die Decoration zerstört und Loot gedroppt
 - Sprite wechselt basierend auf `health_percent`:
   - > 50%: `default`
@@ -433,8 +422,10 @@ Definiert Spawn-Verhalten in der Welt:
 
 ```json
 "placement": {
-  "biomes": ["terrain:forest", "terrain:plains"],
-  "density": 0.5,
+  "valid_biomes": ["terrain:forest", "terrain:plains"],
+  "invalid_biomes": ["terrain:desert", "terrain:snow", "water:deep", "water:shallow"],
+  "stray_factor": 3,
+  "density": 0.015,
   "noise_threshold": {
     "min": 0.3,
     "max": 0.7
@@ -447,99 +438,56 @@ Definiert Spawn-Verhalten in der Welt:
 }
 ```
 
-- **`biomes`** (array, erforderlich): Liste von Biome-IDs, in denen gespawnt wird
-- **`density`** (float): Dichte (0.0-1.0, höher = häufiger)
+- **`valid_biomes`** (array, erforderlich): Liste von Biome-IDs, in denen gespawnt wird
+- **`invalid_biomes`** (array, optional): Liste von Biome-IDs, in denen NICHT gespawnt wird (hard block)
+- **`stray_factor`** (integer, optional): Erlaubt Spawn in benachbarten Biomes (0 = nur in valid_biomes, höher = mehr Flexibilität)
+- **`density`** (float, erforderlich): Dichte (0.0-1.0, höher = häufiger)
 - **`noise_threshold`** (object, optional): Noise-Bereich für Spawn
-  - **`min`** (float): Minimum (-1.0 bis 1.0)
-  - **`max`** (float): Maximum (-1.0 bis 1.0)
+  - **`min`** (float): Minimum (0.0-1.0, normalisiert)
+  - **`max`** (float): Maximum (0.0-1.0, normalisiert)
 - **`clustering`** (object, optional): Cluster-Verhalten
   - **`enabled`** (boolean): Ob Clustering aktiviert ist
   - **`cluster_size`** (integer): Anzahl Decorations pro Cluster
   - **`cluster_radius`** (integer): Radius des Clusters in Tiles
 
 **Spawn-Logik:**
-1. Prüfe ob Tile in erlaubtem Biome ist
-2. Prüfe Noise-Wert gegen `noise_threshold`
-3. Prüfe `density` (Zufallswert)
-4. Wenn Clustering aktiviert: Spawne mehrere in der Nähe
+1. Prüfe ob Tile in `valid_biomes` ist (mit `stray_factor` Flexibilität)
+2. Prüfe ob Tile NICHT in `invalid_biomes` ist (hard block)
+3. Prüfe Noise-Wert gegen `noise_threshold`
+4. Prüfe `density` (Zufallswert)
+5. Wenn Clustering aktiviert: Spawne mehrere in der Nähe
+
+**Hinweis:** Das alte `biomes` Feld wird noch unterstützt (als Fallback für `valid_biomes`), aber `valid_biomes` wird bevorzugt.
 
 ---
 
 ## 🌍 4. Biome-Integration
 
-Biomes definieren, welche Decorations wo spawnen.
+Biomes definieren, welche Decorations wo spawnen. Die Biome-Konfiguration wird im Terrain-Generator definiert, aber Decorations können Biome-Erweiterungen in `data/biomes/` definieren.
 
-### Biome-Datei erstellen
+### Biome-IDs
 
-**Datei:** `data/biomes/{biome_id}.json`
+Die verfügbaren Biome-IDs werden vom Terrain-Generator definiert:
+
+- **Terrain-Biomes:** `terrain:forest`, `terrain:plains`, `terrain:desert`, `terrain:snow`, `terrain:mountains`
+- **Water-Biomes:** `water:shallow`, `water:deep`
+
+### Placement-Konfiguration
+
+Decorations verwenden `valid_biomes` und `invalid_biomes` in der `placement` Sektion:
 
 ```json
-{
-  "biome_id": "terrain:forest",
-  "display_name": "Forest",
-  "noise_range": {
-    "min": 0.4,
-    "max": 1.0
-  },
-  "decorations": [
-    {
-      "decoration_id": "oak_tree",
-      "density": 0.3,
-      "spawn_chance": 0.8,
-      "spawn_rules": [
-        {
-          "noise_range": [0.6, 0.8],
-          "density": 0.2,
-          "spawn_chance": 0.7
-        },
-        {
-          "noise_range": [0.8, 1.0],
-          "density": 0.4,
-          "spawn_chance": 0.9
-        }
-      ]
-    },
-    {
-      "decoration_id": "berry_bush",
-      "density": 0.15,
-      "spawn_chance": 0.5
-    }
-  ],
-  "ground_tiles": [
-    {
-      "tile_id": "grass",
-      "weight": 80
-    },
-    {
-      "tile_id": "dirt",
-      "weight": 20
-    }
-  ]
+"placement": {
+  "valid_biomes": ["terrain:forest", "terrain:plains"],
+  "invalid_biomes": ["terrain:desert", "terrain:snow"],
+  "stray_factor": 3
 }
 ```
 
-### Felder
-
-- **`biome_id`** (string, erforderlich): Eindeutige Biome-ID (z.B. "terrain:forest")
-- **`display_name`** (string, erforderlich): Anzeigename
-- **`noise_range`** (object, erforderlich): Noise-Bereich für Biome-Generierung
-  - **`min`** (float): Minimum
-  - **`max`** (float): Maximum
-- **`decorations`** (array, optional): Liste von Decorations, die in diesem Biome spawnen
-- **`ground_tiles`** (array, optional): Liste von Ground-Tiles mit Gewichtungen
-
-### Decoration-Einträge in Biomes
-
-Jeder Eintrag kann folgende Felder haben:
-
-- **`decoration_id`** (string, erforderlich): Decoration-ID
-- **`density`** (float, optional): Dichte (0.0-1.0)
-- **`spawn_chance`** (float, optional): Spawn-Chance (0.0-1.0)
-- **`spawn_rules`** (array, optional): Liste von Spawn-Regeln mit Noise-Bereichen
-
-**Spawn-Rules:**
-- Ermöglicht unterschiedliche Dichten basierend auf Noise-Werten
-- Mehrere Rules können definiert werden (z.B. dichter bei höherem Noise)
+**Erklärung:**
+- **`valid_biomes`**: Erlaubte Biomes für Spawn
+- **`invalid_biomes`**: Explizit verbotene Biomes (hard block)
+- **`stray_factor`**: Erlaubt Spawn in benachbarten Biomes (0 = nur in valid_biomes)
 
 ---
 
@@ -555,13 +503,12 @@ assets/decorations/{mod_id}/{sprite_name}.png
 
 **Beispiele:**
 - `assets/decorations/core/berry_bush_2.png`
-- `assets/decorations/core/oak_tree.png`
-- `assets/decorations/core/shadow_small.png`
+- `assets/decorations/core/oak_tree_1.png`
 
 ### Sprite-Größen
 
 - **Tiles**: 16x16 Pixel (Standard)
-- **Decorations**: Variable Größen (z.B. 32x32, 64x64)
+- **Decorations**: Variable Größen (z.B. 32x32, 48x64)
 - **Shadows**: Variable Größen (meist kleiner als Decoration)
 
 ### Sprite-Format
@@ -569,6 +516,8 @@ assets/decorations/{mod_id}/{sprite_name}.png
 - **Format**: PNG mit Alpha-Kanal (RGBA)
 - **Farbtiefe**: 32-bit (8-bit pro Kanal)
 - **Transparenz**: Unterstützt (Alpha-Kanal)
+
+**Wichtig:** Sprite-Namen in der JSON müssen exakt mit den Dateinamen übereinstimmen (ohne `.png` Endung).
 
 ---
 
@@ -597,12 +546,7 @@ assets/decorations/{mod_id}/{sprite_name}.png
     "size": [48, 64],
     "offset": [0, -16],
     "layer": 10,
-    "bounding_box": [32, 32],
-    "shadow": {
-      "enabled": true,
-      "sprite": "shadow_large",
-      "offset": [0, 0]
-    }
+    "bounding_box": [32, 32]
   },
   "harvest": {
     "enabled": true,
@@ -613,7 +557,7 @@ assets/decorations/{mod_id}/{sprite_name}.png
     }
   },
   "placement": {
-    "biomes": ["terrain:forest"],
+    "valid_biomes": ["terrain:forest"],
     "density": 0.2,
     "noise_threshold": {
       "min": 0.5,
@@ -675,12 +619,14 @@ In `data/tags/harvestable.json`:
   },
   "mining": {
     "tool_required": "pickaxe",
+    "hardness": "stone",
     "mining_time": 2.0,
+    "hardness_multiplier": 1.0,
     "durability": 50,
     "loot_table": "iron_ore_loot"
   },
   "placement": {
-    "biomes": ["terrain:mountains"],
+    "valid_biomes": ["terrain:mountains"],
     "density": 0.3,
     "noise_threshold": {
       "min": -1.0,
@@ -719,11 +665,11 @@ Dies lädt alle Decoration-Dateien neu:
 - [ ] Sprite-Dateien erstellt (`assets/decorations/{mod_id}/{sprite_name}.png`)
 - [ ] Loot Table erstellt (falls harvestable/mineable)
 - [ ] Tags aktualisiert (falls neue Tags benötigt)
-- [ ] Biome-Integration (in `data/biomes/{biome_id}.json`)
 - [ ] `mod_id` korrekt gesetzt
 - [ ] `decoration_id` eindeutig
 - [ ] Sprite-Namen in JSON stimmen mit Dateinamen überein
 - [ ] Loot Table-ID korrekt referenziert
+- [ ] `valid_biomes` korrekt konfiguriert
 - [ ] Test: F5 drücken zum Hot-Reload
 - [ ] Test: Decoration spawnen lassen
 - [ ] Test: Interaktion (Harvest/Mining) funktioniert
@@ -736,21 +682,24 @@ Dies lädt alle Decoration-Dateien neu:
 
 - ✅ Prüfe ob Sprite-Datei existiert
 - ✅ Prüfe ob `mod_id` korrekt ist
-- ✅ Prüfe ob Sprite-Name in JSON mit Dateiname übereinstimmt
+- ✅ Prüfe ob Sprite-Name in JSON mit Dateiname übereinstimmt (ohne `.png`)
 - ✅ Prüfe Console-Logs für Fehler
+- ✅ Prüfe ob `rendering.size` und `rendering.offset` korrekt sind
 
 ### Loot wird nicht gedroppt
 
 - ✅ Prüfe ob Loot Table existiert
 - ✅ Prüfe ob `loot_table`-ID korrekt ist
 - ✅ Prüfe ob `harvest.enabled` oder `mining` korrekt konfiguriert ist
+- ✅ Prüfe ob `item_id` in ItemRegistry existiert
 
 ### Decoration spawnt nicht
 
-- ✅ Prüfe ob Biome-Integration korrekt ist
-- ✅ Prüfe `placement.biomes` Liste
+- ✅ Prüfe ob `valid_biomes` korrekt konfiguriert ist
+- ✅ Prüfe ob `invalid_biomes` die Decoration blockiert
 - ✅ Prüfe `density` und `noise_threshold` Werte
 - ✅ Prüfe ob Biome in der Welt generiert wird
+- ✅ Prüfe Console-Logs für Spawn-Fehler
 
 ### Progress-Bar wird nicht angezeigt
 
@@ -782,29 +731,41 @@ Für natürliche Gruppierungen (z.B. Bäume in Wäldern):
   "clustering": {
     "enabled": true,
     "cluster_size": 5,      // 5 Decorations pro Cluster
-    "cluster_radius": 3      // 3 Tiles Radius
+    "cluster_radius": 3     // 3 Tiles Radius
   }
 }
 ```
+
+### Stray Factor
+
+Für natürliche Biome-Übergänge:
+
+```json
+"placement": {
+  "valid_biomes": ["terrain:forest"],
+  "stray_factor": 3         // Erlaubt Spawn in benachbarten Biomes
+}
+```
+
+**Erklärung:**
+- `stray_factor: 0` = Nur in `valid_biomes`
+- `stray_factor: 1` = Erlaubt Spawn in direkt benachbarten Biomes
+- `stray_factor: 3` = Erlaubt Spawn in 3 Tiles Umkreis
 
 ### Noise-basierte Spawn-Regeln
 
 Für unterschiedliche Dichten basierend auf Terrain:
 
 ```json
-"spawn_rules": [
-  {
-    "noise_range": [0.6, 0.8],
-    "density": 0.2,
-    "spawn_chance": 0.7
-  },
-  {
-    "noise_range": [0.8, 1.0],
-    "density": 0.4,
-    "spawn_chance": 0.9
+"placement": {
+  "noise_threshold": {
+    "min": 0.6,    // Spawnt nur bei Noise-Werten >= 0.6
+    "max": 1.0     // und <= 1.0
   }
-]
+}
 ```
+
+**Hinweis:** Noise-Werte werden normalisiert (0.0-1.0), nicht -1.0 bis 1.0.
 
 ---
 
@@ -813,14 +774,16 @@ Für unterschiedliche Dichten basierend auf Terrain:
 1. **Tags**: Kategorisieren Decorations (`data/tags/`)
 2. **Loot Tables**: Definieren Drops (`data/loot_tables/`)
 3. **Decorations**: Haupt-Konfiguration (`data/decorations/{mod_id}/`)
-4. **Biomes**: Integration in Welt-Generierung (`data/biomes/`)
+4. **Biomes**: Integration via `valid_biomes` und `invalid_biomes`
 5. **Sprites**: Bild-Dateien (`assets/decorations/{mod_id}/`)
 
 **Wichtig:**
 - Alle IDs müssen eindeutig sein
-- Sprite-Namen müssen mit Dateinamen übereinstimmen
+- Sprite-Namen müssen mit Dateinamen übereinstimmen (ohne `.png`)
 - Loot Table-IDs müssen korrekt referenziert werden
 - Biome-IDs müssen mit Terrain-Generator übereinstimmen
+- `valid_biomes` ist erforderlich für Placement
+- `F5` für Hot-Reload während der Entwicklung
 
 Viel Erfolg beim Erstellen neuer Decorations! 🚀
 

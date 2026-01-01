@@ -129,6 +129,19 @@ class DiagnosticsService:
         self.performance_monitor.record_movement(direction, delay)
         self._trigger_event('movement', {'direction': direction, 'delay': delay})
     
+    def record(self, metric_name: str, value: float):
+        """
+        Record a generic performance metric.
+        
+        Phase 5: Multi-Threading Mesh-Generation - Used for chunk_prep_time_ms,
+        chunk_batch_prep_time_ms, chunk_batch_size, etc.
+        
+        Args:
+            metric_name: Name of the metric (e.g., 'chunk_prep_time_ms')
+            value: Value to record
+        """
+        self.performance_monitor.record_metric(metric_name, value)
+    
     # ==================== Logging API ====================
     
     def log(self, level: LogLevel, component: str, message: str, **kwargs):

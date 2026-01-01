@@ -248,8 +248,17 @@ class ChunkManager:
             self.worker_threads.append(thread)
         
         # ThreadPool für CPU-Vorbereitung (Vertex-Erstellung)
-        # 4-8 Worker für gute Parallelisierung ohne Overhead
-        num_prep_workers = min(8, max(4, (os.cpu_count() or 4) // 2))
+        # OPTIMIZATION Phase 5: Optimize thread pool size based on CPU cores
+        # Use half of CPU cores, min 2, max 4 (leave cores for main game thread + OS)
+        cpu_count = os.cpu_count() or 4
+        optimal_prep_workers = min(max(2, cpu_count // 2), 4)
+        num_prep_workers = optimal_prep_workers
+        
+        # Optional: Log for debugging
+        if hasattr(self, 'diagnostics') and self.diagnostics:
+            self.diagnostics.info("ChunkManager", 
+                f"Using {optimal_prep_workers} threads for chunk preparation (CPU cores: {cpu_count})")
+        
         self.preparation_executor = ThreadPoolExecutor(
             max_workers=num_prep_workers,
             thread_name_prefix="ChunkPrep"
@@ -2295,20 +2304,7 @@ class ChunkManager:
         
         chunk.metadata['_decoration_stats'] = stats
         
-        # Log statistics for debugging
-        if self.diagnostics:
-            self.diagnostics.debug("ChunkManager", 
-                f"Populated chunk ({chunk.chunk_x}, {chunk.chunk_y}): "
-                f"{stats['decorations_placed']} decorations placed, "
-                f"{stats['tiles_checked']} tiles checked, "
-                f"skipped: already_has={stats['tiles_skipped_already_has_decoration']}, "
-                f"water={stats['tiles_skipped_water_biome']}, "
-                f"not_traversable={stats['tiles_skipped_not_traversable']}, "
-                f"no_valid={stats['tiles_skipped_no_valid_decoration']}, "
-                f"noise={stats['tiles_skipped_noise_threshold']}, "
-                f"density={stats['tiles_skipped_density']}, "
-                f"clustering={stats['tiles_skipped_clustering']}, "
-                f"retry_count={retry_count}")
+        # Debug logging removed - too verbose
         
         return stats
     
@@ -2744,11 +2740,13 @@ class ChunkManager:
                 self._assign_textures_to_chunk(chunk)
             
             # Calculate priority based on distance to camera
+            # OPTIMIZATION Phase 5: Use squared distance (avoid sqrt for 2-3× performance gain)
             if camera_x is not None and camera_y is not None:
                 chunk_center_x = chunk_x * chunk_size_pixels + chunk_size_pixels / 2.0
                 chunk_center_y = chunk_y * chunk_size_pixels + chunk_size_pixels / 2.0
+                # Squared distance (same ordering as distance, but faster)
                 distance = ((chunk_center_x - camera_x) ** 2 + 
-                           (chunk_center_y - camera_y) ** 2) ** 0.5
+                           (chunk_center_y - camera_y) ** 2)
             else:
                 # Prioritize visible chunks if renderer has visible_chunks set
                 if hasattr(self.renderer, 'visible_chunks') and self.renderer.visible_chunks:
@@ -2770,34 +2768,142 @@ class ChunkManager:
         chunks_to_process.sort(key=lambda x: x[0])
         
         # Step 2: Submit chunks to ThreadPool for CPU preparation
-        # Process chunks (all if force_all, otherwise limited)
+        # OPTIMIZATION Phase 5: Batch-process multiple chunks for better parallelism
         limit = len(chunks_to_process) if force_all else max_chunks_per_frame
+        chunks_to_submit = chunks_to_process[:limit]
         
-        for _, chunk_x, chunk_y, chunk in chunks_to_process[:limit]:
-            chunk_key = (chunk_x, chunk_y)
-            
-            # Budget check: Stop if we've exceeded time budget (unless force_all)
-            if not force_all:
-                elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
-                if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS:
-                    break
-            
-            # Submit to ThreadPool for CPU preparation
-            try:
-                future = self.preparation_executor.submit(
-                    self._prepare_chunk_async, chunk_x, chunk_y, chunk
-                )
-                self.preparation_futures[future] = chunk_key
-            except Exception as e:
-                if self.diagnostics:
-                    self.diagnostics.warning("ChunkManager", 
-                        f"Failed to submit chunk {chunk_key} for preparation: {e}")
+        # OPTIMIZATION Phase 5: Use batch processing if multiple chunks
+        if len(chunks_to_submit) > 1:
+            # Extract chunk keys for batch processing
+            chunk_keys_to_submit = [(chunk_x, chunk_y) for _, chunk_x, chunk_y, _ in chunks_to_submit]
+            # Submit all chunks in batch for better parallelism
+            self._prepare_chunks_batch_async(chunk_keys_to_submit)
+        else:
+            # Single chunk: use existing submit logic
+            for _, chunk_x, chunk_y, chunk in chunks_to_submit:
+                chunk_key = (chunk_x, chunk_y)
+                
+                # Budget check: Stop if we've exceeded time budget (unless force_all)
+                if not force_all:
+                    elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
+                    if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS:
+                        break
+                
+                # Submit to ThreadPool for CPU preparation
+                try:
+                    future = self.preparation_executor.submit(
+                        self._prepare_chunk_async, chunk_x, chunk_y, chunk
+                    )
+                    self.preparation_futures[future] = chunk_key
+                except Exception as e:
+                    if self.diagnostics:
+                        self.diagnostics.warning("ChunkManager", 
+                            f"Failed to submit chunk {chunk_key} for preparation: {e}")
         
         # Step 3: Process completed preparations (non-blocking)
         processed_count += self._process_preparation_results(force_all, frame_start)
         
         return processed_count
     
+    def _prioritize_chunks_for_meshing(self, camera_x: float, camera_y: float) -> List[Tuple[int, int]]:
+        """
+        Prioritize chunks for mesh generation based on distance from camera.
+        
+        Uses squared distance to avoid expensive sqrt() calculation.
+        Sorting by squared distance gives same order as distance.
+        
+        Returns:
+            List of chunk keys sorted by priority (closest first)
+        """
+        chunk_keys = list(self.loaded_chunks.keys())
+        
+        # Calculate squared distance from camera for each chunk
+        # OPTIMIZATION: Use squared distance (avoid sqrt for 2-3× performance gain)
+        chunk_distances = []
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        
+        for chunk_x, chunk_y in chunk_keys:
+            chunk_center_x = (chunk_x + 0.5) * chunk_size_pixels
+            chunk_center_y = (chunk_y + 0.5) * chunk_size_pixels
+            
+            # Squared distance (same ordering as distance, but faster)
+            distance_squared = (
+                (chunk_center_x - camera_x) ** 2 + 
+                (chunk_center_y - camera_y) ** 2
+            )
+            chunk_distances.append((distance_squared, (chunk_x, chunk_y)))
+        
+        # Sort by squared distance (closest first)
+        chunk_distances.sort(key=lambda x: x[0])
+        return [chunk_key for _, chunk_key in chunk_distances]
+    
+    def _prepare_chunks_batch_async(self, chunk_keys: List[Tuple[int, int]]):
+        """
+        Prepare multiple chunks in parallel using thread pool.
+        
+        Uses existing preparation_executor for batch processing.
+        Submits multiple chunks simultaneously for better parallelism.
+        
+        Args:
+            chunk_keys: List of (chunk_x, chunk_y) tuples
+            
+        Returns:
+            List of futures for chunk preparation
+        """
+        import time
+        batch_start = time.perf_counter()
+        futures = []
+        
+        # OPTIMIZATION: Convert to set for O(1) lookup instead of O(n)
+        # Avoids O(n²) complexity when checking many chunks
+        preparing_chunks = set(self.preparation_futures.values())
+        
+        for chunk_x, chunk_y in chunk_keys:
+            chunk_key = (chunk_x, chunk_y)
+            
+            # Skip if already being prepared (O(1) lookup)
+            if chunk_key in preparing_chunks:
+                continue
+            
+            chunk = self.loaded_chunks.get(chunk_key)
+            if chunk:
+                future = self.preparation_executor.submit(
+                    self._prepare_chunk_async, chunk_x, chunk_y, chunk
+                )
+                self.preparation_futures[future] = chunk_key
+                preparing_chunks.add(chunk_key)  # Update set for next iteration
+                futures.append(future)
+        
+        batch_time = time.perf_counter() - batch_start
+        
+        # OPTIMIZATION Phase 5: Track batch submission time
+        if self.diagnostics:
+            try:
+                self.diagnostics.record('chunk_batch_prep_time_ms', batch_time * 1000)
+                self.diagnostics.record('chunk_batch_size', len(futures))
+                # Debug: Verify metrics are being recorded (only log first few times)
+                if not hasattr(self, '_batch_metric_count'):
+                    self._batch_metric_count = 0
+                self._batch_metric_count += 1
+                if self._batch_metric_count <= 3:
+                    if hasattr(self.diagnostics, 'performance_monitor'):
+                        pm = self.diagnostics.performance_monitor
+                        if 'chunk_batch_prep_time_ms' in pm.generic_metrics:
+                            count = len(pm.generic_metrics['chunk_batch_prep_time_ms'])
+                            self.diagnostics.debug("ChunkManager", 
+                                f"Recorded batch metrics #{self._batch_metric_count} (batch_prep_time: {count} entries)")
+            except Exception as e:
+                # Log error for debugging (only once to avoid spam)
+                if not hasattr(self, '_batch_metric_error_logged'):
+                    try:
+                        self.diagnostics.warning("ChunkManager", 
+                            f"Failed to record batch metrics: {e}")
+                    except:
+                        pass
+                    self._batch_metric_error_logged = True
+        
+        return futures
+        
     def _prepare_chunk_async(self, chunk_x: int, chunk_y: int, chunk: Chunk):
         """
         Prepare chunk vertices asynchronously in background thread.
@@ -2811,6 +2917,8 @@ class ChunkManager:
         Returns:
             Tuple of (chunk_key, vertex_array) or None on error
         """
+        import time
+        start_time = time.perf_counter()
         chunk_key = (chunk_x, chunk_y)
         try:
             # CRITICAL: Always ensure textures are assigned before preparing vertices
@@ -2829,6 +2937,42 @@ class ChunkManager:
             # Prepare vertices (CPU-intensive, thread-safe - only reads chunk.tiles)
             # Fallback logic in _prepare_chunk_vertices() ensures valid textures are always found
             vertex_array = self.renderer._prepare_chunk_vertices(chunk_x, chunk_y, chunk.tiles)
+            
+            prep_time = time.perf_counter() - start_time
+            
+            # OPTIMIZATION Phase 5: Track preparation time
+            # Always record if diagnostics is available (even in thread pool)
+            if self.diagnostics:
+                try:
+                    self.diagnostics.record('chunk_prep_time_ms', prep_time * 1000)
+                    # Debug: Verify metric is being recorded (only log first few times to avoid spam)
+                    if not hasattr(self, '_prep_metric_count'):
+                        self._prep_metric_count = 0
+                    self._prep_metric_count += 1
+                    if self._prep_metric_count <= 3:
+                        # Check if metric was actually recorded
+                        if hasattr(self.diagnostics, 'performance_monitor'):
+                            pm = self.diagnostics.performance_monitor
+                            if 'chunk_prep_time_ms' in pm.generic_metrics:
+                                count = len(pm.generic_metrics['chunk_prep_time_ms'])
+                                self.diagnostics.debug("ChunkManager", 
+                                    f"Recorded chunk_prep_time_ms metric #{self._prep_metric_count} (total: {count})")
+                except Exception as e:
+                    # Log error for debugging (only once to avoid spam)
+                    if not hasattr(self, '_metric_record_error_logged'):
+                        try:
+                            self.diagnostics.warning("ChunkManager", 
+                                f"Failed to record chunk_prep_time_ms metric: {e}")
+                        except:
+                            pass  # If diagnostics.warning also fails, silently continue
+                        self._metric_record_error_logged = True
+            else:
+                # Debug: Log if diagnostics is None (only once to avoid spam)
+                if not hasattr(self, '_diagnostics_none_logged'):
+                    import sys
+                    print(f"[ChunkManager] WARNING: diagnostics is None, cannot record chunk_prep_time_ms metric", file=sys.stderr)
+                    self._diagnostics_none_logged = True
+            
             return (chunk_key, vertex_array)
         except Exception as e:
             if self.diagnostics:
@@ -3092,9 +3236,11 @@ class ChunkManager:
                     pass
             self.preparation_futures.clear()
             
-            # Shutdown executor (wait for running tasks to complete, max 5 seconds)
+            # Shutdown executor (wait for running tasks to complete)
+            # Note: timeout parameter is only available in Python 3.9+, so we use wait=True
+            # which waits indefinitely for tasks to complete (acceptable during shutdown)
             try:
-                self.preparation_executor.shutdown(wait=True, timeout=5.0)
+                self.preparation_executor.shutdown(wait=True)
             except Exception as e:
                 if self.diagnostics:
                     self.diagnostics.warning("ChunkManager", f"Error shutting down ThreadPool: {e}")

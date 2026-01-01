@@ -48,6 +48,9 @@ class PerformanceAnalyzer:
             'region_file_performance': self._analyze_region_file_performance(),
             'movement': self._analyze_movement(),
             'ui_performance': self._analyze_ui_performance(),
+            'sprite_cache_stats': self._analyze_sprite_cache_stats(),
+            'gpu_performance': self._analyze_gpu_performance(),
+            'generic_metrics': self._analyze_generic_metrics(),  # Phase 5: Multi-Threading Mesh-Generation
             'insights': []
         }
         
@@ -470,6 +473,86 @@ class PerformanceAnalyzer:
             'slowest_5': slowest_5,
         }
     
+    def _analyze_sprite_cache_stats(self) -> Dict:
+        """Analysiert Sprite-Cache-Statistiken"""
+        if not self.data or 'sprite_cache_stats' not in self.data:
+            return {}
+        
+        events = self.data.get('sprite_cache_stats', [])
+        if not events:
+            return {}
+        
+        # Calculate statistics
+        hit_rates = [e.get('hit_rate', 0) for e in events if 'hit_rate' in e]
+        cumulative_hit_rates = [e.get('cumulative_hit_rate', 0) for e in events if 'cumulative_hit_rate' in e]
+        hits_list = [e.get('hits', 0) for e in events]
+        misses_list = [e.get('misses', 0) for e in events]
+        totals_list = [e.get('total', 0) for e in events]
+        
+        # Get final cumulative stats
+        final_event = events[-1] if events else {}
+        cumulative_hits = final_event.get('cumulative_hits', 0)
+        cumulative_misses = final_event.get('cumulative_misses', 0)
+        cumulative_total = final_event.get('cumulative_total', 0)
+        final_cumulative_hit_rate = final_event.get('cumulative_hit_rate', 0)
+        
+        return {
+            'total_events': len(events),
+            'hit_rates': {
+                'min': min(hit_rates) if hit_rates else 0,
+                'max': max(hit_rates) if hit_rates else 0,
+                'avg': mean(hit_rates) if hit_rates else 0,
+                'median': median(hit_rates) if hit_rates else 0
+            },
+            'cumulative_hit_rates': {
+                'min': min(cumulative_hit_rates) if cumulative_hit_rates else 0,
+                'max': max(cumulative_hit_rates) if cumulative_hit_rates else 0,
+                'avg': mean(cumulative_hit_rates) if cumulative_hit_rates else 0,
+                'median': median(cumulative_hit_rates) if cumulative_hit_rates else 0
+            },
+            'per_period': {
+                'hits': {
+                    'min': min(hits_list) if hits_list else 0,
+                    'max': max(hits_list) if hits_list else 0,
+                    'avg': mean(hits_list) if hits_list else 0,
+                    'median': median(hits_list) if hits_list else 0
+                },
+                'misses': {
+                    'min': min(misses_list) if misses_list else 0,
+                    'max': max(misses_list) if misses_list else 0,
+                    'avg': mean(misses_list) if misses_list else 0,
+                    'median': median(misses_list) if misses_list else 0
+                },
+                'total': {
+                    'min': min(totals_list) if totals_list else 0,
+                    'max': max(totals_list) if totals_list else 0,
+                    'avg': mean(totals_list) if totals_list else 0,
+                    'median': median(totals_list) if totals_list else 0
+                }
+            },
+            'cumulative': {
+                'hits': cumulative_hits,
+                'misses': cumulative_misses,
+                'total': cumulative_total,
+                'hit_rate': final_cumulative_hit_rate
+            }
+        }
+    
+    def _analyze_gpu_performance(self) -> Dict:
+        """Analysiert GPU-Performance-Metriken (von ModernGL Query Objects)"""
+        stats = self.data.get('stats', {})
+        gpu_stats = stats.get('gpu_performance', {})
+        
+        if not gpu_stats:
+            return {}
+        
+        return {
+            'chunk_render_times': gpu_stats.get('chunk_render_times', {}),
+            'decoration_render_times': gpu_stats.get('decoration_render_times', {}),
+            'shadow_render_times': gpu_stats.get('shadow_render_times', {}),
+            'total_render_times': gpu_stats.get('total_render_times', {}),
+        }
+    
     def _analyze_ui_performance(self) -> Dict:
         """Analysiert UI-Performance"""
         stats = self.data.get('stats', {})
@@ -526,6 +609,26 @@ class PerformanceAnalyzer:
             'high_delay_percent': high_delay_count / len(delays) * 100 if delays else 0,
             'events_per_second': len(movement_events) / self._analyze_session()['duration_seconds'],
         }
+    
+    def _analyze_generic_metrics(self) -> Dict:
+        """Analysiert generische Performance-Metriken (Phase 5: Multi-Threading Mesh-Generation)"""
+        stats = self.data.get('stats', {})
+        generic_metrics = stats.get('generic_metrics', {})
+        
+        if not generic_metrics:
+            return {}
+        
+        result = {}
+        for metric_name, metric_data in generic_metrics.items():
+            result[metric_name] = {
+                'min': metric_data.get('min', 0),
+                'max': metric_data.get('max', 0),
+                'avg': metric_data.get('avg', 0),
+                'median': metric_data.get('median', 0),
+                'count': metric_data.get('count', 0),
+            }
+        
+        return result
     
     def _generate_insights(self, analysis: Dict) -> List[str]:
         """Generiert Performance-Insights"""
@@ -994,6 +1097,44 @@ class PerformanceAnalyzer:
             print(f"\nGesamtzeit Dekorationen (ms):")
             print(f"  Durchschnitt: {total_avg:>8.2f}")
         
+        # Sprite Cache Statistics
+        sprite_cache = analysis.get('sprite_cache_stats', {})
+        if sprite_cache and sprite_cache.get('total_events', 0) > 0:
+            print(f"\n{'=' * 80}")
+            print("SPRITE CACHE STATISTICS")
+            print(f"{'=' * 80}")
+            
+            cumulative = sprite_cache.get('cumulative', {})
+            hit_rates = sprite_cache.get('hit_rates', {})
+            per_period = sprite_cache.get('per_period', {})
+            
+            print(f"\nGesamt (Cumulative):")
+            print(f"  Hits:      {cumulative.get('hits', 0):>8}")
+            print(f"  Misses:    {cumulative.get('misses', 0):>8}")
+            print(f"  Total:     {cumulative.get('total', 0):>8}")
+            print(f"  Hit Rate:  {cumulative.get('hit_rate', 0):>7.1f}%")
+            
+            if hit_rates.get('avg', 0) > 0:
+                print(f"\nHit Rate pro Periode (%):")
+                print(f"  Minimum:  {hit_rates.get('min', 0):>8.1f}")
+                print(f"  Maximum:  {hit_rates.get('max', 0):>8.1f}")
+                print(f"  Durchschnitt: {hit_rates.get('avg', 0):>8.1f}")
+                print(f"  Median:   {hit_rates.get('median', 0):>8.1f}")
+            
+            if per_period.get('hits', {}).get('avg', 0) > 0:
+                print(f"\nHits pro Periode:")
+                print(f"  Minimum:  {per_period['hits'].get('min', 0):>8}")
+                print(f"  Maximum:  {per_period['hits'].get('max', 0):>8}")
+                print(f"  Durchschnitt: {per_period['hits'].get('avg', 0):>8.1f}")
+                print(f"  Median:   {per_period['hits'].get('median', 0):>8}")
+            
+            if per_period.get('misses', {}).get('avg', 0) > 0:
+                print(f"\nMisses pro Periode:")
+                print(f"  Minimum:  {per_period['misses'].get('min', 0):>8}")
+                print(f"  Maximum:  {per_period['misses'].get('max', 0):>8}")
+                print(f"  Durchschnitt: {per_period['misses'].get('avg', 0):>8.1f}")
+                print(f"  Median:   {per_period['misses'].get('median', 0):>8}")
+        
         # Region File Performance (Fastest & Slowest 5)
         region_file_perf = analysis['region_file_performance']
         if region_file_perf['total_regions_tracked'] > 0:
@@ -1076,6 +1217,85 @@ class PerformanceAnalyzer:
                 print(f"  Maximum:  {stats_stats.get('max', 0):>8.2f}")
                 print(f"  Durchschnitt: {stats_stats.get('avg', 0):>8.2f}")
                 print(f"  Median:   {stats_stats.get('median', 0):>8.2f}")
+        
+        # GPU Performance (Phase 4.2)
+        gpu_perf = analysis.get('gpu_performance', {})
+        if gpu_perf:
+            chunk_gpu = gpu_perf.get('chunk_render_times', {})
+            deco_gpu = gpu_perf.get('decoration_render_times', {})
+            shadow_gpu = gpu_perf.get('shadow_render_times', {})
+            total_gpu = gpu_perf.get('total_render_times', {})
+            
+            if (chunk_gpu.get('avg', 0) > 0 or deco_gpu.get('avg', 0) > 0 or 
+                shadow_gpu.get('avg', 0) > 0 or total_gpu.get('avg', 0) > 0):
+                print(f"\n{'=' * 80}")
+                print("GPU PERFORMANCE (ModernGL Query Objects)")
+                print(f"{'=' * 80}")
+                
+                if chunk_gpu.get('avg', 0) > 0:
+                    print(f"\nChunk Rendering (GPU, ms):")
+                    print(f"  Minimum:  {chunk_gpu.get('min', 0):>8.2f}")
+                    print(f"  Maximum:  {chunk_gpu.get('max', 0):>8.2f}")
+                    print(f"  Durchschnitt: {chunk_gpu.get('avg', 0):>8.2f}")
+                    print(f"  Median:   {chunk_gpu.get('median', 0):>8.2f}")
+                
+                if deco_gpu.get('avg', 0) > 0:
+                    print(f"\nDecoration Rendering (GPU, ms):")
+                    print(f"  Minimum:  {deco_gpu.get('min', 0):>8.2f}")
+                    print(f"  Maximum:  {deco_gpu.get('max', 0):>8.2f}")
+                    print(f"  Durchschnitt: {deco_gpu.get('avg', 0):>8.2f}")
+                    print(f"  Median:   {deco_gpu.get('median', 0):>8.2f}")
+                
+                if shadow_gpu.get('avg', 0) > 0:
+                    print(f"\nShadow Rendering (GPU, ms):")
+                    print(f"  Minimum:  {shadow_gpu.get('min', 0):>8.2f}")
+                    print(f"  Maximum:  {shadow_gpu.get('max', 0):>8.2f}")
+                    print(f"  Durchschnitt: {shadow_gpu.get('avg', 0):>8.2f}")
+                    print(f"  Median:   {shadow_gpu.get('median', 0):>8.2f}")
+                
+                if total_gpu.get('avg', 0) > 0:
+                    print(f"\nTotal Frame Rendering (GPU, ms):")
+                    print(f"  Minimum:  {total_gpu.get('min', 0):>8.2f}")
+                    print(f"  Maximum:  {total_gpu.get('max', 0):>8.2f}")
+                    print(f"  Durchschnitt: {total_gpu.get('avg', 0):>8.2f}")
+                    print(f"  Median:   {total_gpu.get('median', 0):>8.2f}")
+        
+        # Generic Metrics (Phase 5: Multi-Threading Mesh-Generation)
+        generic_metrics = analysis.get('generic_metrics', {})
+        if generic_metrics:
+            print(f"\n{'=' * 80}")
+            print("GENERIC METRICS (Phase 5: Multi-Threading Mesh-Generation)")
+            print(f"{'=' * 80}")
+            
+            # Chunk Preparation Time
+            if 'chunk_prep_time_ms' in generic_metrics:
+                prep = generic_metrics['chunk_prep_time_ms']
+                print(f"\nChunk Preparation Time (ms):")
+                print(f"  Minimum:  {prep.get('min', 0):>8.2f}")
+                print(f"  Maximum:  {prep.get('max', 0):>8.2f}")
+                print(f"  Durchschnitt: {prep.get('avg', 0):>8.2f}")
+                print(f"  Median:   {prep.get('median', 0):>8.2f}")
+                print(f"  Total Events: {prep.get('count', 0)}")
+            
+            # Batch Preparation Time
+            if 'chunk_batch_prep_time_ms' in generic_metrics:
+                batch_prep = generic_metrics['chunk_batch_prep_time_ms']
+                print(f"\nBatch Preparation Time (ms):")
+                print(f"  Minimum:  {batch_prep.get('min', 0):>8.2f}")
+                print(f"  Maximum:  {batch_prep.get('max', 0):>8.2f}")
+                print(f"  Durchschnitt: {batch_prep.get('avg', 0):>8.2f}")
+                print(f"  Median:   {batch_prep.get('median', 0):>8.2f}")
+                print(f"  Total Events: {batch_prep.get('count', 0)}")
+            
+            # Batch Size
+            if 'chunk_batch_size' in generic_metrics:
+                batch_size = generic_metrics['chunk_batch_size']
+                print(f"\nBatch Size (chunks per batch):")
+                print(f"  Minimum:  {batch_size.get('min', 0):>8.0f}")
+                print(f"  Maximum:  {batch_size.get('max', 0):>8.0f}")
+                print(f"  Durchschnitt: {batch_size.get('avg', 0):>8.2f}")
+                print(f"  Median:   {batch_size.get('median', 0):>8.0f}")
+                print(f"  Total Events: {batch_size.get('count', 0)}")
         
         # Insights
         print(f"\n{'=' * 80}")

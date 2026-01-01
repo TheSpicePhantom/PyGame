@@ -208,7 +208,7 @@ class DebugRenderer:
         # Draw decoration bounding boxes (mode >= 1)
         if debug_visualization_mode >= 1:
             self._draw_decoration_bounding_boxes(chunks_data)
-        
+    
         # Draw chunk status overlay (mode >= 2)
         if debug_visualization_mode >= 2:
             self._draw_chunk_status_overlay(chunks_data)

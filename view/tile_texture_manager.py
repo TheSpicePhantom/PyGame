@@ -914,6 +914,17 @@ class TileTextureManager:
                 f"(total textures: {len(self.texture_coords)})"
             )
         
+        # CRITICAL: Use fallback texture if available
+        fallback_name = "decoration:fallback"
+        if fallback_name in self.texture_coords:
+            fallback_uv = self.texture_coords[fallback_name]
+            if hasattr(self, 'decoration_debug_logger'):
+                self.decoration_debug_logger(
+                    f"[TEXTURE_MANAGER] Using fallback texture: {fallback_name} for {atlas_name}"
+                )
+            return fallback_uv
+        
+        # No fallback available
         return None
     
     def _get_rotated_texture_coords(self, base_name: str, world_x: int, world_y: int, rotation_enabled: bool = True) -> Optional[tuple]:

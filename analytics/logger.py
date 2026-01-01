@@ -24,7 +24,8 @@ class PerformanceLogger:
             'chunk_modified_events': [],
             'chunk_loaded_from_disk_events': [],
             'chunk_migrated_legacy_events': [],
-            'movement_events': []
+            'movement_events': [],
+            'sprite_cache_stats': []
         }
     
     def start_log(self):
@@ -63,6 +64,10 @@ class PerformanceLogger:
     def log_movement_event(self, event):
         """Log a movement event"""
         self.session_data['movement_events'].append(event)
+    
+    def log_sprite_cache_stats(self, event):
+        """Log sprite cache statistics"""
+        self.session_data['sprite_cache_stats'].append(event)
     
     def save_log(self):
         """Save log to JSON file"""

@@ -488,6 +488,14 @@ class GameWindow(pyglet.window.Window):
         self.diagnostics.start_frame()
         self.diagnostics.start_render()
         
+        # OPTIMIZATION Phase 4.2: GPU query for total frame rendering
+        # ModernGL queries are used as context managers, not with begin()/end()
+        # For now, we'll use CPU timing as approximation
+        gpu_total_start = None
+        if hasattr(self.modern_gl_renderer, 'gpu_queries_available') and self.modern_gl_renderer.gpu_queries_available:
+            if self.modern_gl_renderer.gpu_query_total:
+                gpu_total_start = time.perf_counter()
+        
         # Set viewport (important!)
         self.ctx.viewport = (0, 0, self.width, self.height)
         
@@ -620,7 +628,6 @@ class GameWindow(pyglet.window.Window):
                     traceback.print_exc()
         
         # Rendering-Pipeline: World (Layer-System) -> Debug -> UI -> Performance Stats
-        import time
         perf_times = {}
         performance_monitor = self.diagnostics.get_performance_monitor() if hasattr(self.diagnostics, 'get_performance_monitor') else None
         
@@ -676,6 +683,12 @@ class GameWindow(pyglet.window.Window):
                 performance_monitor.record_ui_render_time(perf_times['ui'] / 1000.0)
             if 'stats' in perf_times:
                 performance_monitor.record_stats_overlay_time(perf_times['stats'] / 1000.0)
+        
+        # OPTIMIZATION Phase 4.2: End GPU query for total frame rendering
+        # For now, use CPU timing as approximation
+        if gpu_total_start and performance_monitor:
+            gpu_total_time = (time.perf_counter() - gpu_total_start) * 1000  # Convert to ms
+            performance_monitor.record_gpu_total_render_time(gpu_total_time)
         
         self.diagnostics.end_render()
     

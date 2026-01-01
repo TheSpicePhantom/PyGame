@@ -107,8 +107,12 @@ class WorldController:
         if self.modern_gl_renderer and self.modern_gl_renderer.tile_texture_manager:
             try:
                 self.modern_gl_renderer.tile_texture_manager.reload_decoration_textures_and_rebuild_atlas()
+                # CRITICAL: Invalidate all decoration VBOs after atlas rebuild
+                # VBOs contain UV coordinates that are now invalid after atlas rebuild
+                if self.world_renderer:
+                    self.world_renderer.mark_all_decoration_chunks_dirty()
                 if self.diagnostics:
-                    self.diagnostics.info("WorldController", "Reloaded decoration textures and rebuilt atlas")
+                    self.diagnostics.info("WorldController", "Reloaded decoration textures and rebuilt atlas, invalidated all decoration VBOs")
             except Exception as e:
                 if self.diagnostics:
                     self.diagnostics.warning("WorldController", f"Failed to reload decoration textures: {e}")
@@ -843,15 +847,18 @@ class WorldController:
             
             # Force texture assignment for all chunks when:
             # 1. Loading is complete (no chunks in queue and no pending chunks), OR
-            # 2. Many chunks are waiting (beim Rauszoomen)
+            # 2. Many chunks are waiting (beim Rauszoomen), OR
+            # 3. Many chunks are loaded (indicates zoom out scenario where many chunks are visible)
             queue_size = chunk_manager.chunk_load_queue.qsize()
             pending_size = len(chunk_manager.pending_chunks)
             loaded_size = len(chunk_manager.loaded_chunks)
             
-            # force_all if: loading complete OR many chunks waiting (zoom out scenario)
+            # force_all if: loading complete OR many chunks waiting OR many chunks loaded (zoom out)
+            # When zooming out, many chunks become visible at once, so we need to process them all
             force_all = (
                 (queue_size == 0 and pending_size == 0) or  # Loading complete
-                (loaded_size > 50 and queue_size + pending_size > 10)  # Many chunks waiting
+                (loaded_size > 50 and queue_size + pending_size > 10) or  # Many chunks waiting
+                (loaded_size > 80)  # Many chunks loaded (zoom out scenario - process all immediately)
             )
             
             chunk_manager.process_texture_assignment(
@@ -1108,6 +1115,50 @@ class WorldController:
                     screen_width,
                     screen_height
                 )
+                
+                # CRITICAL: Invalidate all decoration VBOs after zoom change
+                # When zooming out, new chunks become visible and their VBOs may have been created
+                # before textures were available. Force rebuild to ensure textures are assigned.
+                if self.world_renderer:
+                    # Mark all chunks as dirty and release all VBOs
+                    self.world_renderer.mark_all_decoration_chunks_dirty()
+                    
+                    # CRITICAL: Also explicitly invalidate all cached VBOs to force rebuild
+                    # This ensures VBOs created with fallback textures are rebuilt with real textures
+                    if hasattr(self.world_renderer, '_chunk_decoration_vbos'):
+                        vbo_count = len(self.world_renderer._chunk_decoration_vbos)
+                        for chunk_key in list(self.world_renderer._chunk_decoration_vbos.keys()):
+                            self.world_renderer._decoration_dirty_chunks.add(chunk_key)
+                        if self.diagnostics:
+                            self.diagnostics.debug("WorldController", 
+                                f"Zoom changed from {old_zoom:.2f} to {self.camera_zoom:.2f}, invalidated {vbo_count} cached decoration VBOs")
+                    
+                    # CRITICAL: Also invalidate all VBOs to force rebuild with correct textures
+                    # This ensures VBOs created with fallback textures are rebuilt with real textures
+                    if hasattr(self.world_renderer, '_chunk_decoration_vbos'):
+                        for chunk_key in list(self.world_renderer._chunk_decoration_vbos.keys()):
+                            self.world_renderer._decoration_dirty_chunks.add(chunk_key)
+                        if self.diagnostics:
+                            self.diagnostics.debug("WorldController", 
+                                f"Invalidated {len(self.world_renderer._chunk_decoration_vbos)} cached decoration VBOs to force rebuild")
+                
+                # CRITICAL: Force texture assignment for all chunks when zoom changes
+                # This ensures all newly visible chunks get textures assigned immediately
+                chunk_manager = self.world.chunk_manager
+                camera_x = self.camera.x if self.camera else None
+                camera_y = self.camera.y if self.camera else None
+                
+                # Force ALL chunks to be processed immediately (no budget limit)
+                chunk_manager.process_texture_assignment(
+                    camera_x=camera_x,
+                    camera_y=camera_y,
+                    max_chunks_per_frame=999,  # Very high limit
+                    force_all=True  # CRITICAL: Process all chunks without budget limit
+                )
+                
+                if self.diagnostics:
+                    self.diagnostics.debug("WorldController", 
+                        f"Forced texture assignment for all chunks after zoom change")
     
     def _handle_tile_click(self, mouse_x: int, mouse_y: int, button: int):
         """Handle tile click for interactions (harvest, mining) and debug output"""
