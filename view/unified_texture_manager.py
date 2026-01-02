@@ -1084,6 +1084,15 @@ class UnifiedTextureManager:
         Reload decoration textures and rebuild atlas.
         This should be called after DecorationRegistry is loaded.
         """
+        # OPTIMIZATION: Skip rebuild if atlas already exists and contains decoration textures
+        # This prevents duplicate texture collection (atlas was already built in __init__)
+        if self.texture_atlas is not None and len(self.texture_coords) > 0:
+            # Check if decoration textures are already in atlas
+            has_decorations = any(key.startswith("decoration:") for key in self.texture_coords.keys())
+            if has_decorations:
+                self._log("info", "Atlas already built with decoration textures, skipping rebuild")
+                return
+        
         self._log("info", "Reloading decoration textures and rebuilding atlas...")
         
         # Delete texture cache file to force re-collection
