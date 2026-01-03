@@ -26,3 +26,30 @@ def calculate_visible_world_size(screen_width: int, screen_height: int, zoom: fl
     visible_world_height = screen_height / zoom
     return (visible_world_width, visible_world_height)
 
+
+def get_viewport_bounds(screen_width: int, screen_height: int,
+                        camera_x: float, camera_y: float, zoom: float):
+    """
+    Liefert Welt-Viewport-Grenzen, konsistent mit calculate_visible_world_size.
+    
+    Args:
+        screen_width: Screen width in pixels
+        screen_height: Screen height in pixels
+        camera_x: Camera X position in world coordinates
+        camera_y: Camera Y position in world coordinates
+        zoom: Zoom factor (1.0 = 100%)
+    
+    Returns:
+        Tuple of (viewport_min_x, viewport_max_x, viewport_min_y, viewport_max_y) in world coordinates
+    """
+    visible_world_width, visible_world_height = calculate_visible_world_size(
+        screen_width, screen_height, zoom
+    )
+    
+    viewport_min_x = camera_x - visible_world_width / 2.0
+    viewport_max_x = camera_x + visible_world_width / 2.0
+    viewport_min_y = camera_y - visible_world_height / 2.0
+    viewport_max_y = camera_y + visible_world_height / 2.0
+    
+    return viewport_min_x, viewport_max_x, viewport_min_y, viewport_max_y
+

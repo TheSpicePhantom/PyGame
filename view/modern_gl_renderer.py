@@ -93,6 +93,10 @@ class ModernGLRenderer:
         self._merged_max_chunks = self._calculate_max_chunks()  # Maximum chunks that can fit in buffer
         self._merged_vertex_size_bytes = self._calculate_vertex_size_bytes()  # Size of one chunk's vertices in bytes
         
+        # Feature-Flag: Merged-Buffer Rendering
+        self.use_merged_chunk_buffer = True  # globaler Schalter
+        self.merged_buffer_min_chunk_threshold = 40  # erst ab so vielen Chunks aktiv
+        
         # Initialize tile color palette (before pool, as pool needs correct buffer size)
         self.tile_color_palette = TileColorPalette()
         
@@ -240,37 +244,34 @@ class ModernGLRenderer:
         vertex_shader = """
         #version 330 core
         
-        in vec2 in_position;  // World coordinates (pixels)
-        in float in_color_index;  // Color index (0-255) into palette
-        in vec2 in_texcoord;  // Texture coordinates (0.0-1.0)
-        in float in_use_texture;  // 1.0 if texture should be used, 0.0 for color
+        in vec2 in_position;      // Weltkoordinaten in Pixeln
+        in float in_color_index;
+        in vec2 in_texcoord;
+        in float in_use_texture;
         
-        uniform vec2 screen_size;      // (width, height) in pixels
-        uniform vec2 view_translation; // Camera offset (view_matrix[0,3], view_matrix[1,3])
-        uniform float zoom;            // Zoom factor (1.0 = 100%)
+        uniform float viewport_min_x;
+        uniform float viewport_max_x;
+        uniform float viewport_min_y;
+        uniform float viewport_max_y;
         
         out float frag_color_index;
         out vec2 frag_texcoord;
         out float frag_use_texture;
         
         void main() {
-            // Apply view matrix translation (camera offset)
-            vec2 screen_pos = in_position + view_translation;
+            // Direct mapping from world coordinates to NDC using viewport bounds
+            // Same transformation as decorations use
+            float viewport_width = viewport_max_x - viewport_min_x;
+            float viewport_height = viewport_max_y - viewport_min_y;
             
-            // Apply zoom: translate to center, scale, translate back
-            // Zoom > 1.0 = reinzoomen (weniger Welt sichtbar), Zoom < 1.0 = rauszoomen (mehr Welt sichtbar)
-            // Multiply by zoom: larger zoom = larger screen position offset = less world visible (zoomed in)
-            // Smaller zoom = smaller screen position offset = more world visible (zoomed out)
-            vec2 screen_center = screen_size * 0.5;
-            screen_pos = (screen_pos - screen_center) * zoom + screen_center;
+            // Safety check: avoid division by zero
+            if (viewport_width <= 0.0) viewport_width = 1.0;
+            if (viewport_height <= 0.0) viewport_height = 1.0;
             
-            // Convert screen coordinates to NDC
-            vec2 ndc = vec2(
-                2.0 * screen_pos.x / screen_size.x - 1.0,
-                1.0 - 2.0 * screen_pos.y / screen_size.y  // Y-flip for pyglet
-            );
+            float ndc_x = 2.0 * (in_position.x - viewport_min_x) / viewport_width - 1.0;
+            float ndc_y = 1.0 - 2.0 * (in_position.y - viewport_min_y) / viewport_height;  // Y-flip for pyglet
             
-            gl_Position = vec4(ndc, 0.0, 1.0);
+            gl_Position = vec4(ndc_x, ndc_y, 0.0, 1.0);
             frag_color_index = in_color_index;
             frag_texcoord = in_texcoord;
             frag_use_texture = in_use_texture;
@@ -410,6 +411,53 @@ class ModernGLRenderer:
             self.last_zoom = zoom
         self.last_camera_pos = camera_pos
         
+        # Calculate viewport bounds using central utility (same as decorations)
+        from core.zoom_utils import get_viewport_bounds
+        from core import settings
+        
+        viewport_min_x, viewport_max_x, viewport_min_y, viewport_max_y = get_viewport_bounds(
+            self.screen_width, self.screen_height, camera_x, camera_y, zoom
+        )
+        
+        # Expand viewport bounds to match chunk padding (3 chunks)
+        # This ensures chunks loaded with padding are not clipped by the shader
+        # NOTE: We need extra padding to account for chunk boundaries (chunks extend to chunk_x+1, chunk_y+1)
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        padding_chunks = 3
+        padding_pixels = padding_chunks * chunk_size_pixels
+        
+        # Add extra padding to account for chunk boundaries (one full chunk extra on each side)
+        # This ensures that chunks at the edge (chunk_x+1, chunk_y+1) are also included
+        extra_padding = chunk_size_pixels
+        padding_pixels = padding_pixels + extra_padding
+        
+        # Store expanded viewport bounds for chunks (to match padding)
+        # IMPORTANT: Use the same padding calculation as WorldController.get_visible_chunks()
+        self.viewport_min_x = viewport_min_x - padding_pixels
+        self.viewport_max_x = viewport_max_x + padding_pixels
+        self.viewport_min_y = viewport_min_y - padding_pixels
+        self.viewport_max_y = viewport_max_y + padding_pixels
+        
+        # Debug: Verify padding calculation
+        if self.diagnostics:
+            if not hasattr(self, '_padding_debug_counter'):
+                self._padding_debug_counter = 0
+            self._padding_debug_counter += 1
+            if self._padding_debug_counter <= 5 or self._padding_debug_counter % 60 == 0:
+                self.diagnostics.debug(
+                    "ModernGLRenderer",
+                    f"Viewport padding: padding_chunks={padding_chunks}, "
+                    f"chunk_size_pixels={chunk_size_pixels}, padding_pixels={padding_pixels}, "
+                    f"original=({viewport_min_x:.1f},{viewport_max_x:.1f},{viewport_min_y:.1f},{viewport_max_y:.1f}), "
+                    f"expanded=({self.viewport_min_x:.1f},{self.viewport_max_x:.1f},{self.viewport_min_y:.1f},{self.viewport_max_y:.1f})"
+                )
+        
+        # Store original viewport bounds for decorations (they use their own culling)
+        self.viewport_min_x_original = viewport_min_x
+        self.viewport_max_x_original = viewport_max_x
+        self.viewport_min_y_original = viewport_min_y
+        self.viewport_max_y_original = viewport_max_y
+        
         # View matrix transforms world coordinates to screen coordinates
         # We want camera to be at screen center
         # Screen center in pixels
@@ -426,13 +474,16 @@ class ModernGLRenderer:
         # translate_y = screen_center_y - camera_y
         translate_x = screen_center_x - camera_x
         
-        if self.use_pyglet:
-            # Pyglet: Y increases upward, but world coordinates use Pygame system (Y down)
-            # Y-flip happens in shader, so view matrix is normal
-            translate_y = screen_center_y - camera_y
-        else:
-            # Pygame: Y increases downward
-            translate_y = camera_y - screen_center_y
+        # TEMPORARY DEBUG: Always use pyglet Y-translation to test if this fixes the horizontal cut
+        translate_y = screen_center_y - camera_y
+        # Original code (commented out for debugging):
+        # if self.use_pyglet:
+        #     # Pyglet: Y increases upward, but world coordinates use Pygame system (Y down)
+        #     # Y-flip happens in shader, so view matrix is normal
+        #     translate_y = screen_center_y - camera_y
+        # else:
+        #     # Pygame: Y increases downward
+        #     translate_y = camera_y - screen_center_y
         
         # Create view matrix: translate world coordinates to screen coordinates
         # This moves everything so camera is at screen center
@@ -443,33 +494,60 @@ class ModernGLRenderer:
             [0.0, 0.0, 0.0, 1.0]
         ], dtype=np.float32)
         
-        # Update shader uniforms for view matrix and zoom (chunk shader now uses uniforms)
+        # Update shader uniforms for view matrix (chunk shader now uses uniforms)
         if self.chunk_program:
-            # Set screen size
-            if 'screen_size' in self.chunk_program:
-                self.chunk_program['screen_size'].value = (float(self.screen_width), float(self.screen_height))
-            
             # Set view translation (camera offset)
             if 'view_translation' in self.chunk_program:
                 self.chunk_program['view_translation'].value = (float(translate_x), float(translate_y))
             
-            # Set zoom
-            if 'zoom' in self.chunk_program:
-                self.chunk_program['zoom'].value = zoom
-                # Store current zoom for render_chunks
-                self.current_zoom = zoom
+            # Set viewport bounds for new shader-based transformation
+            if 'viewport_min_x' in self.chunk_program:
+                self.chunk_program['viewport_min_x'].value = float(self.viewport_min_x)
+            if 'viewport_max_x' in self.chunk_program:
+                self.chunk_program['viewport_max_x'].value = float(self.viewport_max_x)
+            if 'viewport_min_y' in self.chunk_program:
+                self.chunk_program['viewport_min_y'].value = float(self.viewport_min_y)
+            if 'viewport_max_y' in self.chunk_program:
+                self.chunk_program['viewport_max_y'].value = float(self.viewport_max_y)
+            
+            # Debug: Verify viewport bounds are set correctly in shader
+            if self.diagnostics:
+                if not hasattr(self, '_shader_viewport_debug_counter'):
+                    self._shader_viewport_debug_counter = 0
+                self._shader_viewport_debug_counter += 1
+                if self._shader_viewport_debug_counter <= 5 or self._shader_viewport_debug_counter % 60 == 0:
+                    # Read back shader uniform values to verify they're set correctly
+                    shader_viewport_min_x = self.chunk_program['viewport_min_x'].value if 'viewport_min_x' in self.chunk_program else None
+                    shader_viewport_max_x = self.chunk_program['viewport_max_x'].value if 'viewport_max_x' in self.chunk_program else None
+                    shader_viewport_min_y = self.chunk_program['viewport_min_y'].value if 'viewport_min_y' in self.chunk_program else None
+                    shader_viewport_max_y = self.chunk_program['viewport_max_y'].value if 'viewport_max_y' in self.chunk_program else None
+                    
+                    self.diagnostics.debug(
+                        "ModernGLRenderer",
+                        f"Shader viewport bounds: min_x={shader_viewport_min_x:.1f}, max_x={shader_viewport_max_x:.1f}, "
+                        f"min_y={shader_viewport_min_y:.1f}, max_y={shader_viewport_max_y:.1f}, "
+                        f"stored: min_x={self.viewport_min_x:.1f}, max_x={self.viewport_max_x:.1f}, "
+                        f"min_y={self.viewport_min_y:.1f}, max_y={self.viewport_max_y:.1f}"
+                    )
+            
+            # Debug-Logging für Kamera (1 Frame pro Sekunde bei 60 FPS)
+            if self.diagnostics:
+                if not hasattr(self, '_camera_debug_counter'):
+                    self._camera_debug_counter = 0
+                self._camera_debug_counter += 1
                 
-                # Debug logging for shader zoom verification (only log occasionally)
-                if hasattr(self, '_shader_zoom_debug_counter'):
-                    self._shader_zoom_debug_counter += 1
-                else:
-                    self._shader_zoom_debug_counter = 0
-                
-                # Debug output disabled
-                # if self._shader_zoom_debug_counter % 60 == 0 and self.diagnostics:  # Log every 60 frames
-                #     self.diagnostics.debug("ModernGLRenderer", 
-                #         f"Shader zoom uniform set: zoom={zoom:.2f}, "
-                #         f"shader_zoom_value={self.chunk_program['zoom'].value}")
+                # Log every 60 frames (once per second at 60 FPS)
+                if self._camera_debug_counter % 60 == 0:
+                    self.diagnostics.debug(
+                        "ModernGLRenderer",
+                        f"view: cam=({camera_x:.1f},{camera_y:.1f}), "
+                        f"trans=({translate_x:.1f},{translate_y:.1f}), "
+                        f"zoom={zoom:.2f}, screen=({self.screen_width},{self.screen_height}), "
+                        f"viewport=({self.viewport_min_x:.1f},{self.viewport_max_x:.1f},{self.viewport_min_y:.1f},{self.viewport_max_y:.1f})"
+                    )
+            
+            # Store current zoom (for compatibility, but not used in shader)
+            self.current_zoom = zoom
         
         # Sprite shader still uses view matrix
         if self.sprite_program and 'view' in self.sprite_program:
@@ -514,6 +592,15 @@ class ModernGLRenderer:
             vertex_array = self.prepared_chunk_vertices[chunk_key]
             vertex_count = len(vertex_array)
         else:
+            # Strikte Policy: Nur Notfall-Preps erlauben (max 2 pro Frame)
+            # Verhindert Spikes beim schnellen Scrollen
+            if not hasattr(self, '_emergency_prep_count'):
+                self._emergency_prep_count = 0
+            if self._emergency_prep_count >= 2:  # Max 2 Notfall-Preps pro Frame
+                # Chunk überspringen für diesen Frame - wird im nächsten Frame vorbereitet
+                return None
+            self._emergency_prep_count += 1
+            
             # Prepare synchronously (new chunk or dirty chunk - textures might have changed)
             # CRITICAL: Ensure textures are assigned before preparing vertices
             # This prevents missing textures when chunks are loaded quickly
@@ -554,8 +641,13 @@ class ModernGLRenderer:
         chunk_world_x = chunk_x * chunk_size * tile_size
         chunk_world_y = chunk_y * chunk_size * tile_size
         
-        # Build vertex data for chunk (same logic as _create_chunk_buffer)
-        vertices = []
+        # Pre-allocate NumPy array for all vertices (6 vertices per tile)
+        max_vertices = chunk_size * chunk_size * 6
+        vertices = np.empty((max_vertices, 6), dtype=np.float32)
+        idx = 0
+        
+        # UV cache per chunk (simplified: only tile_id as key)
+        uv_cache = {}
         
         for tile_y in range(chunk_size):
             for tile_x in range(chunk_size):
@@ -575,14 +667,21 @@ class ModernGLRenderer:
                 world_tile_x = int((chunk_world_x + tile_x_pos) / tile_size)
                 world_tile_y = int((chunk_world_y + tile_y_pos) / tile_size)
                 
-                # Get UV coordinates from atlas
+                # Get UV coordinates from atlas (with cache)
+                # NOTE: Cache key includes world coordinates because variants are selected deterministically
+                # based on world position (for organic growth and rotation)
                 uv_coords = None
                 has_texture = False
                 
                 if hasattr(self, 'tile_texture_manager') and self.tile_texture_manager is not None:
-                    if tile_id and self.tile_texture_manager.has_texture(tile_id):
-                        uv_coords = self.tile_texture_manager.get_texture_coords(tile_id, world_tile_x, world_tile_y)
-                        has_texture = uv_coords is not None
+                    cache_key = (tile_id, world_tile_x, world_tile_y)
+                    if cache_key not in uv_cache:
+                        if tile_id and self.tile_texture_manager.has_texture(tile_id):
+                            uv_cache[cache_key] = self.tile_texture_manager.get_texture_coords(tile_id, world_tile_x, world_tile_y)
+                        else:
+                            uv_cache[cache_key] = None
+                    uv_coords = uv_cache[cache_key]
+                    has_texture = uv_coords is not None
                 
                 # Build texture coordinates
                 if has_texture and uv_coords:
@@ -616,20 +715,24 @@ class ModernGLRenderer:
                 # Use texture flag (1.0 if texture available, 0.0 for color)
                 use_texture = 1.0 if has_texture else 0.0
                 
-                # Create quad vertices (2 triangles = 6 vertices)
+                # Create quad vertices using vectorized NumPy operations
                 # Format: [in_position (2f), in_color_index (1f), in_texcoord (2f), in_use_texture (1f)]
-                base_vertices = [
-                    [world_x0, world_y0, color_index, tex_coords[0][0], tex_coords[0][1], use_texture],  # Bottom-left
-                    [world_x1, world_y0, color_index, tex_coords[1][0], tex_coords[1][1], use_texture],  # Bottom-right
-                    [world_x1, world_y1, color_index, tex_coords[2][0], tex_coords[2][1], use_texture],  # Top-right
-                    [world_x0, world_y0, color_index, tex_coords[3][0], tex_coords[3][1], use_texture],  # Bottom-left
-                    [world_x1, world_y1, color_index, tex_coords[4][0], tex_coords[4][1], use_texture],  # Top-right
-                    [world_x0, world_y1, color_index, tex_coords[5][0], tex_coords[5][1], use_texture],  # Top-left
-                ]
-                vertices.extend(base_vertices)
+                # Note: world_y0 = top (smaller Y), world_y1 = bottom (larger Y), matching decoration coordinate system
+                # Vertex order matches decorations: bottom-left, bottom-right, top-right, bottom-left, top-right, top-left
+                base_vertices = np.array([
+                    [world_x0, world_y1, color_index, tex_coords[0][0], tex_coords[0][1], use_texture],  # Bottom-left
+                    [world_x1, world_y1, color_index, tex_coords[1][0], tex_coords[1][1], use_texture],  # Bottom-right
+                    [world_x1, world_y0, color_index, tex_coords[2][0], tex_coords[2][1], use_texture],  # Top-right
+                    [world_x0, world_y1, color_index, tex_coords[3][0], tex_coords[3][1], use_texture],  # Bottom-left
+                    [world_x1, world_y0, color_index, tex_coords[4][0], tex_coords[4][1], use_texture],  # Top-right
+                    [world_x0, world_y0, color_index, tex_coords[5][0], tex_coords[5][1], use_texture],  # Top-left
+                ], dtype=np.float32)
+                
+                vertices[idx:idx+6] = base_vertices
+                idx += 6
         
-        # Convert to numpy array (ready for GPU)
-        return np.array(vertices, dtype=np.float32)
+        # Return only the used portion of the array
+        return vertices[:idx]
     
     def _bind_chunk_texture(self, tiles: List[List[dict]]):
         """
@@ -672,17 +775,25 @@ class ModernGLRenderer:
         # Inform VBO pool about visibility for smart recycling
         self.chunk_vbo_pool.set_visible_chunks(visible_chunk_keys)
         
-        # DISABLED for debugging: Cleanup deaktiviert, um zu testen ob Timing das Problem ist
-        # cached_chunk_keys = set(self.chunk_buffers.keys())
-        # invisible_chunks = cached_chunk_keys - visible_chunk_keys
-        # if len(invisible_chunks) > 30:
-        #     if self.diagnostics:
-        #         self.diagnostics.debug(
-        #             "ModernGLRenderer",
-        #             f"Cleaning up {len(invisible_chunks)} invisible chunk buffers "
-        #             f"(visible: {len(visible_chunk_keys)}, cached: {len(cached_chunk_keys)})"
-        #         )
-        #     self.release_chunk_buffers(list(invisible_chunks))
+        # Smart Cleanup: Only check every 10 frames to avoid overhead
+        if not hasattr(self, '_cleanup_frame_counter'):
+            self._cleanup_frame_counter = 0
+        self._cleanup_frame_counter += 1
+        
+        # Only check cleanup conditions every 10 frames (not every frame)
+        if self._cleanup_frame_counter % 10 == 0:
+            cached_chunk_keys = set(self.chunk_buffers.keys())
+            invisible_chunks = cached_chunk_keys - visible_chunk_keys
+            
+            # Cleanup conditions: invisible > 50 OR cached > 2 * visible
+            if len(invisible_chunks) > 50 or len(cached_chunk_keys) > 2 * len(visible_chunk_keys):
+                if self.diagnostics:
+                    self.diagnostics.debug(
+                        "ModernGLRenderer",
+                        f"Cleaning up {len(invisible_chunks)} invisible chunk buffers "
+                        f"(visible: {len(visible_chunk_keys)}, cached: {len(cached_chunk_keys)})"
+                    )
+                self.release_chunk_buffers(list(invisible_chunks))
     
     def log_vbo_pool_stats(self):
         """Log VBO pool statistics for monitoring and optimization."""
@@ -727,10 +838,29 @@ class ModernGLRenderer:
         # OPTIMIZATION Phase 4.2: GPU queries are now handled with CPU timing
         # No need to process pending queries since we're using CPU timing as approximation
         
-        # Dynamic upload budget: upload at least 25% of visible chunks per frame
-        # This ensures all chunks are loaded within 4 frames worst-case
+        # Reset emergency prep counter for this frame
+        self._emergency_prep_count = 0
+        
+        # Dynamic upload budget: limit uploads to prevent frame time spikes
+        # Base budget scales with visible chunks, then adjusted by FPS
         if max_new_chunks_per_frame is None:
-            max_new_chunks_per_frame = max(20, len(chunks_data) // 4)
+            # Dynamisches base_budget basierend auf Sichtweite
+            base_budget = min(len(chunks_data) // 10, 20)
+            if performance_monitor and performance_monitor.frame_times:
+                # Get last frame time in ms (frame_times stores values in ms)
+                frame_time = performance_monitor.frame_times[-1]
+                if frame_time > 25.0:  # Frame drops
+                    fps_multiplier = 0.5
+                elif frame_time < 12.0:  # Good performance
+                    fps_multiplier = 1.5
+                else:
+                    fps_multiplier = 1.0
+                base_budget = int(base_budget * fps_multiplier)
+            max_new_chunks_per_frame = min(3, max(1, base_budget))
+        
+        # Separate budgets for new vs dirty chunks
+        max_new_chunks = max_new_chunks_per_frame  # Für neue Chunks
+        max_dirty_chunks = max(1, max_new_chunks_per_frame // 2)  # Für dirty Chunks
         
         # DEBUG: Track what's happening
         skipped_chunks = []
@@ -740,12 +870,19 @@ class ModernGLRenderer:
         import time
         chunk_render_start = time.perf_counter()
         
-        # Shader-Uniforms sicherstellen
+        # Shader-Uniforms sicherstellen (screen_size und zoom entfernt - werden nicht genutzt)
         if self.chunk_program:
-            if 'screen_size' in self.chunk_program:
-                self.chunk_program['screen_size'].value = (float(self.screen_width), float(self.screen_height))
-            if 'zoom' in self.chunk_program:
-                self.chunk_program['zoom'].value = self.current_zoom
+            
+            # Ensure viewport bounds are set (in case update_view wasn't called)
+            if hasattr(self, 'viewport_min_x'):
+                if 'viewport_min_x' in self.chunk_program:
+                    self.chunk_program['viewport_min_x'].value = float(self.viewport_min_x)
+                if 'viewport_max_x' in self.chunk_program:
+                    self.chunk_program['viewport_max_x'].value = float(self.viewport_max_x)
+                if 'viewport_min_y' in self.chunk_program:
+                    self.chunk_program['viewport_min_y'].value = float(self.viewport_min_y)
+                if 'viewport_max_y' in self.chunk_program:
+                    self.chunk_program['viewport_max_y'].value = float(self.viewport_max_y)
         
         # GL State
         self.ctx.enable(moderngl.BLEND)
@@ -769,37 +906,110 @@ class ModernGLRenderer:
         
         upload_start_time = time.perf_counter()
         
-        # TEMPORARY: Disable merged buffer rendering until bug is fixed
         # Use merged buffer for batched rendering (single draw call for all chunks)
         # This reduces draw calls from N (one per chunk) to 1 (all chunks in one call)
-        use_merged_buffer = False  # Disabled until bug is fixed
+        chunk_count = len(chunks_data)
+        
+        # 1) Entscheiden, ob wir grundsätzlich den Merged-Buffer nutzen wollen
+        use_merged_buffer = (
+            self.use_merged_chunk_buffer and
+            chunk_count >= self.merged_buffer_min_chunk_threshold and
+            self._merged_max_chunks > 0
+        )
+        
+        # Debug-Logging
+        if self.diagnostics:
+            if not hasattr(self, '_render_chunks_debug_counter'):
+                self._render_chunks_debug_counter = 0
+            self._render_chunks_debug_counter += 1
+            if self._render_chunks_debug_counter <= 5 or self._render_chunks_debug_counter % 60 == 0:
+                chunk_keys = [(cx, cy) for cx, cy, _ in chunks_data]
+                chunk_x_range = [cx for cx, _ in chunk_keys]
+                chunk_y_range = [cy for _, cy in chunk_keys]
+                viewport_info = ""
+                if hasattr(self, 'viewport_min_x'):
+                    # Show both original and expanded viewport bounds
+                    if hasattr(self, 'viewport_min_x_original'):
+                        viewport_info = (
+                            f", viewport_expanded=({self.viewport_min_x:.1f},{self.viewport_max_x:.1f},"
+                            f"{self.viewport_min_y:.1f},{self.viewport_max_y:.1f}), "
+                            f"viewport_original=({self.viewport_min_x_original:.1f},{self.viewport_max_x_original:.1f},"
+                            f"{self.viewport_min_y_original:.1f},{self.viewport_max_y_original:.1f})"
+                        )
+                    else:
+                        viewport_info = f", viewport=({self.viewport_min_x:.1f},{self.viewport_max_x:.1f},{self.viewport_min_y:.1f},{self.viewport_max_y:.1f})"
+                self.diagnostics.debug(
+                    "ModernGLRenderer",
+                    f"render_chunks: merged={use_merged_buffer}, chunks={chunk_count}, "
+                    f"threshold={self.merged_buffer_min_chunk_threshold}, "
+                    f"chunk_x_range=[{min(chunk_x_range)}..{max(chunk_x_range)}], "
+                    f"chunk_y_range=[{min(chunk_y_range)}..{max(chunk_y_range)}]"
+                    f"{viewport_info}"
+                )
+        
+        # Debug: Log viewport bounds for verification
+        if self.diagnostics and hasattr(self, 'viewport_min_x'):
+            if not hasattr(self, '_viewport_debug_counter'):
+                self._viewport_debug_counter = 0
+            self._viewport_debug_counter += 1
+            
+            # Log every 60 frames (once per second at 60 FPS)
+            if self._viewport_debug_counter % 60 == 0:
+                self.diagnostics.debug(
+                    "ModernGLRenderer",
+                    f"render_chunks viewport=({self.viewport_min_x:.1f},{self.viewport_max_x:.1f}) "
+                    f"({self.viewport_min_y:.1f},{self.viewport_max_y:.1f}), chunks={len(chunks_data)}"
+                )
+        
+        # Initialize upload counters for monitoring (used in both merged and per-chunk paths)
+        new_chunks_uploaded = 0
+        dirty_chunks_uploaded = 0
         
         if use_merged_buffer:
             try:
                 # Build or update merged chunk buffer (handles incremental updates automatically)
-                # NOTE: If chunks don't have prepared vertices yet, they will be prepared during buffer building
+                # NOTE: Chunks without prepared vertices are skipped (strict policy)
+                # Track uploads by checking which chunks were actually written
+                chunks_before = len(self._merged_chunk_map)
                 self._build_merged_chunk_buffer(chunks_data)
+                chunks_after = len(self._merged_chunk_map)
+                # Approximate new chunks as difference in buffer size (not perfect, but good enough for monitoring)
+                new_chunks_uploaded = max(0, chunks_after - chunks_before)
                 
                 # Render all chunks in a single draw call using merged buffer
                 if self._merged_chunk_vao is not None and self._merged_chunk_vertex_count > 0:
                     # Atlas is already bound above, just render all chunks at once
+                    # Debug: Log actual vertex count being rendered
+                    if self.diagnostics:
+                        if not hasattr(self, '_render_vertex_count_counter'):
+                            self._render_vertex_count_counter = 0
+                        self._render_vertex_count_counter += 1
+                        if self._render_vertex_count_counter <= 5 or self._render_vertex_count_counter % 60 == 0:
+                            self.diagnostics.debug(
+                                "ModernGLRenderer",
+                                f"Rendering merged buffer: vertex_count={self._merged_chunk_vertex_count}, "
+                                f"chunks_in_buffer={len(self._merged_chunk_map)}, "
+                                f"chunks_input={len(chunks_data)}"
+                            )
                     self._merged_chunk_vao.render(moderngl.TRIANGLES, vertices=self._merged_chunk_vertex_count)
                     rendered_chunks = [(cx, cy) for cx, cy, _ in chunks_data]
+                else:
+                    # Nichts zu rendern → auf Fallback-Pfad gehen
+                    use_merged_buffer = False
+                    
             except Exception as e:
-                # Fallback to per-chunk rendering if merged buffer fails
-                if self.diagnostics:
-                    self.diagnostics.warning("ModernGLRenderer", f"Merged buffer rendering failed, falling back to per-chunk: {e}")
-                
-                # Fallback: per-chunk rendering (old method)
                 use_merged_buffer = False
+                if self.diagnostics:
+                    self.diagnostics.warning(
+                        "ModernGLRenderer",
+                        f"Merged buffer rendering failed, falling back to per-chunk: {e}"
+                    )
         
         if not use_merged_buffer:
             # Fallback: per-chunk rendering (old method)
-            new_chunks_uploaded = 0
+            # Counters already initialized above
             
-            # First pass: Process new chunks (not in buffers) - these MUST be uploaded
-            # even if budget is exceeded, to prevent gray tiles
-            # NOTE: If chunk doesn't have prepared vertices yet, _create_chunk_buffer will prepare them synchronously
+            # Separate new chunks from existing chunks
             new_chunks = []
             existing_chunks = []
             for chunk_x, chunk_y, tiles in chunks_data:
@@ -809,13 +1019,21 @@ class ModernGLRenderer:
                 else:
                     existing_chunks.append((chunk_x, chunk_y, tiles))
             
-            # Process new chunks first (prioritize them to prevent gray tiles)
+            # First pass: Process new chunks (prioritize them to prevent gray tiles)
             for chunk_x, chunk_y, tiles in new_chunks:
                 chunk_key = (chunk_x, chunk_y)
-                # Always upload new chunks, even if budget is exceeded
-                # This ensures tiles are textured correctly when chunks are first loaded
-                # Note: prepared_chunk_vertices check above ensures textures are assigned
-                vbo, vao, vertex_count = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
+                # Stop if budget for new chunks is reached
+                if new_chunks_uploaded >= max_new_chunks:
+                    skipped_chunks.append((chunk_key, "new_budget_exceeded"))
+                    continue
+                
+                result = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
+                if result is None:
+                    # Chunk skipped (no prepared vertices, emergency prep limit reached)
+                    skipped_chunks.append((chunk_key, "no_prepared_vertices"))
+                    continue
+                
+                vbo, vao, vertex_count = result
                 new_chunks_uploaded += 1
                 uploaded_chunks.append(chunk_key)
                 
@@ -823,26 +1041,31 @@ class ModernGLRenderer:
                     vao.render(moderngl.TRIANGLES, vertices=vertex_count)
                     rendered_chunks.append(chunk_key)
             
-            # Second pass: Process existing chunks (with budget limit)
-            # Note: Only chunks with prepared_chunk_vertices are in existing_chunks (filtered above)
+            # Second pass: Process existing chunks (with separate dirty budget)
             for chunk_x, chunk_y, tiles in existing_chunks:
                 chunk_key = (chunk_x, chunk_y)
                 is_dirty = chunk_key in self.chunk_dirty
                 
-                # Upload-Budget begrenzen (nur für bestehende Chunks)
-                if is_dirty and new_chunks_uploaded >= max_new_chunks_per_frame:
-                    # Im Cache aber dirty? Mit altem Buffer rendern (ohne Upload)
-                    if chunk_key in self.chunk_buffers:
-                        vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
-                        if vao and vertex_count > 0:
-                            vao.render(moderngl.TRIANGLES, vertices=vertex_count)
-                            rendered_chunks.append(chunk_key)
-                    continue
-                
-                # Normaler Pfad: Buffer aktualisieren
                 if is_dirty:
-                    vbo, vao, vertex_count = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
-                    new_chunks_uploaded += 1
+                    # Check dirty chunks budget
+                    if dirty_chunks_uploaded >= max_dirty_chunks:
+                        # Render with old buffer (no upload)
+                        if chunk_key in self.chunk_buffers:
+                            vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
+                            if vao and vertex_count > 0:
+                                vao.render(moderngl.TRIANGLES, vertices=vertex_count)
+                                rendered_chunks.append(chunk_key)
+                        continue
+                    
+                    # Upload dirty chunk
+                    result = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
+                    if result is None:
+                        # Chunk skipped (no prepared vertices, emergency prep limit reached)
+                        skipped_chunks.append((chunk_key, "no_prepared_vertices"))
+                        continue
+                    
+                    vbo, vao, vertex_count = result
+                    dirty_chunks_uploaded += 1
                     uploaded_chunks.append(chunk_key)
                 else:
                     # Chunk ist nicht dirty - verwende existierenden Buffer
@@ -876,6 +1099,19 @@ class ModernGLRenderer:
                 self.diagnostics.warning(
                     "ModernGLRenderer",
                     f"Skipped chunks (will render next frame): {skipped_chunks[:10]}"
+                )
+        
+        # Monitoring: Log upload stats every 120 frames
+        if self.diagnostics:
+            if not hasattr(self, '_budget_log_counter'):
+                self._budget_log_counter = 0
+            self._budget_log_counter += 1
+            if self._budget_log_counter % 120 == 0:
+                self.diagnostics.debug(
+                    "ModernGLRenderer",
+                    f"Chunk uploads/frame: new={new_chunks_uploaded}, dirty={dirty_chunks_uploaded}, "
+                    f"skipped={len(skipped_chunks)}, total_visible={len(chunks_data)}, "
+                    f"budget_new={max_new_chunks}, budget_dirty={max_dirty_chunks}"
                 )
         
         # Periodisches Logging (z.B. alle 5 Sekunden bei 60 FPS = 300 Frames)
@@ -933,6 +1169,7 @@ class ModernGLRenderer:
         chunks_to_update = chunk_keys_set & current_chunks_set  # Chunks that are in both sets
         
         # Remove chunks that are no longer visible
+        # NOTE: If chunks are removed, buffer offsets will change, so we'll need to rewrite all chunks
         for chunk_key in chunks_to_remove:
             if chunk_key in self._merged_chunk_map:
                 # Mark slot as empty (we'll reuse it for new chunks)
@@ -942,19 +1179,42 @@ class ModernGLRenderer:
         # Rebuild chunk order list (sorted for consistency)
         new_chunk_order = sorted(chunk_keys_set)
         
+        # Find max chunk_x for rightmost chunk debugging
+        max_chunk_x = max(cx for cx, _ in chunk_keys_set) if chunk_keys_set else None
+        
         # Update or add chunks
         chunk_size = settings.CHUNK_SIZE
         tile_size = float(settings.TILE_SIZE)
         total_vertex_count = 0
         
-        # If chunks changed, we need to write ALL chunks (not just new/dirty ones)
-        # because the buffer layout might have changed
+        # Optimize: Only write chunks that actually need updating
+        # Simplified logic: If chunks changed, process all chunks (full rebuild)
+        # Otherwise, only process dirty chunks
         if chunks_changed:
-            # Write all chunks when chunk set changes
-            chunks_to_process = chunk_keys_set
+            # Chunks changed: Full rebuild needed (buffer offsets may have changed)
+            # Apply budget to limit chunks written per frame
+            max_chunks_to_rewrite = min(7, max(3, len(chunk_keys_set) // 8))
+            chunks_to_process = set(list(sorted(chunk_keys_set))[:max_chunks_to_rewrite])
+            # Mark remaining chunks as dirty for next frame
+            if len(chunk_keys_set) > max_chunks_to_rewrite:
+                remaining_chunks = set(list(sorted(chunk_keys_set))[max_chunks_to_rewrite:])
+                self.chunk_dirty.update(remaining_chunks)
         else:
-            # Only update chunks that are new or dirty (optimization: skip unchanged chunks)
-            chunks_to_process = chunks_to_add | (chunks_to_update & self.chunk_dirty) if has_dirty_chunks else chunks_to_add | chunks_to_update
+            # No chunks changed: Only process dirty chunks
+            chunks_to_process = self.chunk_dirty & chunk_keys_set
+            # Apply budget for dirty chunks
+            if len(chunks_to_process) > 7:
+                chunks_list = list(chunks_to_process)[:7]
+                chunks_to_process = set(chunks_list)
+                # Mark remaining dirty chunks for next frame
+                remaining_dirty = self.chunk_dirty - chunks_to_process
+                self.chunk_dirty = remaining_dirty
+        
+        skipped_chunks = []
+        processed_chunks = []
+        
+        # Create index map for O(1) lookup instead of O(n) index() calls
+        index_map = {key: i for i, key in enumerate(new_chunk_order)}
         
         for chunk_key in new_chunk_order:
             # Skip chunks that don't need updating (only if chunks haven't changed)
@@ -965,121 +1225,248 @@ class ModernGLRenderer:
                 if chunk_data:
                     _, _, tiles = chunk_data
                     # Calculate vertex count (chunk_size * chunk_size * 6 vertices per tile)
-                    total_vertex_count += chunk_size * chunk_size * 6
+                    # But only if chunk is actually in the buffer map
+                    if chunk_key in self._merged_chunk_map:
+                        total_vertex_count += chunk_size * chunk_size * 6
+                    skipped_chunks.append((chunk_key, "unchanged"))
                 continue
             # Find chunk data
             chunk_data = next((c for c in chunks_data if (c[0], c[1]) == chunk_key), None)
             if not chunk_data:
+                skipped_chunks.append((chunk_key, "no_data"))
                 continue
             
             chunk_x, chunk_y, tiles = chunk_data
+            chunk_key = (chunk_x, chunk_y)
             
-            # Build vertex data for this chunk
-            chunk_vertices = []
+            # Strikte Prüfung: Nur Chunks mit prepared vertices verarbeiten
+            if chunk_key not in self.prepared_chunk_vertices:
+                skipped_chunks.append((chunk_key, "no_prepared_vertices"))
+                continue
+            
+            # Verwende prepared vertices statt tiles direkt
+            vertex_array = self.prepared_chunk_vertices[chunk_key]
+            
+            # Edge-Case: Leere Chunks überspringen
+            if len(vertex_array) == 0:
+                # Leerer Chunk: Vertexanzahl trotzdem zählen (für total_vertex_count)
+                total_vertex_count += chunk_size * chunk_size * 6
+                skipped_chunks.append((chunk_key, "empty_vertices"))
+                continue
+            
+            # Use prepared vertices directly (no need to build from tiles)
+            # vertex_array is already prepared and ready to use
+            chunk_vertex_array = vertex_array
+            
+            # Validierung: Leere Vertex-Arrays überspringen
+            if len(chunk_vertex_array) == 0:
+                # Keine Vertices für diesen Chunk - Vertexanzahl trotzdem zählen
+                total_vertex_count += chunk_size * chunk_size * 6
+                skipped_chunks.append((chunk_key, "empty_vertices"))
+                continue
+            
+            # Calculate world position for buffer offset calculation and debugging
             chunk_world_x = chunk_x * chunk_size * tile_size
             chunk_world_y = chunk_y * chunk_size * tile_size
-            
-            for tile_y in range(chunk_size):
-                for tile_x in range(chunk_size):
-                    tile = tiles[tile_y][tile_x]
-                    color = tile.get('color', (100, 100, 100))
-                    if isinstance(color, list):
-                        color = tuple(color)
-                    
-                    # Tile position within chunk
-                    tile_x_pos = tile_x * tile_size
-                    tile_y_pos = tile_y * tile_size
-                    
-                    # World position (top-left corner of tile) in pixels
-                    world_x0 = chunk_world_x + tile_x_pos
-                    world_y0 = chunk_world_y + tile_y_pos
-                    world_x1 = world_x0 + tile_size
-                    world_y1 = world_y0 + tile_size
-                    
-                    # Store world coordinates directly (no transformation here)
-                    # View matrix and zoom are applied in shader via uniforms
-                    x0_world = world_x0
-                    y0_world = world_y0
-                    x1_world = world_x1
-                    y1_world = world_y1
-                    
-                    # Get tile_id to check for texture
-                    tile_id = tile.get('tile_id') or tile.get('tileid', '')
-                    has_texture = (hasattr(self, 'tile_texture_manager') and 
-                                  self.tile_texture_manager is not None and 
-                                  self.tile_texture_manager.has_texture(tile_id))
-                    
-                    # Calculate world position for deterministic variant selection
-                    world_tile_x = int(world_x0 / tile_size)
-                    world_tile_y = int(world_y0 / tile_size)
-                    
-                    # Get UV coordinates from atlas if texture exists (with variant support)
-                    if has_texture:
-                        uv_coords = self.tile_texture_manager.get_texture_coords(tile_id, world_tile_x, world_tile_y)
-                        if uv_coords:
-                            u0, v0, u1, v1 = uv_coords
-                            # OpenGL: (0,0) bottom-left, but PIL/our coords are top-left
-                            # So we flip V coordinates
-                            tex_coords = [
-                                (u0, v1),  # Bottom-left (tex)
-                                (u1, v1),  # Bottom-right (tex)
-                                (u1, v0),  # Top-right (tex)
-                                (u0, v1),  # Bottom-left (tex)
-                                (u1, v0),  # Top-right (tex)
-                                (u0, v0),  # Top-left (tex)
-                            ]
-                        else:
-                            # Fallback to full texture if coords not found
-                            tex_coords = [
-                                (0.0, 1.0), (1.0, 1.0), (1.0, 0.0),
-                                (0.0, 1.0), (1.0, 0.0), (0.0, 0.0)
-                            ]
-                    else:
-                        # No texture, use default coords (won't be used anyway)
-                        tex_coords = [
-                            (0.0, 1.0), (1.0, 1.0), (1.0, 0.0),
-                            (0.0, 1.0), (1.0, 0.0), (0.0, 0.0)
-                        ]
-                    
-                    # Get color index from palette (instead of storing RGB directly)
-                    color_index = float(self.tile_color_palette.get_color_index(color))
-                    
-                    # Use texture flag (1.0 if texture available, 0.0 for color)
-                    use_texture = 1.0 if has_texture else 0.0
-                    
-                    # Create quad vertices (2 triangles = 6 vertices)
-                    # Format: [in_position (2f), in_color_index (1f), in_texcoord (2f), in_use_texture (1f)]
-                    base_vertices = [
-                        [x0_world, y0_world, color_index, tex_coords[0][0], tex_coords[0][1], use_texture],  # Bottom-left
-                        [x1_world, y0_world, color_index, tex_coords[1][0], tex_coords[1][1], use_texture],  # Bottom-right
-                        [x1_world, y1_world, color_index, tex_coords[2][0], tex_coords[2][1], use_texture],  # Top-right
-                        [x0_world, y0_world, color_index, tex_coords[3][0], tex_coords[3][1], use_texture],  # Bottom-left
-                        [x1_world, y1_world, color_index, tex_coords[4][0], tex_coords[4][1], use_texture],  # Top-right
-                        [x0_world, y1_world, color_index, tex_coords[5][0], tex_coords[5][1], use_texture],  # Top-left
-                    ]
-                    chunk_vertices.extend(base_vertices)
-                    
-                    # NOTE: Variants are now selected directly in get_texture_coords() based on overlay config
-                    # They replace the base texture instead of being rendered on top
-            
-            # Convert chunk vertices to numpy array
-            chunk_vertex_array = np.array(chunk_vertices, dtype=np.float32)
+            chunk_world_max_x = chunk_world_x + chunk_size * tile_size
+            chunk_world_max_y = chunk_world_y + chunk_size * tile_size
             
             # Calculate buffer offset for this chunk
-            chunk_index = new_chunk_order.index(chunk_key)
-            buffer_offset = chunk_index * self._merged_vertex_size_bytes
+            # IMPORTANT: Use the index in new_chunk_order to ensure correct offset
+            # even when chunks are removed/added
+            # CRITICAL: Use actual vertex count per chunk, not max_vertex_size_bytes
+            # Each chunk has exactly chunk_size * chunk_size * 6 vertices
+            chunk_index = index_map[chunk_key]  # O(1) lookup instead of O(n)
+            actual_vertices_per_chunk = chunk_size * chunk_size * 6
+            floats_per_vertex = 6  # 2 position + 1 color_index + 2 texcoord + 1 use_texture
+            bytes_per_float = 4
+            actual_chunk_size_bytes = actual_vertices_per_chunk * floats_per_vertex * bytes_per_float
+            buffer_offset = chunk_index * actual_chunk_size_bytes
+            
+            # Debug: Log buffer offset and NDC calculation for rightmost chunks
+            if self.diagnostics and hasattr(self, 'viewport_max_x') and isinstance(self.viewport_max_x, (int, float)):
+                chunk_world_max_x = chunk_world_x + chunk_size * tile_size
+                viewport_max_x_float = float(self.viewport_max_x)
+                
+                # Log for rightmost chunks (chunk_x == max_chunk_x)
+                if max_chunk_x is not None and chunk_x == max_chunk_x:
+                    if not hasattr(self, '_rightmost_chunk_debug_counter'):
+                        self._rightmost_chunk_debug_counter = 0
+                    self._rightmost_chunk_debug_counter += 1
+                    
+                    # Log first 10 rightmost chunks or every 60 frames
+                    should_log = (self._rightmost_chunk_debug_counter <= 10 or 
+                                 self._rightmost_chunk_debug_counter % 60 == 0)
+                    
+                    if should_log:
+                        # Calculate NDC for rightmost vertex to verify it's within [-1, 1]
+                        viewport_width = viewport_max_x_float - self.viewport_min_x
+                        if viewport_width > 0:
+                            ndc_x = 2.0 * (chunk_world_max_x - self.viewport_min_x) / viewport_width - 1.0
+                            self.diagnostics.debug(
+                                "ModernGLRenderer",
+                                f"Rightmost chunk {chunk_key}: chunk_index={chunk_index}, "
+                                f"buffer_offset={buffer_offset}, chunk_world_max_x={chunk_world_max_x:.1f}, "
+                                f"viewport=({self.viewport_min_x:.1f},{viewport_max_x_float:.1f}), "
+                                f"viewport_width={viewport_width:.1f}, vertices={len(chunk_vertex_array)}, "
+                                f"ndc_x={ndc_x:.3f} (should be < 1.0)"
+                            )
+            
+            # Buffer-Overflow-Prüfung
+            max_buffer_size = self._merged_max_chunks * self._merged_vertex_size_bytes
+            data_size = len(chunk_vertex_array.tobytes())
+            if buffer_offset + data_size > max_buffer_size:
+                if self.diagnostics:
+                    if not hasattr(self, '_buffer_overflow_warnings'):
+                        self._buffer_overflow_warnings = set()
+                    if chunk_key not in self._buffer_overflow_warnings:
+                        self._buffer_overflow_warnings.add(chunk_key)
+                        self.diagnostics.warning(
+                            "ModernGLRenderer",
+                            f"Buffer overflow detected for chunk {chunk_key}: "
+                            f"offset={buffer_offset}, size={data_size}, max={max_buffer_size}, "
+                            f"chunk_index={chunk_index}, total_chunks={len(new_chunk_order)}"
+                        )
+                # Überspringen dieses Chunks, aber Vertexanzahl zählen
+                total_vertex_count += len(chunk_vertex_array)
+                continue
             
             # Update buffer at specific offset (incremental update)
             self._merged_chunk_vbo.write(chunk_vertex_array.tobytes(), offset=buffer_offset)
             
             # Update mapping
             self._merged_chunk_map[chunk_key] = buffer_offset
-            total_vertex_count += len(chunk_vertices)
+            # Use actual vertex count from array (chunk_vertex_array has shape (n_vertices, 6))
+            actual_vertex_count = len(chunk_vertex_array)  # This is the number of vertices (each vertex is 6 floats)
+            total_vertex_count += actual_vertex_count
+            processed_chunks.append(chunk_key)
         
         # Update tracking
-        self._merged_chunk_order = new_chunk_order
-        self._merged_chunk_vertex_count = total_vertex_count
+        # CRITICAL: When chunks are removed, we must update the order completely
+        # because offsets change for ALL chunks. We process in batches to stay within budget.
+        if chunks_changed and chunks_to_remove:
+            # Chunks were removed: we're processing in batches over multiple frames
+            # Update order to new order, but only chunks that were processed have correct data
+            # Chunks not yet processed will be skipped in rendering (they have wrong offsets)
+            self._merged_chunk_order = new_chunk_order
+            # Mark which chunks have been processed and have correct offsets
+            if not hasattr(self, '_chunks_with_correct_offsets'):
+                self._chunks_with_correct_offsets = set()
+            # Add processed chunks to set of chunks with correct offsets
+            self._chunks_with_correct_offsets.update(processed_chunks)
+            # Remove chunks that are no longer visible
+            self._chunks_with_correct_offsets = self._chunks_with_correct_offsets & chunk_keys_set
+        else:
+            # Normal case: all chunks processed, update order completely
+            self._merged_chunk_order = new_chunk_order
+            # All chunks have correct offsets
+            if hasattr(self, '_chunks_with_correct_offsets'):
+                self._chunks_with_correct_offsets = chunk_keys_set
+            else:
+                self._chunks_with_correct_offsets = chunk_keys_set
+        
+        # Calculate actual vertex count from chunks that have correct offsets
+        # CRITICAL: Only render chunks that were processed (have correct offsets)
+        if chunks_changed and chunks_to_remove and len(processed_chunks) < len(chunk_keys_set):
+            # Partial rewrite: only render processed chunks
+            chunks_with_correct_offsets = self._chunks_with_correct_offsets & chunk_keys_set
+            self._merged_chunk_vertex_count = len(chunks_with_correct_offsets) * chunk_size * chunk_size * 6
+        else:
+            # Full rewrite or no removals: render all chunks in buffer
+            chunks_in_buffer = len(self._merged_chunk_map)
+            expected_vertex_count = chunks_in_buffer * chunk_size * chunk_size * 6
+            if abs(total_vertex_count - expected_vertex_count) > 100:
+                if self.diagnostics:
+                    self.diagnostics.warning(
+                        "ModernGLRenderer",
+                        f"Vertex count mismatch: total_vertex_count={total_vertex_count}, "
+                        f"expected_vertex_count={expected_vertex_count}, chunks_in_buffer={chunks_in_buffer}, "
+                        f"using expected_vertex_count"
+                    )
+                self._merged_chunk_vertex_count = expected_vertex_count
+            else:
+                self._merged_chunk_vertex_count = total_vertex_count
         self._merged_chunks_hash = chunks_hash
+        
+        # Debug: Log vertex count calculation
+        if self.diagnostics:
+            chunks_in_buffer = len(self._merged_chunk_map)
+            expected_vertex_count = chunks_in_buffer * chunk_size * chunk_size * 6
+            if abs(total_vertex_count - expected_vertex_count) > 100:
+                self.diagnostics.warning(
+                    "ModernGLRenderer",
+                    f"Vertex count mismatch: total_vertex_count={total_vertex_count}, "
+                    f"expected_vertex_count={expected_vertex_count}, chunks_in_buffer={chunks_in_buffer}"
+                )
+        
+        # Debug: Log which chunks were actually written to buffer
+        if self.diagnostics:
+            if not hasattr(self, '_merged_buffer_debug_counter'):
+                self._merged_buffer_debug_counter = 0
+            self._merged_buffer_debug_counter += 1
+            if self._merged_buffer_debug_counter <= 5 or self._merged_buffer_debug_counter % 60 == 0:
+                written_chunks = sorted(self._merged_chunk_map.keys())
+                if written_chunks:
+                    chunk_x_range = [cx for cx, _ in written_chunks]
+                    chunk_y_range = [cy for _, cy in written_chunks]
+                    
+                    # Group skipped chunks by reason
+                    skipped_by_reason = {}
+                    for chunk_key, reason in skipped_chunks:
+                        if reason not in skipped_by_reason:
+                            skipped_by_reason[reason] = []
+                        skipped_by_reason[reason].append(chunk_key)
+                    
+                    skip_info = ""
+                    if skipped_by_reason:
+                        skip_details = ", ".join([f"{reason}:{len(chunks)}" for reason, chunks in skipped_by_reason.items()])
+                        skip_info = f", skipped={len(skipped_chunks)} ({skip_details})"
+                    
+                    # Calculate chunk world bounds to verify they're within viewport
+                    chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+                    min_chunk_world_x = min(chunk_x_range) * chunk_size_pixels
+                    max_chunk_world_x = (max(chunk_x_range) + 1) * chunk_size_pixels
+                    min_chunk_world_y = min(chunk_y_range) * chunk_size_pixels
+                    max_chunk_world_y = (max(chunk_y_range) + 1) * chunk_size_pixels
+                    
+                    viewport_info = ""
+                    if hasattr(self, 'viewport_min_x'):
+                        viewport_info = (
+                            f", viewport=({self.viewport_min_x:.1f},{self.viewport_max_x:.1f},"
+                            f"{self.viewport_min_y:.1f},{self.viewport_max_y:.1f}), "
+                            f"chunk_world=({min_chunk_world_x:.1f},{max_chunk_world_x:.1f},"
+                            f"{min_chunk_world_y:.1f},{max_chunk_world_y:.1f})"
+                        )
+                    
+                    # Calculate chunk world bounds to verify they're within viewport
+                    chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+                    min_chunk_world_x = min(chunk_x_range) * chunk_size_pixels
+                    max_chunk_world_x = (max(chunk_x_range) + 1) * chunk_size_pixels
+                    min_chunk_world_y = min(chunk_y_range) * chunk_size_pixels
+                    max_chunk_world_y = (max(chunk_y_range) + 1) * chunk_size_pixels
+                    
+                    self.diagnostics.debug(
+                        "ModernGLRenderer",
+                        f"_build_merged_chunk_buffer: wrote {len(written_chunks)} chunks to buffer, "
+                        f"chunk_x_range=[{min(chunk_x_range)}..{max(chunk_x_range)}], "
+                        f"chunk_y_range=[{min(chunk_y_range)}..{max(chunk_y_range)}], "
+                        f"total_vertex_count={total_vertex_count}, "
+                        f"input_chunks={len(chunks_data)}, processed={len(processed_chunks)}"
+                        f"{skip_info}"
+                        f"{viewport_info}"
+                    )
+                    
+                    # Debug: Check if rightmost chunks are in buffer
+                    if hasattr(self, 'viewport_max_x') and isinstance(self.viewport_max_x, (int, float)):
+                        rightmost_chunks = [ck for ck in written_chunks if ck[0] == max(chunk_x_range)]
+                        if rightmost_chunks:
+                            viewport_max_x_float = float(self.viewport_max_x)
+                            self.diagnostics.debug(
+                                "ModernGLRenderer",
+                                f"Rightmost chunks in buffer: {rightmost_chunks}, "
+                                f"chunk_world_max_x={max_chunk_world_x:.1f}, viewport_max_x={viewport_max_x_float:.1f}, "
+                                f"within_viewport={max_chunk_world_x <= viewport_max_x_float}"
+                            )
         
         # Clear dirty flags for chunks that were updated
         if has_dirty_chunks:

@@ -478,9 +478,18 @@ class GameWindow(pyglet.window.Window):
     
     def on_draw(self):
         """Render frame"""
+        # Debug: Test if method is called at all
+        if not hasattr(self, '_on_draw_counter'):
+            self._on_draw_counter = 0
+        self._on_draw_counter += 1
+        if self._on_draw_counter % 60 == 0:
+            print(f"[Main] on_draw() called {self._on_draw_counter} times, _update_called={self._update_called}")
+        
         # FPS limiting: Only render if update was called (limits to 120 FPS)
         # schedule_interval calls update() at 120 FPS, so we only render when update runs
         if not self._update_called:
+            if self._on_draw_counter % 60 == 0:
+                print(f"[Main] on_draw() early return: _update_called=False")
             return
         
         self._update_called = False  # Reset flag for next frame
@@ -633,9 +642,20 @@ class GameWindow(pyglet.window.Window):
         
         current_state = self.game_app.current_state
         
+        # Debug: Log current state
+        if self._on_draw_counter % 60 == 0:
+            print(f"[Main] current_state={current_state}, INGAME={current_state == GameState.INGAME}, PAUSED={current_state == GameState.PAUSED}")
+        
         # 1. Render world using layer-based system - only if in game
         t1 = time.perf_counter()
         if current_state == GameState.INGAME or current_state == GameState.PAUSED:
+            # Debug: Test if this code block is reached (always print first few times)
+            if not hasattr(self, '_world_renderer_call_counter'):
+                self._world_renderer_call_counter = 0
+            self._world_renderer_call_counter += 1
+            if self._world_renderer_call_counter <= 5 or self._world_renderer_call_counter % 60 == 0:
+                print(f"[Main] Calling world_renderer.draw(), state={current_state}, counter={self._world_renderer_call_counter}")
+            
             # WorldRenderer.draw() now uses RenderLayerManager internally
             self.world_renderer.draw(debug_visualization_mode=0)  # Debug handled separately
             

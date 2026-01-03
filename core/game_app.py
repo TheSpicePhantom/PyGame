@@ -71,7 +71,9 @@ class GameApp:
     
     def change_state(self, new_state: GameState):
         """Change to a new state"""
+        print(f"[GameApp] change_state() called: {self.current_state} -> {new_state}")
         if new_state == self.current_state:
+            print(f"[GameApp] change_state() early return: states are equal")
             return
         
         # Handle state exit
@@ -80,6 +82,7 @@ class GameApp:
         # Store previous state
         self.previous_state = self.current_state
         self.current_state = new_state
+        print(f"[GameApp] change_state() state changed to: {self.current_state}")
         
         # Handle state entry
         self._enter_state(new_state)
@@ -137,9 +140,12 @@ class GameApp:
         Args:
             world_name: Name der Welt (wird als Ordnername verwendet)
         """
+        print(f"[GameApp] load_world() called with world_name='{world_name}'")
         self.lifecycle.load_world(world_name)
         self.game_initialized = True
+        print(f"[GameApp] Before change_state: current_state={self.current_state}")
         self.change_state(GameState.INGAME)
+        print(f"[GameApp] After change_state: current_state={self.current_state}")
     
     def shutdown_world(self, final_save: bool = True):
         """

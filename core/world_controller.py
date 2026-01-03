@@ -467,22 +467,29 @@ class WorldController:
         if not self.modern_gl_renderer:
             return []
         
-        from core.zoom_utils import calculate_visible_world_size
+        from core.zoom_utils import get_viewport_bounds
         from core import settings
         
-        # Calculate visible area
+        # Use same viewport bounds calculation as renderer
         screen_width = self.modern_gl_renderer.screen_width
         screen_height = self.modern_gl_renderer.screen_height
-        visible_world_width, visible_world_height = calculate_visible_world_size(
-            screen_width, screen_height, self.camera_zoom
+        viewport_min_x, viewport_max_x, viewport_min_y, viewport_max_y = get_viewport_bounds(
+            screen_width, screen_height, camera_x, camera_y, self.camera_zoom
         )
         
-        world_min_x = camera_x - visible_world_width / 2.0
-        world_max_x = camera_x + visible_world_width / 2.0
-        world_min_y = camera_y - visible_world_height / 2.0
-        world_max_y = camera_y + visible_world_height / 2.0
-        
         chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        
+        # Add padding to viewport bounds to ensure chunks extend beyond visible area
+        # This prevents cuts where decorations are visible but terrain chunks are missing
+        padding_chunks = 3  # Chunks of padding on each side
+        padding_pixels = padding_chunks * chunk_size_pixels
+        
+        # Expand world bounds with padding
+        world_min_x = viewport_min_x - padding_pixels
+        world_max_x = viewport_max_x + padding_pixels
+        world_min_y = viewport_min_y - padding_pixels
+        world_max_y = viewport_max_y + padding_pixels
+        
         visible_chunks = []
         
         # Frustum culling - check which loaded chunks overlap with visible area

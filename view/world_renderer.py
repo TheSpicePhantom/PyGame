@@ -241,6 +241,15 @@ class WorldRenderer:
     
     def draw(self, debug_visualization_mode: int = 0):
         """Draw world using layer-based rendering system"""
+        # Debug: Test if method is called at all (always print first few times)
+        if not hasattr(self, '_draw_call_counter'):
+            self._draw_call_counter = 0
+        self._draw_call_counter += 1
+        if self._draw_call_counter <= 5 or self._draw_call_counter % 60 == 0:
+            print(f"[WorldRenderer] draw() called {self._draw_call_counter} times, game_initialized={self.world_controller.game_initialized}, "
+                  f"has_world={self.world_controller.world is not None}, "
+                  f"has_chunk_manager={self.world_controller.world.chunk_manager is not None if self.world_controller.world else False}")
+        
         if not self.world_controller.game_initialized or not self.world_controller.world or not self.world_controller.world.chunk_manager:
             return
         
@@ -264,6 +273,73 @@ class WorldRenderer:
         
         # Step 2: Get visible chunks from controller (includes frustum culling)
         visible_chunks = self.world_controller.get_visible_chunks(camera_x, camera_y)
+        
+        # Debug: Log visible chunk range vs viewport bounds
+        # First, test if diagnostics is available (always log this to verify code is reached)
+        # Simple test: print to console to verify code is reached
+        if not hasattr(self, '_simple_test_counter'):
+            self._simple_test_counter = 0
+        self._simple_test_counter += 1
+        if self._simple_test_counter % 60 == 0:
+            print(f"[WorldRenderer] DEBUG: draw() called {self._simple_test_counter} times, visible_chunks={len(visible_chunks) if visible_chunks else 0}")
+        
+        if hasattr(self.world_controller, 'diagnostics') and self.world_controller.diagnostics:
+            # Test log to verify code is reached (every 10 frames for faster feedback)
+            if not hasattr(self, '_chunk_debug_test_counter'):
+                self._chunk_debug_test_counter = 0
+            self._chunk_debug_test_counter += 1
+            
+            if self._chunk_debug_test_counter % 10 == 0:
+                self.world_controller.diagnostics.debug(
+                    "WorldRenderer",
+                    f"DEBUG TEST: draw() called, visible_chunks={len(visible_chunks) if visible_chunks else 0}, "
+                    f"has_viewport={hasattr(self.modern_gl_renderer, 'viewport_min_x')}"
+                )
+            
+            if not hasattr(self, '_chunk_range_debug_counter'):
+                self._chunk_range_debug_counter = 0
+            self._chunk_range_debug_counter += 1
+            
+            # Log every 60 frames (once per second at 60 FPS) or first 5 times
+            if self._chunk_range_debug_counter <= 5 or self._chunk_range_debug_counter % 60 == 0:
+                if visible_chunks:
+                    chunk_x_coords = [cx for cx, _, _ in visible_chunks]
+                    chunk_y_coords = [cy for _, cy, _ in visible_chunks]
+                    
+                    if chunk_x_coords and chunk_y_coords:
+                        min_chunk_x = min(chunk_x_coords)
+                        max_chunk_x = max(chunk_x_coords)
+                        min_chunk_y = min(chunk_y_coords)
+                        max_chunk_y = max(chunk_y_coords)
+                        
+                        # Get viewport bounds from renderer
+                        if hasattr(self.modern_gl_renderer, 'viewport_min_x'):
+                            self.world_controller.diagnostics.debug(
+                                "WorldRenderer",
+                                f"visible_chunks_x=[{min_chunk_x}..{max_chunk_x}], "
+                                f"visible_chunks_y=[{min_chunk_y}..{max_chunk_y}], "
+                                f"viewport_x=({self.modern_gl_renderer.viewport_min_x:.1f},"
+                                f"{self.modern_gl_renderer.viewport_max_x:.1f}), "
+                                f"viewport_y=({self.modern_gl_renderer.viewport_min_y:.1f},"
+                                f"{self.modern_gl_renderer.viewport_max_y:.1f})"
+                            )
+                        else:
+                            self.world_controller.diagnostics.debug(
+                                "WorldRenderer",
+                                f"visible_chunks_x=[{min_chunk_x}..{max_chunk_x}], "
+                                f"visible_chunks_y=[{min_chunk_y}..{max_chunk_y}], "
+                                f"viewport_bounds not available yet"
+                            )
+                    else:
+                        self.world_controller.diagnostics.debug(
+                            "WorldRenderer",
+                            f"visible_chunks empty or invalid: {len(visible_chunks)} chunks"
+                        )
+                else:
+                    self.world_controller.diagnostics.debug(
+                        "WorldRenderer",
+                        f"No visible chunks (empty list)"
+                    )
         
         # Step 2.5: Inform renderer which chunks are visible (enables smart pool management)
         if visible_chunks:
@@ -1184,6 +1260,9 @@ class WorldRenderer:
         performance_monitor = getattr(self.world_controller, 'performance_monitor', None)
         collect_start = time.perf_counter()
         
+        # Import settings before using it
+        from core import settings
+        
         tile_size = settings.TILE_SIZE
         # List of (y_position, is_player, layer, x, y, width, height, color, decoration_data, sprite_name, mod_id)
         renderable_objects = []
@@ -1194,19 +1273,55 @@ class WorldRenderer:
         
         # OPTIMIZATION Phase 3.3: Calculate viewport bounds for AABB frustum culling
         # This allows us to skip decorations that are outside the visible area
-        from core.zoom_utils import calculate_visible_world_size
-        screen_width = self.world_controller.width
-        screen_height = self.world_controller.height
+        # Use expanded viewport bounds (with padding) to match chunks, so decorations render to screen edge
+        from core.zoom_utils import get_viewport_bounds
+        screen_width = self.modern_gl_renderer.screen_width
+        screen_height = self.modern_gl_renderer.screen_height
         zoom = self.world_controller.camera_zoom
         
-        visible_world_width, visible_world_height = calculate_visible_world_size(
-            screen_width, screen_height, zoom
+        viewport_min_x, viewport_max_x, viewport_min_y, viewport_max_y = get_viewport_bounds(
+            screen_width, screen_height, camera_x, camera_y, zoom
         )
         
-        viewport_min_x = camera_x - visible_world_width / 2.0
-        viewport_max_x = camera_x + visible_world_width / 2.0
-        viewport_min_y = camera_y - visible_world_height / 2.0
-        viewport_max_y = camera_y + visible_world_height / 2.0
+        # Expand viewport bounds to match chunk padding (3 chunks + extra padding)
+        # This ensures decorations render to screen edge, matching chunks exactly
+        # IMPORTANT: Use the same padding calculation as ModernGLRenderer.update_view()
+        chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
+        padding_chunks = 3
+        padding_pixels = padding_chunks * chunk_size_pixels
+        
+        # Add extra padding to account for chunk boundaries (one full chunk extra on each side)
+        # This matches the padding used in ModernGLRenderer.update_view()
+        extra_padding = chunk_size_pixels
+        padding_pixels = padding_pixels + extra_padding
+        
+        viewport_min_x = viewport_min_x - padding_pixels
+        viewport_max_x = viewport_max_x + padding_pixels
+        viewport_min_y = viewport_min_y - padding_pixels
+        viewport_max_y = viewport_max_y + padding_pixels
+        
+        # Debug: Compare viewport bounds between decorations and chunks
+        # Both should now use expanded viewport bounds (with padding)
+        if hasattr(self.modern_gl_renderer, 'viewport_min_x'):
+            if not hasattr(self, '_viewport_compare_counter'):
+                self._viewport_compare_counter = 0
+            self._viewport_compare_counter += 1
+            if self._viewport_compare_counter <= 5 or self._viewport_compare_counter % 60 == 0:
+                # Compare against expanded viewport bounds (both should match now)
+                if (abs(viewport_min_x - self.modern_gl_renderer.viewport_min_x) > 0.1 or
+                    abs(viewport_max_x - self.modern_gl_renderer.viewport_max_x) > 0.1 or
+                    abs(viewport_min_y - self.modern_gl_renderer.viewport_min_y) > 0.1 or
+                    abs(viewport_max_y - self.modern_gl_renderer.viewport_max_y) > 0.1):
+                    if hasattr(self.world_controller, 'diagnostics') and self.world_controller.diagnostics:
+                        self.world_controller.diagnostics.warning(
+                            "WorldRenderer",
+                            f"Viewport mismatch! Decorations: x=({viewport_min_x:.1f},{viewport_max_x:.1f}), "
+                            f"y=({viewport_min_y:.1f},{viewport_max_y:.1f}), "
+                            f"Chunks: x=({self.modern_gl_renderer.viewport_min_x:.1f},"
+                            f"{self.modern_gl_renderer.viewport_max_x:.1f}), "
+                            f"y=({self.modern_gl_renderer.viewport_min_y:.1f},"
+                            f"{self.modern_gl_renderer.viewport_max_y:.1f})"
+                        )
         
         # Collect all decorations from visible chunks
         # Cache decoration configs per chunk to reduce lookups
