@@ -271,7 +271,19 @@ class WorldRenderer:
         # Step 1.5: Load chunks in visible area + buffer (dynamically based on zoom)
         self.world_controller.load_visible_chunks(camera_x, camera_y)
         
+        # Step 1.6: ChunkManager Processing (IO → Prep → Upload-Queue)
+        # This happens BEFORE getting visible chunks, so prepared vertices are available
+        if self.world_controller.world and self.world_controller.world.chunk_manager:
+            chunk_manager = self.world_controller.world.chunk_manager
+            chunk_manager.tick_chunk_manager(
+                camera_x, camera_y,
+                self.modern_gl_renderer.screen_width,
+                self.modern_gl_renderer.screen_height,
+                self.world_controller.camera_zoom
+            )
+        
         # Step 2: Get visible chunks from controller (includes frustum culling)
+        # Note: Uploads are now handled in render_chunks() (called later)
         visible_chunks = self.world_controller.get_visible_chunks(camera_x, camera_y)
         
         # Debug: Log visible chunk range vs viewport bounds
@@ -1283,11 +1295,11 @@ class WorldRenderer:
             screen_width, screen_height, camera_x, camera_y, zoom
         )
         
-        # Expand viewport bounds to match chunk padding (3 chunks + extra padding)
+        # Expand viewport bounds to match chunk padding (4 chunks + extra padding)
         # This ensures decorations render to screen edge, matching chunks exactly
         # IMPORTANT: Use the same padding calculation as ModernGLRenderer.update_view()
         chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
-        padding_chunks = 3
+        padding_chunks = 4
         padding_pixels = padding_chunks * chunk_size_pixels
         
         # Add extra padding to account for chunk boundaries (one full chunk extra on each side)

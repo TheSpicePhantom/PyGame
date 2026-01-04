@@ -179,11 +179,6 @@ class ChunkManager:
         self._last_camera_region: Optional[Tuple[int, int]] = None  # Last region camera was in (region_x, region_y)
         self._prefetched_regions: set = set()  # Set of regions that have been prefetched
         
-        # 3x3 Region window tracking for full region prebaking
-        self._active_region_window: Optional[Tuple[int, int]] = None  # Center region of 3x3 window
-        self._active_regions: Set[Tuple[int, int]] = set()  # All 9 active regions
-        self._use_region_window_prefetch: bool = True  # Flag: Use 3x3 window instead of old prefetch
-        
         # Setup save directories using world name
         self.save_dir = get_world_save_dir(world_name)
         self.chunks_dir = self.save_dir / "chunks"  # Keep for backward compatibility check
@@ -253,11 +248,10 @@ class ChunkManager:
             self.worker_threads.append(thread)
         
         # ThreadPool für CPU-Vorbereitung (Vertex-Erstellung)
-        # OPTIMIZATION: Optimize thread pool size based on CPU cores
-        # Use half of CPU cores, min 2, max 6 (balanced for parallelism without upload spikes)
-        # Too many workers cause upload spikes when many chunks finish simultaneously
+        # OPTIMIZATION Phase 5: Optimize thread pool size based on CPU cores
+        # Use half of CPU cores, min 2, max 4 (leave cores for main game thread + OS)
         cpu_count = os.cpu_count() or 4
-        optimal_prep_workers = min(max(2, cpu_count // 2), 6)
+        optimal_prep_workers = min(max(2, cpu_count // 2), 4)
         num_prep_workers = optimal_prep_workers
         
         # Optional: Log for debugging
@@ -283,7 +277,10 @@ class ChunkManager:
                         metadata = self._migrate_metadata(metadata)
                     return metadata
             except Exception as e:
-                pass
+                if self.diagnostics:
+                    self.diagnostics.error("ChunkManager", f"Error loading metadata: {e}")
+                else:
+                    print(f"[ChunkManager] Error loading metadata: {e}")
         
         # Default metadata for new world (new structure)
         from datetime import datetime
@@ -458,9 +455,15 @@ class ChunkManager:
                     try:
                         self.generate_preview_image()
                     except Exception as e:
-                        pass
+                        if self.diagnostics:
+                            self.diagnostics.warning("ChunkManager", f"Failed to generate preview image: {e}")
+                        else:
+                            print(f"[ChunkManager] Failed to generate preview image: {e}")
         except Exception as e:
-            pass
+            if self.diagnostics:
+                self.diagnostics.error("ChunkManager", f"Error saving metadata: {e}")
+            else:
+                print(f"[ChunkManager] Error saving metadata: {e}")
 
     def set_seed(self, seed: int):
         """Set the world seed"""
@@ -869,16 +872,6 @@ class ChunkManager:
             self._last_camera_region = current_region
             return
         
-        # Use 3x3 region window prefetch (replaces old prefetch logic)
-        if self._use_region_window_prefetch:
-            # Check if we need to shift the 3x3 window
-            if self._active_region_window != current_region:
-                self._update_region_window(current_region)
-                self._active_region_window = current_region
-            # Skip old prefetch logic when region window is active
-            return
-        
-        # Fallback: Old prefetch logic (only if region window is disabled)
         if current_region == self._last_camera_region:
             # Still in same region - check if we're close to boundary
             self._prefetch_nearby_regions(camera_chunk_x, camera_chunk_y, screen_width, screen_height, zoom)
@@ -1042,139 +1035,6 @@ class ChunkManager:
             
             # Request with lower priority (prefetch should not interfere with visible chunks)
             self.request_chunk_load(chunk_x, chunk_y, priority=prefetch_priority)
-    
-    def _update_region_window(self, center_region: Tuple[int, int]):
-        """
-        Update 3x3 region window around center region.
-        Loads all chunks in new regions and unloads chunks outside window.
-        
-        Args:
-            center_region: Center region coordinates (region_x, region_y)
-        """
-        region_x, region_y = center_region
-        
-        # Calculate 3x3 region window
-        new_regions = set()
-        for dx in range(-1, 2):
-            for dy in range(-1, 2):
-                new_regions.add((region_x + dx, region_y + dy))
-        
-        # Logging bei Fenster-Shift
-        if self.diagnostics and self._use_region_window_prefetch:
-            if self._active_region_window != center_region:
-                self.diagnostics.info(
-                    "ChunkManager",
-                    f"Shift region window to {center_region}, regions: {sorted(new_regions)}"
-                )
-        
-        # Find regions to add and remove
-        regions_to_add = new_regions - self._active_regions
-        regions_to_remove = self._active_regions - new_regions
-        
-        # Load all chunks in new regions
-        for region in regions_to_add:
-            self._pre_bake_full_region(region)
-        
-        # Unload chunks from removed regions (with cooldown)
-        for region in regions_to_remove:
-            self._unload_region_chunks(region)
-        
-        # Update active regions
-        self._active_regions = new_regions
-        
-        # Region-Wechsel erkennen und Rebuild-Flag setzen
-        if self._active_region_window != center_region:
-            # Region-Wechsel erkannt
-            if hasattr(self, 'renderer') and self.renderer:
-                self.renderer.needs_region_rebuild = True
-                # Track aktuelles Region-Fenster im Renderer
-                self.renderer._current_region_window = center_region
-    
-    def _pre_bake_full_region(self, region: Tuple[int, int]):
-        """
-        Pre-bake all 25 chunks in a region.
-        Loads chunks asynchronously and prepares vertices.
-        
-        Args:
-            region: Region coordinates (region_x, region_y)
-        """
-        from world.region_manager import RegionManager
-        from core import settings
-        
-        region_x, region_y = region
-        
-        # Calculate priority based on distance from center
-        # NOTE: request_chunk_load() applies REGION_PREFETCH_PRIORITY_OFFSET (50) to priority > 0
-        # So priority 0 = center (no offset, highest), priority 1 = adjacent (+50 offset), priority 2 = corner (+50 offset)
-        center_region = self._active_region_window
-        if center_region:
-            dx = abs(region_x - center_region[0])
-            dy = abs(region_y - center_region[1])
-            priority = max(dx, dy)  # 0 = center, 1 = adjacent, 2 = corner
-        else:
-            priority = 1  # Default priority
-        
-        # Ensure region header is loaded (triggers header cache)
-        try:
-            region_file = self.region_manager._get_region_filename(region_x, region_y)
-            if region_file.exists():
-                # Header will be cached by RegionManager
-                self.region_manager._get_cached_header(region_x, region_y)
-        except Exception:
-            pass  # Region doesn't exist yet, skip
-        
-        # Load all 25 chunks in region asynchronously
-        # PriorityQueue in request_chunk_load() ensures correct ordering
-        for local_y in range(RegionManager.REGION_SIZE_CHUNKS):
-            for local_x in range(RegionManager.REGION_SIZE_CHUNKS):
-                chunk_x = region_x * RegionManager.REGION_SIZE_CHUNKS + local_x
-                chunk_y = region_y * RegionManager.REGION_SIZE_CHUNKS + local_y
-                
-                # Check world bounds
-                if not (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
-                        0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
-                    continue
-                
-                # Skip if already loaded or pending
-                chunk_key = (chunk_x, chunk_y)
-                if chunk_key in self.loaded_chunks or chunk_key in self.pending_chunks:
-                    continue
-                
-                # Request chunk load with priority
-                # request_chunk_load() will apply REGION_PREFETCH_PRIORITY_OFFSET for priority > 0
-                # This ensures center region chunks (priority=0) load first, then adjacent (priority=1+50), then corners (priority=2+50)
-                self.request_chunk_load(chunk_x, chunk_y, priority=priority)
-    
-    def _unload_region_chunks(self, region: Tuple[int, int]):
-        """
-        Unload all chunks in a region that's outside the 3x3 window.
-        
-        Args:
-            region: Region coordinates (region_x, region_y)
-        """
-        from world.region_manager import RegionManager
-        import time
-        
-        region_x, region_y = region
-        current_time = time.time()
-        
-        # Unload all chunks in this region
-        for local_y in range(RegionManager.REGION_SIZE_CHUNKS):
-            for local_x in range(RegionManager.REGION_SIZE_CHUNKS):
-                chunk_x = region_x * RegionManager.REGION_SIZE_CHUNKS + local_x
-                chunk_y = region_y * RegionManager.REGION_SIZE_CHUNKS + local_y
-                chunk_key = (chunk_x, chunk_y)
-                
-                if chunk_key not in self.loaded_chunks:
-                    continue
-                
-                # Check cooldown
-                load_time = self.chunk_load_times.get(chunk_key, current_time)
-                time_since_load = current_time - load_time
-                
-                if time_since_load >= self.chunk_unload_cooldown:
-                    # unload_chunk() already calls renderer.release_chunk_buffer() to free GPU memory
-                    self.unload_chunk(chunk_x, chunk_y)
 
     def get_or_create_chunk(self, chunk_x, chunk_y, async_load: bool = True):
         """
@@ -1486,8 +1346,12 @@ class ChunkManager:
                 # During shutdown, no delay - save as fast as possible
                 
             except Exception as e:
-                import traceback
-                traceback.print_exc()
+                if self.diagnostics:
+                    self.diagnostics.error("ChunkManager", f"Error in save worker: {e}")
+                else:
+                    print(f"[ChunkManager] Error in save worker: {e}")
+                    import traceback
+                    traceback.print_exc()
                 # Clean up on error
                 try:
                     with self._save_lock:
@@ -1561,47 +1425,6 @@ class ChunkManager:
             tiles = chunk_data['tiles']
             chunk = Chunk(chunk_x, chunk_y, tiles)
             
-            # Assign missing texture_tag values for tiles that don't have them
-            # This handles old chunks that were created before the texture_tag system
-            if self.terrain_gen and self.terrain_gen.texture_manager:
-                missing_texture_tags = 0
-                chunk_size = settings.CHUNK_SIZE
-                tile_size = float(settings.TILE_SIZE)
-                chunk_world_x = chunk_x * chunk_size * tile_size
-                chunk_world_y = chunk_y * chunk_size * tile_size
-                
-                for tile_y in range(chunk_size):
-                    for tile_x in range(chunk_size):
-                        tile = tiles[tile_y][tile_x]
-                        if not tile.get('texture_tag'):
-                            # Calculate world position for deterministic variant selection
-                            world_tile_x = int((chunk_world_x + tile_x * tile_size) / tile_size)
-                            world_tile_y = int((chunk_world_y + tile_y * tile_size) / tile_size)
-                            
-                            # Get tile_id
-                            tile_id = tile.get('tile_id') or tile.get('tileid', '')
-                            if tile_id:
-                                try:
-                                    texture_id, uv_coords = self.terrain_gen.texture_manager.get_texture_id_and_coords(
-                                        tile_id, world_tile_x, world_tile_y
-                                    )
-                                    tile['texture_tag'] = texture_id
-                                    missing_texture_tags += 1
-                                except Exception:
-                                    pass  # Skip if texture assignment fails
-                
-                # Mark chunk as dirty if we assigned texture_tags (needs to be saved)
-                    if missing_texture_tags > 0:
-                        if self.diagnostics:
-                            if not hasattr(self, '_texture_tag_assignments_logged'):
-                                self._texture_tag_assignments_logged = 0
-                            self._texture_tag_assignments_logged += 1
-                            if self._texture_tag_assignments_logged <= 10:
-                                self.diagnostics.info("ChunkManager",
-                                    f"Assigned {missing_texture_tags} missing texture_tags to chunk {chunk_key}")
-                        # Mark chunk as dirty so it gets saved with texture_tags
-                    self._save_chunk_to_file(chunk)
-            
             # Track chunk loaded from disk (IO operation)
             if self.performance_monitor:
                 self.performance_monitor.record_chunk_loaded_from_disk(chunk_x, chunk_y, load_time)
@@ -1613,11 +1436,20 @@ class ChunkManager:
         except SeedMismatchError as e:
             # Seed mismatch = chunk belongs to a different world
             # Reject it and return None to force regeneration (prevents mixing worlds)
+            if self.diagnostics:
+                self.diagnostics.warning("ChunkManager", f"SEED MISMATCH: Chunk ({chunk_x}, {chunk_y}) belongs to different world - rejecting and regenerating", error=str(e))
+            else:
+                print(f"[ChunkManager] SEED MISMATCH: Chunk ({chunk_x}, {chunk_y}) belongs to different world - rejecting and regenerating")
+                print(f"  Details: {e}")
             # Return None to force regeneration - don't load chunks from different worlds
             return None
         except (ChunkCorruptedError, RegionFileError) as e:
-            # Corrupted or file error - fall back to JSON or generate new
-            pass
+            # Corrupted or file error - log and fall back to JSON or generate new
+            if self.diagnostics:
+                self.diagnostics.error("ChunkManager", f"Error loading chunk ({chunk_x}, {chunk_y})", error=str(e))
+            else:
+                print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
+            # Fall through to JSON fallback or generation
         
         # Fallback: Try to load from legacy JSON file (for migration)
         chunk_file = self._get_chunk_filename(chunk_x, chunk_y)
@@ -1684,6 +1516,10 @@ class ChunkManager:
                     if attempt == retry_count - 1:
                         try:
                             chunk_file.unlink()
+                            if self.diagnostics:
+                                self.diagnostics.warning("ChunkManager", f"Deleted corrupted chunk file ({chunk_x}, {chunk_y})", error=str(e))
+                            else:
+                                print(f"[ChunkManager] Deleted corrupted chunk file ({chunk_x}, {chunk_y}): {e}")
                         except:
                             pass
                     else:
@@ -1708,6 +1544,12 @@ class ChunkManager:
                 except Exception as e:
                     # Other errors - log but don't spam console
                     error_str = str(e)
+                    if ("Expecting value" not in error_str and 
+                        "Expecting ':'" not in error_str):
+                        if self.diagnostics:
+                            self.diagnostics.error("ChunkManager", f"Error loading chunk ({chunk_x}, {chunk_y})", error=str(e))
+                        else:
+                            print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
                     if attempt == retry_count - 1:
                         return None
                     time.sleep(0.01 * (attempt + 1))
@@ -1766,6 +1608,12 @@ class ChunkManager:
             camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks
         )
         
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", 
+                f"Pre-loading visible area: chunks ({min_chunk_x}, {min_chunk_y}) to ({max_chunk_x}, {max_chunk_y})")
+        else:
+            print(f"[ChunkManager] Pre-loading visible area: chunks ({min_chunk_x}, {min_chunk_y}) to ({max_chunk_x}, {max_chunk_y})")
+        
         # Load all visible chunks synchronously (async_load=False)
         loaded_count = 0
         for chunk_x in range(min_chunk_x, max_chunk_x + 1):
@@ -1808,6 +1656,11 @@ class ChunkManager:
         half_h = (chunks_horizontal // 2) + buffer
         half_v = (chunks_vertical // 2) + buffer
         
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", f"Pre-loading visible area ({half_h*2}x{half_v*2} chunks)...")
+        else:
+            print(f"[ChunkManager] Pre-loading visible area ({half_h*2}x{half_v*2} chunks)...")
+        
         # Create priority list (center chunks first)
         chunks_to_load = []
         for dx in range(-half_h, half_h + 1):
@@ -1835,6 +1688,10 @@ class ChunkManager:
                 # chunk.render_to_surface()  # Deprecated - ModernGL renders directly
                 loaded_count += 1
         
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", f"Pre-loaded {loaded_count} chunks successfully")
+        else:
+            print(f"[ChunkManager] Pre-loaded {loaded_count} chunks successfully")
     
     def update(self, player_pos: Tuple[float, float], camera_pos: Optional[Tuple[float, float]] = None,
                screen_width: Optional[int] = None, screen_height: Optional[int] = None,
@@ -1885,126 +1742,6 @@ class ChunkManager:
         # DISABLED: Unloading is now handled by world_controller.load_visible_chunks()
         # to avoid conflicts and ensure consistent unload logic
         # self.unload_chunks_outside_view(camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=2, movement_dir=movement_dir)
-        
-        # NOTE: tick_chunk_manager() is now called in the render phase (world_renderer.py)
-        # to ensure proper separation: ChunkManager streams, Renderer caps uploads
-    
-    def tick_chunk_manager(self, camera_x: float, camera_y: float, 
-                           screen_width: int, screen_height: int, zoom: float):
-        """
-        Pro-Frame Processing für ChunkManager.
-        Klare Phasen: IO → Prep → Upload-Queue
-        
-        Args:
-            camera_x, camera_y: Camera position
-            screen_width, screen_height: Screen dimensions
-            zoom: Camera zoom factor
-        """
-        
-        # Phase 1: IO-Ergebnisse verarbeiten (Chunk-Daten aus Loader-Threads)
-        # Note: process_loaded_chunks benötigt all_sprites und resource_sprites
-        # Diese werden aktuell nicht hier übergeben, daher überspringen wir diese Phase
-        # oder rufen sie mit None auf (falls die Methode das unterstützt)
-        # TODO: process_loaded_chunks sollte angepasst werden, um optional zu sein
-        
-        # Phase 2: Fertige Preps einsammeln und in Renderer's Upload-Queue legen
-        collected = self._collect_preparation_results()
-        
-        # Phase 3: Neue Preps starten (Background-Prep)
-        visible_chunk_keys = self._get_visible_and_window_chunk_keys(camera_x, camera_y, screen_width, screen_height, zoom)
-        prep_candidates = self._get_prep_candidates(visible_chunk_keys, max_count=80)
-        
-        if prep_candidates:
-            self._prepare_chunks_batch_async(prep_candidates)
-    
-    def _get_visible_and_window_chunk_keys(self, camera_x: float, camera_y: float,
-                                           screen_width: int, screen_height: int, zoom: float) -> Set[Tuple[int, int]]:
-        """
-        Get all chunk keys that are visible or in the active region window.
-        
-        Returns:
-            Set of (chunk_x, chunk_y) tuples
-        """
-        chunk_keys = set()
-        
-        # Get visible chunk range
-        visible_min_x, visible_max_x, visible_min_y, visible_max_y = self.get_visible_chunk_range(
-            camera_x, camera_y, screen_width, screen_height, zoom, padding_chunks=4, movement_dir=None
-        )
-        
-        # Add visible chunks
-        for chunk_x in range(visible_min_x, visible_max_x + 1):
-            for chunk_y in range(visible_min_y, visible_max_y + 1):
-                if (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
-                    0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
-                    chunk_keys.add((chunk_x, chunk_y))
-        
-        # Add chunks from active region window (3x3 regions)
-        if self._active_regions:
-            from world.region_manager import RegionManager
-            for region_x, region_y in self._active_regions:
-                for local_y in range(RegionManager.REGION_SIZE_CHUNKS):
-                    for local_x in range(RegionManager.REGION_SIZE_CHUNKS):
-                        chunk_x = region_x * RegionManager.REGION_SIZE_CHUNKS + local_x
-                        chunk_y = region_y * RegionManager.REGION_SIZE_CHUNKS + local_y
-                        if (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
-                            0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
-                            chunk_keys.add((chunk_x, chunk_y))
-        
-        return chunk_keys
-    
-    def _get_prep_candidates(self, visible_chunk_keys: Set[Tuple[int, int]], max_count: int = 80) -> List[Tuple[int, int]]:
-        """
-        Get chunk keys that are candidates for preparation (loaded but not yet prepared).
-        
-        Args:
-            visible_chunk_keys: Set of visible chunk keys
-            max_count: Maximum number of candidates to return
-            
-        Returns:
-            List of (chunk_x, chunk_y) tuples ready for preparation
-        """
-        candidates = []
-        preparing_chunks = set(self.preparation_futures.values())
-        
-        # Check if renderer exists
-        if not hasattr(self, 'renderer') or self.renderer is None:
-            return candidates
-        
-        # Debug: Track why chunks are skipped
-        skipped_not_loaded = 0
-        skipped_already_prepared = 0
-        skipped_preparing = 0
-        
-        for chunk_key in visible_chunk_keys:
-            # Skip if not loaded
-            if chunk_key not in self.loaded_chunks:
-                skipped_not_loaded += 1
-                continue
-            
-            # Skip if already prepared
-            if chunk_key in self.renderer.prepared_chunk_vertices:
-                skipped_already_prepared += 1
-                continue
-            
-            # Skip if already being prepared
-            if chunk_key in preparing_chunks:
-                skipped_preparing += 1
-                continue
-            
-            chunk = self.loaded_chunks[chunk_key]
-            
-            # Ensure textures are assigned
-            if not self._chunk_has_valid_textures(chunk):
-                self._assign_textures_to_chunk(chunk)
-            
-            candidates.append(chunk_key)
-            
-            if len(candidates) >= max_count:
-                break
-        
-        
-        return candidates
     
     def load_chunks_around_player(self, player_chunk_x: int, player_chunk_y: int, radius: int):
         """
@@ -2100,6 +1837,8 @@ class ChunkManager:
             with open(metadata_file, 'r') as f:
                 return json.load(f)
         except Exception as e:
+            # Note: Static method, no access to diagnostics service
+            print(f"Error reading save info: {e}")
             return None
 
     def _chunk_loader_worker(self):
@@ -2204,9 +1943,18 @@ class ChunkManager:
                         if stats and stats.get('decorations_placed', 0) == 0:
                             # No decorations were placed - check if this is expected
                             expected = self._estimate_expected_decorations(chunk)
-                            pass
+                            if expected > 0:
+                                # Expected decorations but none placed - log warning
+                                if self.diagnostics:
+                                    self.diagnostics.warning("ChunkManager",
+                                        f"Chunk ({chunk_x}, {chunk_y}) expected {expected} decorations but none were placed")
                     except Exception as e:
-                        pass
+                        if self.diagnostics:
+                            self.diagnostics.error("ChunkManager",
+                                f"Error populating chunk ({chunk_x}, {chunk_y})",
+                                error=str(e))
+                        else:
+                            print(f"[ChunkManager] Error populating chunk ({chunk_x}, {chunk_y}): {e}")
                 
                 # Update chunks_generated in metadata (only for newly generated chunks)
                 if was_generated:
@@ -2257,6 +2005,10 @@ class ChunkManager:
                 # No chunks to load, continue waiting
                 continue
             except Exception as e:
+                if self.diagnostics:
+                    self.diagnostics.error("ChunkManager", f"Error loading chunk ({chunk_x}, {chunk_y})", error=str(e))
+                else:
+                    print(f"[ChunkManager] Error loading chunk ({chunk_x}, {chunk_y}): {e}")
                 self.pending_chunks.discard((chunk_x, chunk_y))
 
     def populate_chunk(self, chunk: Chunk, retry_count: int = 0) -> dict:
@@ -2525,6 +2277,10 @@ class ChunkManager:
         expected_decorations = self._estimate_expected_decorations(chunk)
         if expected_decorations > 0 and stats['decorations_placed'] < expected_decorations * 0.5 and retry_count < MAX_RETRIES:
             # Less than 50% of expected decorations - retry with increased density
+            if self.diagnostics:
+                self.diagnostics.warning("ChunkManager",
+                    f"Chunk ({chunk.chunk_x}, {chunk.chunk_y}) has too few decorations "
+                    f"({stats['decorations_placed']}/{expected_decorations}), retrying...")
             
             # Retry with increased chance (by temporarily increasing density)
             # Note: This is a simplified retry - in a full implementation, we might adjust density per biome
@@ -2648,7 +2404,6 @@ class ChunkManager:
         Assign textures to all tiles in chunk.
         Called from worker thread for immediate assignment.
         Verifies tileid exists (all tiles should have tileid assigned).
-        Also assigns texture_tag values if missing.
         
         Args:
             chunk: Chunk instance to assign textures to
@@ -2657,11 +2412,7 @@ class ChunkManager:
             return
         
         chunk_size = settings.CHUNK_SIZE
-        tile_size = float(settings.TILE_SIZE)
-        chunk_world_x = chunk.chunk_x * chunk_size * tile_size
-        chunk_world_y = chunk.chunk_y * chunk_size * tile_size
         tiles_updated = 0
-        texture_tags_assigned = 0
         
         for tile_y in range(chunk_size):
             if tile_y >= len(chunk.tiles):
@@ -2686,24 +2437,6 @@ class ChunkManager:
                         tile['tile_id'] = biome_id
                         tile['tileid'] = biome_id
                         tiles_updated += 1
-                
-                # Assign texture_tag if missing and texture_manager is available
-                if not tile.get('texture_tag') and self.terrain_gen and self.terrain_gen.texture_manager:
-                    # Calculate world position for deterministic variant selection
-                    world_tile_x = int((chunk_world_x + tile_x * tile_size) / tile_size)
-                    world_tile_y = int((chunk_world_y + tile_y * tile_size) / tile_size)
-                    
-                    # Get tile_id (may have been just assigned above)
-                    tile_id = tile.get('tile_id') or tile.get('tileid', '')
-                    if tile_id:
-                        try:
-                            texture_id, uv_coords = self.terrain_gen.texture_manager.get_texture_id_and_coords(
-                                tile_id, world_tile_x, world_tile_y
-                            )
-                            tile['texture_tag'] = texture_id
-                            texture_tags_assigned += 1
-                        except Exception:
-                            pass  # Skip if texture assignment fails
                     else:
                         # Log detailed warning if biome_id is also missing
                         if self.diagnostics:
@@ -2718,29 +2451,10 @@ class ChunkManager:
                                 f"tile_id={tile_id_value}, tileid={tileid_value}, biome={biome_id}, "
                                 f"height={height}, traversable={traversable}, color={color}")
                         tiles_updated += 1
-                
-                # Assign texture_tag if missing and texture_manager is available
-                if not tile.get('texture_tag') and self.terrain_gen and self.terrain_gen.texture_manager:
-                    # Calculate world position for deterministic variant selection
-                    world_tile_x = int((chunk_world_x + tile_x * tile_size) / tile_size)
-                    world_tile_y = int((chunk_world_y + tile_y * tile_size) / tile_size)
-                    
-                    # Get tile_id (may have been just assigned above)
-                    tile_id = tile.get('tile_id') or tile.get('tileid', '')
-                    if tile_id:
-                        try:
-                            texture_id, uv_coords = self.terrain_gen.texture_manager.get_texture_id_and_coords(
-                                tile_id, world_tile_x, world_tile_y
-                            )
-                            tile['texture_tag'] = texture_id
-                            texture_tags_assigned += 1
-                        except Exception:
-                            pass  # Skip if texture assignment fails
         
-        # Mark chunk as dirty if we assigned texture_tags (needs to be saved)
-        if texture_tags_assigned > 0:
-            # Chunk will be saved automatically when it's unloaded or during auto-save
-            pass
+        if tiles_updated > 0 and self.diagnostics:
+            self.diagnostics.warning("ChunkManager",
+                f"Found {tiles_updated} tiles without tileid in chunk ({chunk.chunk_x}, {chunk.chunk_y})")
     
     def _estimate_expected_decorations(self, chunk: Chunk) -> int:
         """
@@ -2905,12 +2619,35 @@ class ChunkManager:
         """
         Process chunks that have finished loading in background threads.
         
-        Chunks are added to sprite groups and marked for saving asynchronously.
+        TIME BUDGET WITH MINIMUM GUARANTEE:
+        - Time budget: CHUNK_UPLOAD_BUDGET_MS (4.5 ms) per frame - enforced with minimum chunk guarantee
+        - Minimum chunks per frame: CHUNK_UPLOAD_MIN_PER_FRAME (2 chunks) - ensures progress even if single chunk is expensive
+        - Budget check happens BEFORE processing each chunk, but allows processing minimum chunks even if budget exceeded
+        - Effect: Guarantees at least 2 chunks per frame while staying within budget in normal cases
+        - Prevents frame drops by spreading chunk processing across multiple frames
+        - Chunks are added to sprite groups and marked for saving asynchronously
         """
+        frame_start = time.perf_counter()
         loaded_count = 0
         current_time = time.time()
+        # Minimum chunks per frame - ensures progress even if single chunk is expensive
+        # Increased to 3 for better responsiveness during zoom changes
+        MIN_CHUNKS_PER_FRAME = getattr(settings, 'CHUNK_UPLOAD_MIN_PER_FRAME', 3)
         
+        # BUDGET ENFORCEMENT WITH MINIMUM GUARANTEE:
+        # Process at least MIN_CHUNKS_PER_FRAME chunks, even if budget is exceeded
+        # This ensures progress during fast movement and zoom changes, even if a single chunk takes longer
         while not self.chunk_load_results.empty():
+            # Budget check: Stop if budget exceeded AND minimum chunks already processed
+            # This allows processing minimum chunks even if budget is exceeded (prevents stalling)
+            elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
+            if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS and loaded_count >= MIN_CHUNKS_PER_FRAME:
+                # Budget exceeded AND minimum chunks processed - stop processing
+                if self.diagnostics:
+                    self.diagnostics.debug("ChunkManager", 
+                        f"Upload budget ({settings.CHUNK_UPLOAD_BUDGET_MS:.2f}ms) exceeded after {loaded_count} chunks. "
+                        f"{self.chunk_load_results.qsize()} remaining in queue.")
+                break
             
             try:
                 chunk_x, chunk_y, chunk = self.chunk_load_results.get_nowait()
@@ -2938,6 +2675,13 @@ class ChunkManager:
                 self._save_chunk_to_file(chunk)
                 
                 loaded_count += 1
+                
+                # Additional budget check AFTER processing (safety net)
+                # Stop if budget exceeded AND minimum chunks already processed
+                elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
+                if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS and loaded_count >= MIN_CHUNKS_PER_FRAME:
+                    # Budget exceeded after processing AND minimum chunks processed - stop immediately
+                    break
             except queue.Empty:
                 break
         
@@ -2950,7 +2694,7 @@ class ChunkManager:
         return loaded_count
     
     def process_texture_assignment(self, camera_x: float = None, camera_y: float = None,
-                                   max_chunks_per_frame: int = None, force_all: bool = False):
+                                   max_chunks_per_frame: int = 10, force_all: bool = False):
         """
         Process texture assignment for loaded chunks using parallel CPU preparation.
         
@@ -2961,8 +2705,8 @@ class ChunkManager:
         Args:
             camera_x: Camera X position for prioritization (optional)
             camera_y: Camera Y position for prioritization (optional)
-            max_chunks_per_frame: Deprecated - no longer used, kept for compatibility
-            force_all: Deprecated - no longer used, kept for compatibility
+            max_chunks_per_frame: Maximum number of chunks to process per frame (default: 10)
+            force_all: If True, process ALL chunks without budget limit
         
         Returns:
             Number of chunks processed
@@ -2980,32 +2724,16 @@ class ChunkManager:
         chunks_to_process = []
         chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
         
-        # Build set of active chunk keys if region window is active (for prioritization only)
-        active_chunk_keys = set()
-        if self._active_regions:
-            from world.region_manager import RegionManager
-            for region_x, region_y in self._active_regions:
-                for local_y in range(RegionManager.REGION_SIZE_CHUNKS):
-                    for local_x in range(RegionManager.REGION_SIZE_CHUNKS):
-                        chunk_x = region_x * RegionManager.REGION_SIZE_CHUNKS + local_x
-                        chunk_y = region_y * RegionManager.REGION_SIZE_CHUNKS + local_y
-                        active_chunk_keys.add((chunk_x, chunk_y))
-        
         for chunk_key, chunk in self.loaded_chunks.items():
             chunk_x, chunk_y = chunk_key
             
             # Skip if already has prepared vertices
             if chunk_key in self.renderer.prepared_chunk_vertices:
-                chunks_already_prepared = chunks_already_prepared + 1 if 'chunks_already_prepared' in locals() else 1
                 continue
             
             # Skip if already being prepared
             if chunk_key in [f[1] for f in self.preparation_futures.values()]:
                 continue
-            
-            # NOTE: Don't filter by active regions - process all loaded chunks
-            # The region window is for prefetching, not for limiting preparation
-            # Visible chunks outside the region window should still be prepared
             
             # Ensure textures are assigned (thread-safe, can be called from any thread)
             if not self._chunk_has_valid_textures(chunk):
@@ -3030,9 +2758,10 @@ class ChunkManager:
                     distance = 0.0  # No prioritization if no camera/visible_chunks
             
             chunks_to_process.append((distance, chunk_x, chunk_y, chunk))
-            chunks_to_prepare += 1
         
-            processed_count += self._collect_preparation_results()
+        if not chunks_to_process:
+            # Still check for completed preparations from previous frames
+            processed_count += self._process_preparation_results(force_all, frame_start)
             return processed_count
         
         # Sort by distance (closest first)
@@ -3040,16 +2769,8 @@ class ChunkManager:
         
         # Step 2: Submit chunks to ThreadPool for CPU preparation
         # OPTIMIZATION Phase 5: Batch-process multiple chunks for better parallelism
-        # Process all chunks (no budget limit)
-        chunks_to_submit = chunks_to_process
-        
-        # Debug: Log submission
-        if not hasattr(self, '_chunk_submission_logged'):
-            print(f"[ChunkManager] Submitting {len(chunks_to_submit)} chunks for preparation")
-            if self.diagnostics:
-                self.diagnostics.debug("ChunkManager",
-                    f"Submitting {len(chunks_to_submit)} chunks for preparation")
-            self._chunk_submission_logged = True
+        limit = len(chunks_to_process) if force_all else max_chunks_per_frame
+        chunks_to_submit = chunks_to_process[:limit]
         
         # OPTIMIZATION Phase 5: Use batch processing if multiple chunks
         if len(chunks_to_submit) > 1:
@@ -3062,6 +2783,12 @@ class ChunkManager:
             for _, chunk_x, chunk_y, chunk in chunks_to_submit:
                 chunk_key = (chunk_x, chunk_y)
                 
+                # Budget check: Stop if we've exceeded time budget (unless force_all)
+                if not force_all:
+                    elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
+                    if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS:
+                        break
+                
                 # Submit to ThreadPool for CPU preparation
                 try:
                     future = self.preparation_executor.submit(
@@ -3069,14 +2796,12 @@ class ChunkManager:
                     )
                     self.preparation_futures[future] = chunk_key
                 except Exception as e:
-                    error_msg = f"[ChunkManager] Failed to submit chunk {chunk_key} for preparation: {e}"
-                    print(error_msg)
                     if self.diagnostics:
                         self.diagnostics.warning("ChunkManager", 
                             f"Failed to submit chunk {chunk_key} for preparation: {e}")
         
         # Step 3: Process completed preparations (non-blocking)
-        processed_count += self._collect_preparation_results()
+        processed_count += self._process_preparation_results(force_all, frame_start)
         
         return processed_count
     
@@ -3161,9 +2886,21 @@ class ChunkManager:
                     self._batch_metric_count = 0
                 self._batch_metric_count += 1
                 if self._batch_metric_count <= 3:
-                    pass
+                    if hasattr(self.diagnostics, 'performance_monitor'):
+                        pm = self.diagnostics.performance_monitor
+                        if 'chunk_batch_prep_time_ms' in pm.generic_metrics:
+                            count = len(pm.generic_metrics['chunk_batch_prep_time_ms'])
+                            self.diagnostics.debug("ChunkManager", 
+                                f"Recorded batch metrics #{self._batch_metric_count} (batch_prep_time: {count} entries)")
             except Exception as e:
-                pass
+                # Log error for debugging (only once to avoid spam)
+                if not hasattr(self, '_batch_metric_error_logged'):
+                    try:
+                        self.diagnostics.warning("ChunkManager", 
+                            f"Failed to record batch metrics: {e}")
+                    except:
+                        pass
+                    self._batch_metric_error_logged = True
         
         return futures
         
@@ -3183,8 +2920,6 @@ class ChunkManager:
         import time
         start_time = time.perf_counter()
         chunk_key = (chunk_x, chunk_y)
-        
-        
         try:
             # CRITICAL: Always ensure textures are assigned before preparing vertices
             # This prevents missing textures when chunks are loaded quickly
@@ -3199,99 +2934,8 @@ class ChunkManager:
                             f"Chunk {chunk_key} still has invalid textures after assignment, retrying...")
                     self._assign_textures_to_chunk(chunk)
             
-            # Also ensure texture_tags are assigned (even if _chunk_has_valid_textures returns True)
-            # This handles cases where chunks were loaded before texture_manager was available
-            if self.terrain_gen and self.terrain_gen.texture_manager:
-                texture_tags_missing = 0
-                tiles_without_tile_id = 0
-                tiles_with_none_texture_id = 0
-                chunk_size = settings.CHUNK_SIZE
-                tile_size = float(settings.TILE_SIZE)
-                chunk_world_x = chunk_x * chunk_size * tile_size
-                chunk_world_y = chunk_y * chunk_size * tile_size
-                
-                for tile_y in range(chunk_size):
-                    for tile_x in range(chunk_size):
-                        tile = chunk.tiles[tile_y][tile_x]
-                        if not tile.get('texture_tag'):
-                            # Calculate world position for deterministic variant selection
-                            world_tile_x = int((chunk_world_x + tile_x * tile_size) / tile_size)
-                            world_tile_y = int((chunk_world_y + tile_y * tile_size) / tile_size)
-                            
-                            # Get tile_id
-                            tile_id = tile.get('tile_id') or tile.get('tileid', '')
-                            if tile_id:
-                                try:
-                                    texture_id, uv_coords = self.terrain_gen.texture_manager.get_texture_id_and_coords(
-                                        tile_id, world_tile_x, world_tile_y
-                                    )
-                                    if texture_id:
-                                        tile['texture_tag'] = texture_id
-                                        texture_tags_missing += 1
-                                    else:
-                                        tiles_with_none_texture_id += 1
-                                except Exception as e:
-                                    # Log error only for first few failures per chunk to avoid spam
-                                    if not hasattr(self, '_texture_tag_assignment_errors_async'):
-                                        self._texture_tag_assignment_errors_async = {}
-                                    if chunk_key not in self._texture_tag_assignment_errors_async:
-                                        self._texture_tag_assignment_errors_async[chunk_key] = 0
-                                    self._texture_tag_assignment_errors_async[chunk_key] += 1
-                                    if self._texture_tag_assignment_errors_async[chunk_key] <= 3:
-                                        if self.diagnostics:
-                                            self.diagnostics.warning("ChunkManager",
-                                                f"Failed to assign texture_tag for tile_id='{tile_id}' at ({world_tile_x}, {world_tile_y}) in chunk {chunk_key}: {e}")
-                            else:
-                                tiles_without_tile_id += 1
-                
-                # Mark chunk as dirty if we assigned texture_tags (needs to be saved)
-                if texture_tags_missing > 0:
-                    # Chunk will be saved automatically when it's unloaded or during auto-save
-                    pass
-            else:
-                # Debug: Log if texture_manager is not available (only first few times)
-                if not hasattr(self, '_texture_manager_unavailable_logged'):
-                    self._texture_manager_unavailable_logged = set()
-                if chunk_key not in self._texture_manager_unavailable_logged and len(self._texture_manager_unavailable_logged) < 5:
-                    self._texture_manager_unavailable_logged.add(chunk_key)
-                    has_terrain_gen = self.terrain_gen is not None
-                    has_texture_manager = self.terrain_gen.texture_manager is not None if self.terrain_gen else False
-                    if self.diagnostics:
-                        self.diagnostics.warning("ChunkManager",
-                            f"Cannot assign texture_tags to chunk {chunk_key}: "
-                            f"terrain_gen={'available' if has_terrain_gen else 'None'}, "
-                            f"texture_manager={'available' if has_texture_manager else 'None'}")
-            
             # Prepare vertices (CPU-intensive, thread-safe - only reads chunk.tiles)
             # Fallback logic in _prepare_chunk_vertices() ensures valid textures are always found
-            
-            # Debug: Check if chunk has texture_tags before preparing
-            texture_tag_count = 0
-            for row in chunk.tiles:
-                for tile in row:
-                    if tile.get('texture_tag'):
-                        texture_tag_count += 1
-            
-            # Track statistics about texture_tags
-            if not hasattr(self, '_texture_tag_stats'):
-                self._texture_tag_stats = {'with_tags': 0, 'without_tags': 0, 'total': 0}
-            if not hasattr(self, '_texture_tag_warnings_logged'):
-                self._texture_tag_warnings_logged = set()
-            
-            self._texture_tag_stats['total'] += 1
-            
-            if texture_tag_count == 0:
-                self._texture_tag_stats['without_tags'] += 1
-                # Only warn once per chunk to avoid spam
-                if chunk_key not in self._texture_tag_warnings_logged:
-                    self._texture_tag_warnings_logged.add(chunk_key)
-                    if self.diagnostics:
-                        self.diagnostics.warning("ChunkManager",
-                            f"Chunk {chunk_key} has NO texture_tags in any tile! "
-                            f"(terrain_gen.texture_manager={'available' if self.terrain_gen and self.terrain_gen.texture_manager else 'None'})")
-            else:
-                self._texture_tag_stats['with_tags'] += 1
-            
             vertex_array = self.renderer._prepare_chunk_vertices(chunk_x, chunk_y, chunk.tiles)
             
             prep_time = time.perf_counter() - start_time
@@ -3336,20 +2980,18 @@ class ChunkManager:
                     f"Error preparing chunk {chunk_key} in background thread: {e}")
             return None
     
-    def _collect_preparation_results(self) -> int:
+    def _process_preparation_results(self, force_all: bool, frame_start: float) -> int:
         """
-        Collect completed chunk preparations from ThreadPool and add them to renderer's upload queue.
-        No upload happens here - only queue filling. Upload is handled by renderer.
+        Process completed chunk preparations from ThreadPool.
+        GPU uploads happen here in main thread.
+        
+        Args:
+            force_all: If True, process all results without budget limit
+            frame_start: Frame start time for budget calculation
         
         Returns:
-            Number of chunks collected (added to upload queue)
+            Number of chunks processed
         """
-        if not hasattr(self, 'renderer') or self.renderer is None:
-            return 0
-        
-        if not hasattr(self.renderer, 'pending_uploads'):
-            return 0
-        
         processed_count = 0
         
         # Check for completed futures (non-blocking)
@@ -3358,9 +3000,17 @@ class ChunkManager:
             if future.done():
                 completed_futures.append(future)
         
-        # Collect completed futures into renderer's pending uploads queue
+        # Process completed futures
         for future in completed_futures:
             chunk_key = self.preparation_futures.pop(future)
+            
+            # Budget check: Stop if we've exceeded time budget (unless force_all)
+            if not force_all:
+                elapsed_ms = (time.perf_counter() - frame_start) * 1000.0
+                if elapsed_ms >= settings.CHUNK_UPLOAD_BUDGET_MS:
+                    # Re-add to futures dict for next frame
+                    self.preparation_futures[future] = chunk_key
+                    break
             
             try:
                 result = future.result(timeout=0.001)  # Non-blocking check
@@ -3369,13 +3019,13 @@ class ChunkManager:
                 
                 result_chunk_key, vertex_array = result
                 
-                
-                # Add directly to renderer's pending uploads queue (no upload here)
-                # Renderer will consume this queue
-                self.renderer.pending_uploads.put((result_chunk_key, vertex_array))
+                # GPU upload in main thread (OpenGL context must be in main thread)
+                self.renderer.prepared_chunk_vertices[result_chunk_key] = vertex_array
                 processed_count += 1
             except Exception as e:
-                pass
+                if self.diagnostics:
+                    self.diagnostics.warning("ChunkManager", 
+                        f"Error processing preparation result for chunk {chunk_key}: {e}")
         
         # Clean up old priority entries periodically
         if len(self.chunk_priority) > 100:
@@ -3410,11 +3060,8 @@ class ChunkManager:
         min_chunk_y = camera_chunk_y - pre_bake_radius_chunks
         max_chunk_y = camera_chunk_y + pre_bake_radius_chunks
         
-        # Collect chunks for pre-baking (only if loaded and not already prepared)
-        # Use batch processing for better parallelism
-        chunks_to_prebake = []
-        preparing_chunks = set(self.preparation_futures.values())
-        
+        # Submit chunks for pre-baking (only if loaded and not already prepared)
+        pre_baked_count = 0
         for chunk_x in range(min_chunk_x, max_chunk_x + 1):
             for chunk_y in range(min_chunk_y, max_chunk_y + 1):
                 # Check world bounds
@@ -3424,10 +3071,6 @@ class ChunkManager:
                 
                 chunk_key = (chunk_x, chunk_y)
                 
-                # NOTE: Don't filter by active regions in pre_bake_chunks_around_camera
-                # This method is called for visible chunks, which should all be prepared
-                # The region window is for prefetching, not for limiting preparation
-                
                 # Skip if not loaded
                 if chunk_key not in self.loaded_chunks:
                     continue
@@ -3436,8 +3079,8 @@ class ChunkManager:
                 if chunk_key in self.renderer.prepared_chunk_vertices:
                     continue
                 
-                # Skip if already being prepared (O(1) lookup)
-                if chunk_key in preparing_chunks:
+                # Skip if already being prepared
+                if chunk_key in [f[1] for f in self.preparation_futures.values()]:
                     continue
                 
                 chunk = self.loaded_chunks[chunk_key]
@@ -3446,19 +3089,21 @@ class ChunkManager:
                 if not self._chunk_has_valid_textures(chunk):
                     self._assign_textures_to_chunk(chunk)
                 
-                chunks_to_prebake.append((chunk_x, chunk_y))
-                preparing_chunks.add(chunk_key)  # Update set to avoid duplicates
-        
-        # Submit all chunks in batch for better parallelism
-        pre_baked_count = 0
-        if chunks_to_prebake:
-            # Use batch processing for better parallelism
-            self._prepare_chunks_batch_async(chunks_to_prebake)
-            pre_baked_count = len(chunks_to_prebake)
+                # Submit to ThreadPool for pre-baking
+                try:
+                    future = self.preparation_executor.submit(
+                        self._prepare_chunk_async, chunk_x, chunk_y, chunk
+                    )
+                    self.preparation_futures[future] = chunk_key
+                    pre_baked_count += 1
+                except Exception as e:
+                    if self.diagnostics:
+                        self.diagnostics.debug("ChunkManager", 
+                            f"Failed to pre-bake chunk {chunk_key}: {e}")
         
         # Process any completed pre-baking results
         if pre_baked_count > 0:
-            self._collect_preparation_results()
+            self._process_preparation_results(force_all=False, frame_start=time.perf_counter())
     
     def refresh_visible_chunks(self, player_pos: Tuple[float, float]):
         """Refresh chunk loading after screen size change (e.g., fullscreen toggle)
@@ -3499,6 +3144,9 @@ class ChunkManager:
             screen_width = settings.get_screen_width()
         if screen_height is None:
             screen_height = settings.get_screen_height()
+        
+        if self.diagnostics:
+            self.diagnostics.debug("ChunkManager", f"Refreshing visible chunks for zoom change (zoom={zoom:.2f})...")
         
         # Calculate visible area in world coordinates using central zoom utility
         visible_world_width, visible_world_height = calculate_visible_world_size(
@@ -3578,6 +3226,8 @@ class ChunkManager:
         
         # Shutdown ThreadPool for CPU preparation
         if hasattr(self, 'preparation_executor') and self.preparation_executor:
+            if self.diagnostics:
+                self.diagnostics.info("ChunkManager", "Shutting down ThreadPool for CPU preparation...")
             # Cancel pending futures
             for future in list(self.preparation_futures.keys()):
                 try:
@@ -3596,6 +3246,10 @@ class ChunkManager:
                     self.diagnostics.warning("ChunkManager", f"Error shutting down ThreadPool: {e}")
         
         # Save all loaded chunks before shutdown (ensures no data loss)
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", "Saving all loaded chunks...")
+        else:
+            print("[ChunkManager] Saving all loaded chunks...")
         self.save_all_chunks()
         
         # Calculate timeout based on queue size (50ms per chunk + buffer)
@@ -3618,6 +3272,10 @@ class ChunkManager:
                 elapsed = time.time() - start_time
                 if elapsed > 1.0 and (current_size != last_size or int(elapsed) % 2 == 0):
                     remaining = current_size
+                    if self.diagnostics:
+                        self.diagnostics.info("ChunkManager", f"Save queue: {remaining} chunks remaining ({elapsed:.1f}s elapsed)")
+                    else:
+                        print(f"[ChunkManager] Save queue: {remaining} chunks remaining ({elapsed:.1f}s elapsed)")
                     last_size = current_size
                 time.sleep(0.1)
             
@@ -3660,13 +3318,40 @@ class ChunkManager:
         
         # Wait for save worker thread to finish
         if hasattr(self, 'save_worker_thread') and self.save_worker_thread.is_alive():
+            if self.diagnostics:
+                self.diagnostics.info("ChunkManager", "Waiting for save worker thread...")
+            else:
+                print("[ChunkManager] Waiting for save worker thread...")
             self.save_worker_thread.join(timeout=2.0)
+            if self.save_worker_thread.is_alive():
+                if self.diagnostics:
+                    self.diagnostics.warning("ChunkManager", "Save worker thread did not terminate in time")
+                else:
+                    print("[ChunkManager] WARNING: Save worker thread did not terminate in time")
         
         # Wait for loader worker threads to finish
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", "Waiting for loader worker threads...")
+        else:
+            print("[ChunkManager] Waiting for loader worker threads...")
         for i, thread in enumerate(self.worker_threads):
             if thread.is_alive():
                 thread.join(timeout=1.0)
+                if thread.is_alive():
+                    if self.diagnostics:
+                        self.diagnostics.warning("ChunkManager", f"Loader worker thread {i} did not terminate in time")
+                    else:
+                        print(f"[ChunkManager] WARNING: Loader worker thread {i} did not terminate in time")
         
         # Close all region file handles (releases file handles and locks)
         if hasattr(self, 'region_manager'):
+            if self.diagnostics:
+                self.diagnostics.info("ChunkManager", "Closing region file handles...")
+            else:
+                print("[ChunkManager] Closing region file handles...")
             self.region_manager.close_all_files()
+        
+        if self.diagnostics:
+            self.diagnostics.info("ChunkManager", "Shutdown complete")
+        else:
+            print("[ChunkManager] Shutdown complete")

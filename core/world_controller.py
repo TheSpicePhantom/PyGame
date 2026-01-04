@@ -93,17 +93,9 @@ class WorldController:
         # Sanitize world name for use as directory name
         sanitized_name = sanitize_world_name(world_name)
         
-        # Welt erstellen
-        self.world = World(
-            self.all_sprites, 
-            self.resource_sprites, 
-            world_name=sanitized_name, 
-            seed=seed,
-            performance_monitor=self.performance_monitor,
-            diagnostics=self.diagnostics
-        )
-        
         # Reload decoration textures and rebuild atlas (DecorationRegistry is now loaded)
+        # This must happen BEFORE World creation so texture_manager is available for chunk generation
+        texture_manager = None
         if self.modern_gl_renderer and self.modern_gl_renderer.tile_texture_manager:
             try:
                 self.modern_gl_renderer.tile_texture_manager.reload_decoration_textures_and_rebuild_atlas()
@@ -113,9 +105,32 @@ class WorldController:
                     self.world_renderer.mark_all_decoration_chunks_dirty()
                 if self.diagnostics:
                     self.diagnostics.info("WorldController", "Reloaded decoration textures and rebuilt atlas, invalidated all decoration VBOs")
+                texture_manager = self.modern_gl_renderer.tile_texture_manager
             except Exception as e:
                 if self.diagnostics:
                     self.diagnostics.warning("WorldController", f"Failed to reload decoration textures: {e}")
+        
+        # Welt erstellen - texture_manager wird direkt übergeben, damit texture_tags beim Generieren gesetzt werden
+        self.world = World(
+            self.all_sprites, 
+            self.resource_sprites, 
+            world_name=sanitized_name, 
+            seed=seed,
+            performance_monitor=self.performance_monitor,
+            diagnostics=self.diagnostics,
+            texture_manager=texture_manager  # Pass texture_manager directly so chunks get texture_tags during generation
+        )
+        
+        # Note: set_texture_manager() is no longer needed since texture_manager is passed directly
+        # But keep it for backward compatibility and in case texture_manager wasn't available during World creation
+        if self.modern_gl_renderer and self.modern_gl_renderer.tile_texture_manager and not texture_manager:
+            self.world.set_texture_manager(self.modern_gl_renderer.tile_texture_manager)
+        
+        # Set renderer for chunk manager (required for vertex preparation)
+        if self.modern_gl_renderer:
+            self.world.chunk_manager.set_renderer(self.modern_gl_renderer)
+            if self.diagnostics:
+                self.diagnostics.info("WorldController", "Renderer set for chunk manager")
         
         # Set world name in metadata (use original name, not sanitized)
         self.world.chunk_manager.set_world_name(world_name)
@@ -481,7 +496,7 @@ class WorldController:
         
         # Add padding to viewport bounds to ensure chunks extend beyond visible area
         # This prevents cuts where decorations are visible but terrain chunks are missing
-        padding_chunks = 3  # Chunks of padding on each side
+        padding_chunks = 4  # Chunks of padding on each side
         padding_pixels = padding_chunks * chunk_size_pixels
         
         # Expand world bounds with padding

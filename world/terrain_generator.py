@@ -116,7 +116,7 @@ class BiomeStatistics:
 class TerrainGenerator:
     """Generates continuous procedural terrain using OpenSimplex Noise"""
     
-    def __init__(self, config_path="data/worldgen/biomes.json", seed=None, collect_statistics=False):
+    def __init__(self, config_path="data/worldgen/biomes.json", seed=None, collect_statistics=False, texture_manager=None, diagnostics=None):
         """
         Initialize terrain generator.
         
@@ -124,6 +124,8 @@ class TerrainGenerator:
             config_path: Path to biome configuration JSON file
             seed: Random seed for terrain generation (None = random seed)
             collect_statistics: If True, collect biome statistics during generation
+            texture_manager: Optional UnifiedTextureManager instance for texture tag assignment
+            diagnostics: Optional DiagnosticsService instance for logging
         """
         self.load_config(config_path)
         
@@ -136,6 +138,8 @@ class TerrainGenerator:
         
         self.seed = seed
         self.collect_statistics = collect_statistics
+        self.texture_manager = texture_manager
+        self.diagnostics = diagnostics
         
         if collect_statistics:
             self.statistics = BiomeStatistics()
@@ -889,6 +893,23 @@ class TerrainGenerator:
                     "color": tuple(biome_data.get("color", [128, 128, 128])),
                     "traversable": biome_data.get("traversable", True),
                 }
+                
+                # Assign texture_tag if texture_manager is available
+                if self.texture_manager:
+                    try:
+                        texture_id, uv_coords = self.texture_manager.get_texture_id_and_coords(
+                            tile_id, world_x, world_y
+                        )
+                        tile['texture_tag'] = texture_id  # z.B. "terrain:plains:grass_1_r90"
+                    except Exception as e:
+                        if self.diagnostics:
+                            self.diagnostics.warning(
+                                "TerrainGenerator",
+                                f"Error assigning texture_tag for tile at ({world_x}, {world_y}): {e}"
+                            )
+                        tile['texture_tag'] = None
+                else:
+                    tile['texture_tag'] = None
                 
                 row.append(tile)
             tiles.append(row)

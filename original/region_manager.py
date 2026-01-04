@@ -207,14 +207,14 @@ class RegionManager:
         self.regions_dir = self.save_dir / "regions"
         self.regions_dir.mkdir(parents=True, exist_ok=True)
         
-        # OPTIMIZATION: Force LZ4 compression (faster decompression, 97% faster than zlib)
-        # LZ4 is required - no fallback to zlib
+        # Determine compression type based on settings
+        compression_setting = getattr(settings, 'CHUNK_COMPRESSION', 'zlib')
         lz4_available = getattr(settings, 'LZ4_AVAILABLE', False)
         
-        if not lz4_available:
-            raise RuntimeError("LZ4 compression is required but lz4 package is not available. Please install: pip install lz4")
-        
-        self.compression_type = self.COMPRESSION_LZ4
+        if compression_setting == "lz4" and lz4_available:
+            self.compression_type = self.COMPRESSION_LZ4
+        else:
+            self.compression_type = self.COMPRESSION_ZLIB
         
         # Thread-safety: RLock (reentrant lock) per region for concurrent access
         # This allows parallel chunk loading/saving from different regions
@@ -1001,58 +1001,6 @@ class RegionManager:
             import traceback
             traceback.print_exc()
     
-    def _get_cached_header(self, region_x: int, region_y: int) -> Optional[Dict]:
-        """
-        Get header from cache (thread-safe, fast check in main thread before Thread-Pool).
-        
-        OPTIMIZATION: Check cache in main thread before going to Thread-Pool.
-        This reduces header read time from 5-6ms to ~0.1ms on cache hits.
-        
-        Args:
-            region_x: Region X coordinate
-            region_y: Region Y coordinate
-        
-        Returns:
-            Header dictionary if cached, None otherwise
-        """
-        cache_key = (region_x, region_y)
-        region_lock = self._get_region_lock(region_x, region_y)
-        
-        with region_lock:
-            if cache_key in self.region_headers:
-                return self.region_headers[cache_key]
-        return None
-    
-    async def prefetch_region_header(self, region_x: int, region_y: int) -> bool:
-        """
-        Prefetch region header into cache (async, non-blocking).
-        
-        OPTIMIZATION: Load header for a region before chunks are requested.
-        This reduces chunk load time by ensuring header is already in cache.
-        
-        Args:
-            region_x: Region X coordinate
-            region_y: Region Y coordinate
-        
-        Returns:
-            True if header was prefetched, False if region doesn't exist
-        """
-        # Check if already cached
-        if self._get_cached_header(region_x, region_y) is not None:
-            return True  # Already cached
-        
-        # Check if region file exists
-        region_file = self._get_region_filename(region_x, region_y)
-        if not region_file.exists():
-            return False  # Region doesn't exist
-        
-        # Load header into cache (async, non-blocking)
-        try:
-            header = await asyncio.to_thread(self._read_region_header, region_file, region_x, region_y)
-            return header is not None
-        except Exception:
-            return False
-    
     def _read_region_header(self, file_path: Path, region_x: int = None, region_y: int = None) -> Optional[Dict]:
         """
         Read and parse region file header (with caching and corruption handling)
@@ -1110,28 +1058,9 @@ class RegionManager:
                 return None
         
         try:
-            # OPTIMIZATION: Read entire header in one operation (256 bytes) instead of many small reads
-            # This reduces system calls from ~30 to 1, improving performance by 70-80%
+            # Read magic number
             f.seek(0)
-            header_bytes = f.read(self.HEADER_SIZE)
-            
-            # Validate header size
-            if len(header_bytes) < self.HEADER_SIZE:
-                error_type = "IncompleteHeader"
-                error_details = f"Expected {self.HEADER_SIZE} bytes, got {len(header_bytes)}"
-                error_msg = f"World '{self.world_name}', Region ({region_x}, {region_y}): {error_type} - {error_details}"
-                print(f"[RegionManager] CORRUPTED HEADER: {error_msg}")
-                
-                if not use_cached_handle:
-                    f.close()
-                
-                if self.backup_corrupted and region_x is not None and region_y is not None:
-                    self._backup_corrupted_file(file_path, region_x, region_y, error_type, error_details)
-                
-                return None
-            
-            # Extract magic number from header bytes
-            magic = header_bytes[0:4]
+            magic = f.read(4)
             
             # Special case: Uninitialized header (all zeros) with correct file size
             # This likely means the file was created but header write was interrupted
@@ -1166,13 +1095,10 @@ class RegionManager:
                             f.close()
                             f = open(file_path, 'rb')
                         
-                        # Re-read entire header (should now be valid)
+                        # Re-read magic (should now be valid)
                         f.seek(0)
-                        header_bytes = f.read(self.HEADER_SIZE)
-                        if len(header_bytes) < self.HEADER_SIZE:
-                            return None
-                        magic = header_bytes[0:4]
-                        # Continue with normal header parsing below
+                        magic = f.read(4)
+                        # Continue with normal header reading below
                     else:
                         # Failed to reinitialize - treat as corrupt
                         error_type = "UninitializedHeader"
@@ -1218,8 +1144,8 @@ class RegionManager:
                 
                 return None
             
-            # Parse version from header bytes (offset 4)
-            version = struct.unpack('B', header_bytes[4:5])[0]
+            # Read version
+            version = struct.unpack('B', f.read(1))[0]
             if version != self.REGION_VERSION:
                 error_type = "UnsupportedVersion"
                 error_details = f"Expected version {self.REGION_VERSION}, got {version}"
@@ -1235,8 +1161,11 @@ class RegionManager:
                 
                 return None
             
-            # Parse region coordinates from header bytes (offset 8-15)
-            region_x_read, region_y_read = struct.unpack('>ii', header_bytes[8:16])
+            # Skip padding
+            f.read(3)
+            
+            # Read region coordinates
+            region_x_read, region_y_read = struct.unpack('>ii', f.read(8))
             
             # Use read coordinates if not provided
             if region_x is None:
@@ -1244,27 +1173,16 @@ class RegionManager:
             if region_y is None:
                 region_y = region_y_read
             
-            # Parse chunk table from header bytes (offset 16-240, 25 entries × 9 bytes)
+            # Read chunk table (always 9 bytes per entry: offset + length + compression)
             chunk_table = []
-            chunk_table_offset = 16  # CHUNK_TABLE_OFFSET
             for i in range(self.CHUNKS_PER_REGION):
                 try:
-                    entry_offset = chunk_table_offset + (i * self.CHUNK_TABLE_ENTRY_SIZE)
-                    entry_bytes = header_bytes[entry_offset:entry_offset + self.CHUNK_TABLE_ENTRY_SIZE]
-                    if len(entry_bytes) == self.CHUNK_TABLE_ENTRY_SIZE:
-                        offset, length, comp = struct.unpack('>IIB', entry_bytes)
-                        chunk_table.append({
-                            'offset': offset,
-                            'length': length,  # Actual compressed data size (0 = empty slot)
-                            'compression': comp
-                        })
-                    else:
-                        # Incomplete entry - mark as empty
-                        chunk_table.append({
-                            'offset': 0,
-                            'length': 0,
-                            'compression': 0
-                        })
+                    offset, length, comp = struct.unpack('>IIB', f.read(9))
+                    chunk_table.append({
+                        'offset': offset,
+                        'length': length,  # Actual compressed data size (0 = empty slot)
+                        'compression': comp
+                    })
                 except struct.error:
                     # Corrupted entry - mark as empty
                     chunk_table.append({
@@ -1429,14 +1347,9 @@ class RegionManager:
         if not region_file.exists():
             raise ChunkNotFoundError(f"Chunk ({chunk_x}, {chunk_y}) not found: region file doesn't exist")
         
-        # OPTIMIZATION: Check cache in main thread BEFORE Thread-Pool (reduces 5-6ms to ~0.1ms on cache hits)
+        # Read header (with caching) - run in thread pool to avoid blocking
         header_start = time.perf_counter()
-        header = self._get_cached_header(region_x, region_y)
-        
-        if header is None:
-            # Cache miss - read from disk in thread pool
-            header = await asyncio.to_thread(self._read_region_header, region_file, region_x, region_y)
-        
+        header = await asyncio.to_thread(self._read_region_header, region_file, region_x, region_y)
         header_time = time.perf_counter() - header_start
         
         if not header:
@@ -1500,13 +1413,8 @@ class RegionManager:
             decompress_start = time.perf_counter()
             try:
                 def _decompress():
-                    # OPTIMIZATION: Force LZ4 - migrate old zlib chunks to LZ4 on next save
                     if chunk_entry['compression'] == self.COMPRESSION_ZLIB:
-                        # Old zlib chunk - decompress and mark for migration to LZ4 on next save
-                        decompressed = zlib.decompress(compressed_data)
-                        # Mark chunk as dirty to force recompression with LZ4 on next save
-                        # This will be handled by the save system automatically
-                        return decompressed
+                        return zlib.decompress(compressed_data)
                     elif chunk_entry['compression'] == self.COMPRESSION_LZ4:
                         if not LZ4_AVAILABLE:
                             raise ChunkCorruptedError(
@@ -1590,10 +1498,14 @@ class RegionManager:
             # Create region file with initialized header (all empty slots)
             await self._initialize_region_file(region_x, region_y)
         
-        # Compress chunk data using LZ4 (forced, no zlib fallback)
+        # Compress chunk data based on configured compression type (CPU-bound, run in thread pool)
         def _compress():
-            # LZ4 compression: faster decompression, good for high chunk load rates
-            return lz4.frame.compress(chunk_data, compression_level=lz4.frame.COMPRESSIONLEVEL_MINHC), self.COMPRESSION_LZ4
+            if self.compression_type == self.COMPRESSION_LZ4:
+                # LZ4 compression: faster decompression, good for high chunk load rates
+                return lz4.frame.compress(chunk_data, compression_level=lz4.frame.COMPRESSIONLEVEL_MINHC), self.COMPRESSION_LZ4
+            else:
+                # Zlib compression: default, good compression ratio
+                return zlib.compress(chunk_data, level=self.compression_level), self.COMPRESSION_ZLIB
         
         compressed_data, compression_type = await asyncio.to_thread(_compress)
         
@@ -1845,8 +1757,10 @@ class RegionManager:
                 # Write chunks to fixed slots
                 for chunk_info in chunks_to_migrate:
                     # Compress chunk data using configured compression type
-                    # OPTIMIZATION: Force LZ4 compression (no zlib fallback)
-                    compressed_data = lz4.frame.compress(chunk_info['data'], compression_level=lz4.frame.COMPRESSIONLEVEL_MINHC)
+                    if self.compression_type == self.COMPRESSION_LZ4:
+                        compressed_data = lz4.frame.compress(chunk_info['data'], compression_level=lz4.frame.COMPRESSIONLEVEL_MINHC)
+                    else:
+                        compressed_data = zlib.compress(chunk_info['data'], level=self.compression_level)
                     
                     # Validate size
                     if len(compressed_data) > self.MAX_CHUNK_DATA_SIZE:
@@ -2026,44 +1940,13 @@ class RegionManager:
             parts.append(struct.pack('B', biome_len))  # uint8 biome_string_length
             parts.append(biome_bytes)  # biome_id string
         
-        # Step 2: Collect all unique texture_tags and create index mapping
-        texture_tags = {}
-        for row in tiles:
-            for tile in row:
-                tag = tile.get('texture_tag')
-                if tag is None:
-                    continue
-                if tag not in texture_tags:
-                    texture_tags[tag] = len(texture_tags)  # 0..N-1
-        
-        texture_tag_count = len(texture_tags)
-        if texture_tag_count > 65535:  # uint16 max
-            # Fallback: if more than 65535 unique texture_tags (shouldn't happen), use first 65535
-            texture_tags = {tag: idx for idx, tag in enumerate(list(texture_tags.keys())[:65535])}
-            texture_tag_count = 65535
-        
-        # Texture-Tag-Table (v3 format)
-        parts.append(struct.pack('>H', texture_tag_count))  # uint16 texture_tag_count (Big-Endian)
-        for tag, idx in sorted(texture_tags.items(), key=lambda x: x[1]):  # Sort by index for consistency
-            tag_bytes = tag.encode('utf-8')
-            tag_len = len(tag_bytes)
-            parts.append(struct.pack('B', tag_len))  # uint8 texture_tag_length
-            parts.append(tag_bytes)  # texture_tag string
-        
         # Tile data (15x15 = 225 tiles)
-        # Each tile: biome_index (1 byte) + texture_tag_index (2 bytes) + height (1 byte) + flags (1 byte) + color (3 bytes) = 8 bytes
+        # Each tile: biome_index (1 byte) + height (1 byte) + flags (1 byte) + color (3 bytes) = 6 bytes
         for row in tiles:
             for tile in row:
                 # Get biome index
                 biome_id = tile.get('biome', 'unknown')
                 biome_index = biome_to_index.get(biome_id, 0)  # Fallback to 0 if not found
-                
-                # Get texture_tag index
-                tag = tile.get('texture_tag')
-                if tag is None or tag not in texture_tags:
-                    tag_index = 0xFFFF  # None marker
-                else:
-                    tag_index = texture_tags[tag]
                 
                 # Extract other tile data
                 height_float = tile.get('height', 0.0)
@@ -2073,9 +1956,8 @@ class RegionManager:
                 color = tile.get('color', (128, 128, 128))
                 r, g, b = color[0], color[1], color[2]
                 
-                # Pack tile data (8 bytes per tile)
+                # Pack tile data (6 bytes per tile)
                 parts.append(struct.pack('B', biome_index))  # uint8 biome_index
-                parts.append(struct.pack('>H', tag_index))  # uint16 texture_tag_index (Big-Endian)
                 parts.append(struct.pack('B', height_byte))  # uint8 height
                 parts.append(struct.pack('B', flags))  # uint8 flags
                 parts.append(struct.pack('BBB', r, g, b))  # uint8[3] color
@@ -2153,7 +2035,7 @@ class RegionManager:
                     is_new_format = True
             
             if is_new_format:
-                # NEW FORMAT (v3): Read biome table first
+                # NEW FORMAT: Read biome table first
                 biome_table = []
                 for i in range(biome_count):
                     biome_len = struct.unpack('B', data[offset:offset+1])[0]
@@ -2164,37 +2046,17 @@ class RegionManager:
                     offset += biome_len
                     biome_table.append(biome_id)
                 
-                # Read Texture-Tag-Table (v3 format)
-                if offset + 2 > len(data):
-                    raise ChunkCorruptedError("Invalid texture_tag_count: truncated data")
-                texture_tag_count = struct.unpack('>H', data[offset:offset+2])[0]  # uint16 (Big-Endian)
-                offset += 2
-                
-                texture_tag_table = []
-                for i in range(texture_tag_count):
-                    if offset + 1 > len(data):
-                        raise ChunkCorruptedError(f"Invalid texture_tag table: truncated data at tag {i}")
-                    tag_len = struct.unpack('B', data[offset:offset+1])[0]
-                    offset += 1
-                    if offset + tag_len > len(data):
-                        raise ChunkCorruptedError(f"Invalid texture_tag: truncated data at tag {i}")
-                    tag = data[offset:offset+tag_len].decode('utf-8')
-                    offset += tag_len
-                    texture_tag_table.append(tag)
-                
-                # Read tile data (8 bytes per tile: biome_index + texture_tag_index + height + flags + color)
+                # Read tile data (6 bytes per tile: biome_index + height + flags + color)
                 tiles = []
                 for y in range(height):
                     row = []
                     for x in range(width):
-                        if offset + 8 > len(data):
+                        if offset + 6 > len(data):
                             raise ChunkCorruptedError(f"Invalid tile data: truncated at tile ({x}, {y})")
                         
                         # Read tile data
                         biome_index = struct.unpack('B', data[offset:offset+1])[0]
                         offset += 1
-                        tag_index = struct.unpack('>H', data[offset:offset+2])[0]  # uint16 (Big-Endian)
-                        offset += 2
                         height_byte = struct.unpack('B', data[offset:offset+1])[0]
                         offset += 1
                         flags = struct.unpack('B', data[offset:offset+1])[0]
@@ -2208,14 +2070,6 @@ class RegionManager:
                         else:
                             biome_id = 'unknown'  # Fallback
                         
-                        # Get texture_tag from table
-                        if tag_index == 0xFFFF:
-                            texture_tag = None
-                        elif tag_index < len(texture_tag_table):
-                            texture_tag = texture_tag_table[tag_index]
-                        else:
-                            texture_tag = None  # Fallback
-                        
                         # Convert back to tile dictionary
                         height_float = height_byte / 255.0
                         traversable = bool(flags & 0x01)
@@ -2226,8 +2080,7 @@ class RegionManager:
                             'tile_id': biome_id,  # Use biome_id as tile_id
                             'tileid': biome_id,  # Also set tileid for compatibility
                             'color': (r, g, b),
-                            'traversable': traversable,
-                            'texture_tag': texture_tag
+                            'traversable': traversable
                         }
                         row.append(tile)
                     tiles.append(row)

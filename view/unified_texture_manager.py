@@ -79,26 +79,17 @@ class UnifiedTextureManager:
         # Build atlas
         self._build_atlas()
     
-    def _log(self, level: str, message: str, **kwargs):
-        """Log message with diagnostics or print fallback."""
-        if self.diagnostics:
-            getattr(self.diagnostics, level)("UnifiedTextureManager", message, **kwargs)
-        else:
-            print(f"[UnifiedTextureManager] {message}")
-    
     def _load_texture_mapping(self):
         """Load texture mapping configuration from JSON file."""
         if not self.mapping_file.exists():
-            self._log("warning", f"Texture mapping file {self.mapping_file} does not exist, using defaults")
             return
         
         try:
             with open(self.mapping_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 self.texture_mapping = data.get("texture_mappings", {})
-                self._log("info", f"Loaded texture mapping for {len(self.texture_mapping)} biomes")
         except Exception as e:
-            self._log("error", f"Error loading texture mapping: {e}")
+            pass
     
     def _build_tile_id_mapping(self):
         """Build mapping from tile_id (from biomes.json) to texture_mapping key."""
@@ -108,7 +99,6 @@ class UnifiedTextureManager:
         
         biomes_file = Path("data/worldgen/biomes.json")
         if not biomes_file.exists():
-            self._log("warning", "biomes.json not found, cannot build tile_id mapping")
             return
         
         try:
@@ -122,7 +112,6 @@ class UnifiedTextureManager:
                         # Try direct match first
                         if biome_name in self.texture_mapping:
                             self.tile_id_to_mapping_key[tile_id] = biome_name
-                            self._log("debug", f"Mapped tile_id {tile_id} -> {biome_name}")
                         else:
                             # Try to find matching texture_mapping key
                             # Some biomes might use different naming (e.g., "water:deep" vs "terrain:water")
@@ -131,21 +120,10 @@ class UnifiedTextureManager:
                                 # Check if biome_name matches mapping_key or if they're similar
                                 if biome_name == mapping_key or (':' in biome_name and biome_name.split(':')[1] in mapping_key):
                                     self.tile_id_to_mapping_key[tile_id] = mapping_key
-                                    self._log("debug", f"Mapped tile_id {tile_id} -> {mapping_key} (from biome {biome_name})")
                                     found_mapping = True
                                     break
-                            
-                            if not found_mapping:
-                                # Tile-ID exists but no matching texture_mapping found - log warning
-                                self._log("warning", f"Tile ID {tile_id} (biome: {biome_name}) found but no matching texture_mapping. Available mappings: {list(self.texture_mapping.keys())[:5]}...")
-                
-                self._log("info", f"Built tile_id mapping for {len(self.tile_id_to_mapping_key)} tiles")
-                if self.tile_id_to_mapping_key:
-                    self._log("debug", f"Sample mappings:")
-                    for tile_id, mapping_key in list(self.tile_id_to_mapping_key.items())[:5]:
-                        self._log("debug", f"  {tile_id} -> {mapping_key}")
         except Exception as e:
-            self._log("error", f"Error building tile_id mapping: {e}")
+            pass
     
     def _build_atlas(self):
         """Baut Atlas aus gesammelten Texture-Referenzen oder lädt Pre-Built Atlas."""
@@ -157,28 +135,16 @@ class UnifiedTextureManager:
         FORCE_RUNTIME_BUILD = True  # TODO: Set to False for production
         
         if not FORCE_RUNTIME_BUILD and atlas_path.exists() and uv_map_path.exists():
-            self._log("info", "Pre-built atlas found, loading from disk...")
             if self._load_prebuilt_atlas():
-                self._log("info", f"✓ Pre-built atlas loaded: {self.atlas_size}x{self.atlas_size}, "
-                        f"{len(self.texture_coords)} textures")
                 return
-            else:
-                self._log("warning", "Failed to load pre-built atlas, falling back to runtime build")
-        
-        # Runtime build (fallback or if pre-built not available)
-        build_mode = "Runtime" if FORCE_RUNTIME_BUILD or not (atlas_path.exists() and uv_map_path.exists()) else "Pre-built (failed, using Runtime)"
-        self._log("info", f"Building texture atlas at runtime ({build_mode})...")
         
         # 1. Collect texture references (use cache if available)
         texture_references = self.collector.load_texture_list()
         if not texture_references:
             # Cache not found or invalid, collect from scratch
-            self._log("info", "Cache not found, collecting textures from data/...")
             texture_references = self.collector.collect_all_textures()
             # Save cache for next time
             self.collector.save_texture_list()
-        else:
-            self._log("info", "Using cached texture references")
         
         # 2. Add fallback textures
         self._add_fallback_textures(texture_references)
@@ -189,7 +155,6 @@ class UnifiedTextureManager:
         
         # 4. Build atlas (includes base textures, colorized textures, and rotations)
         if not self.builder.build_atlas(texture_references):
-            self._log("error", "Failed to build atlas")
             return
         
         # 5. Convert UV map to texture_coords (with proper key format)
@@ -204,20 +169,6 @@ class UnifiedTextureManager:
         # 8. Validate UV map
         self._validate_uv_map()
         
-        # 9. Log tile textures in atlas for diagnosis
-        tile_keys = [k for k in self.texture_coords.keys() 
-                    if not k.startswith('decoration:') and not k.startswith('item:') 
-                    and not k.startswith('tool:') and not (':' in k and k.count(':') >= 2)]
-        colorized_keys = [k for k in self.texture_coords.keys() if ':' in k and k.count(':') >= 2]
-        self._log("info", f"✓ Atlas built: {self.atlas_size}x{self.atlas_size}, "
-                f"{len(self.texture_coords)} total textures")
-        self._log("info", f"  Tile textures in atlas: {len(tile_keys)}")
-        self._log("info", f"  Colorized textures in atlas: {len(colorized_keys)}")
-        if tile_keys:
-            self._log("debug", f"  Sample tile keys: {tile_keys[:10]}")
-        if colorized_keys:
-            self._log("debug", f"  Sample colorized keys: {colorized_keys[:10]}")
-    
     def _load_prebuilt_atlas(self) -> bool:
         """
         Lädt Pre-Built Atlas von Disk.
@@ -239,7 +190,6 @@ class UnifiedTextureManager:
             with open(uv_map_path, 'r', encoding='utf-8') as f:
                 builder_uv_map = json.load(f)
             
-            self._log("info", f"Loaded UV map with {len(builder_uv_map)} entries")
             
             # Convert UV map to texture_coords (with proper key format)
             converted_count = 0
@@ -292,18 +242,12 @@ class UnifiedTextureManager:
             self.texture_atlas.filter = (moderngl.NEAREST, moderngl.NEAREST)
             self.texture_atlas.build_mipmaps()
             
-            self._log("info", f"Loaded pre-built atlas: {self.atlas_size}x{self.atlas_size}, "
-                    f"{len(self.texture_coords)} textures ({converted_count} converted, {skipped_count} skipped)")
-            
             # Validate loaded atlas
             self._validate_uv_map()
             
             return True
             
         except Exception as e:
-            self._log("error", f"Failed to load pre-built atlas: {e}")
-            import traceback
-            self._log("error", f"Traceback: {traceback.format_exc()}")
             return False
     
     def _multi_octave_noise(self, x: float, y: float, octaves: int = 3, seed_offset: int = 0) -> float:
@@ -435,7 +379,6 @@ class UnifiedTextureManager:
         biomes_path = Path(biomes_json_path)
         
         if not biomes_path.exists():
-            self._log("warning", f"Biomes file {biomes_path} does not exist, using defaults")
             return biome_colors
         
         try:
@@ -447,27 +390,22 @@ class UnifiedTextureManager:
                     color = biome_data.get("color")
                     if color and isinstance(color, list) and len(color) >= 3:
                         biome_colors[biome_name] = color[:3]  # Nur RGB, ignoriere Alpha falls vorhanden
-                
-                self._log("info", f"Loaded {len(biome_colors)} biome colors from {biomes_json_path}")
         except Exception as e:
-            self._log("error", f"Error loading biome colors: {e}")
+            pass
         
         return biome_colors
     
     def _generate_colorized_textures(self):
         """Generiert colorized Varianten für Biome-Tiles."""
         if not self.texture_mapping:
-            self._log("warning", "No texture mapping loaded, skipping colorization")
             return
         
         # Load biome colors from biomes.json
         biome_colors = self._load_biome_colors()
         
         if not biome_colors:
-            self._log("warning", "No biome colors loaded, skipping colorization")
             return
         
-        self._log("info", f"Generating colorized textures for {len(self.texture_mapping)} biomes...")
         colorized_count = 0
         
         for tile_id, mapping in self.texture_mapping.items():
@@ -488,7 +426,6 @@ class UnifiedTextureManager:
                 
                 # Fallback to default gray if still not found
                 if not target_color:
-                    self._log("warning", f"No color found for tile_id {tile_id}, using default gray")
                     target_color = [128, 128, 128]  # Default gray
             
             # Load base texture
@@ -500,7 +437,6 @@ class UnifiedTextureManager:
                 texture_path = Path(base_path) / f"{base_texture}.png"
             
             if not texture_path.exists():
-                self._log("warning", f"Base texture not found: {texture_path} (tile_id={tile_id}, base_texture={base_texture})")
                 continue
             
             try:
@@ -508,7 +444,6 @@ class UnifiedTextureManager:
                 if source_img.size[0] != self.tile_size or source_img.size[1] != self.tile_size:
                     source_img = source_img.resize((self.tile_size, self.tile_size), Image.Resampling.LANCZOS)
             except Exception as e:
-                self._log("error", f"Error loading base texture {texture_path}: {e}")
                 continue
             
             # Colorize base texture
@@ -516,7 +451,6 @@ class UnifiedTextureManager:
             colorized_img = self._colorize_texture(source_img, target_color)
             self.builder.texture_images[colorized_name] = colorized_img
             colorized_count += 1
-            self._log("debug", f"Generated colorized texture: {colorized_name} (color: {target_color})")
             
             # Generate rotations for colorized texture
             variance_system = mapping.get('variance_system', {})
@@ -539,7 +473,6 @@ class UnifiedTextureManager:
                     overlay_path = Path(base_path) / f"{overlay}.png"
                 
                 if not overlay_path.exists():
-                    self._log("debug", f"Overlay texture not found: {overlay_path} (skipping)")
                     continue
                 
                 try:
@@ -547,7 +480,6 @@ class UnifiedTextureManager:
                     if overlay_img.size[0] != self.tile_size or overlay_img.size[1] != self.tile_size:
                         overlay_img = overlay_img.resize((self.tile_size, self.tile_size), Image.Resampling.LANCZOS)
                 except Exception as e:
-                    self._log("error", f"Error loading overlay texture {overlay_path}: {e}")
                     continue
                 
                 # Colorize overlay (preserve accents for overlays)
@@ -564,8 +496,6 @@ class UnifiedTextureManager:
                 if rotation_enabled:
                     self._generate_rotations(overlay_colorized_name, overlay_colorized)
                     colorized_count += 3  # 3 rotations
-        
-        self._log("info", f"✓ Generated {colorized_count} colorized texture variants")
     
     def _generate_rotations(self, base_name: str, img: Image.Image) -> None:
         """
@@ -745,7 +675,6 @@ class UnifiedTextureManager:
                 key = f"decoration:{mod_id}/{sprite_name}"
                 self.texture_coords[key] = tuple(uv_coords)
                 converted_count += 1
-                self._log("debug", f"Converted decoration: {texture_ref} -> {key}")
             elif category == "tile":
                 # Format: "tile_name"
                 key = sprite_name
@@ -763,14 +692,10 @@ class UnifiedTextureManager:
                 converted_count += 1
             else:
                 skipped_count += 1
-                self._log("debug", f"Skipped unknown category: {texture_ref}")
-        
-        self._log("info", f"UV-Map conversion: {converted_count} converted, {skipped_count} skipped")
     
     def _create_modern_gl_texture(self):
         """Erstellt ModernGL Texture aus Atlas-Image."""
         if not self.builder.atlas_image:
-            self._log("error", "No atlas image to convert")
             return
         
         # Get image data
@@ -788,8 +713,6 @@ class UnifiedTextureManager:
         # Set wrap mode to CLAMP_TO_EDGE to prevent sampling outside texture bounds
         self.texture_atlas.repeat_x = False
         self.texture_atlas.repeat_y = False
-        
-        self._log("info", f"Created ModernGL texture: {self.atlas_size}x{self.atlas_size}")
     
     def _get_rotated_texture_coords(self, base_name: str, world_x: int = None, world_y: int = None, rotation_enabled: bool = True) -> Optional[tuple]:
         """
@@ -834,6 +757,49 @@ class UnifiedTextureManager:
         
         return None
     
+    def _get_rotated_texture_id_and_coords(self, base_name: str, world_x: int = None, world_y: int = None, rotation_enabled: bool = True) -> Tuple[Optional[str], Optional[tuple]]:
+        """
+        Holt Texture-ID und Koordinaten mit Rotation, falls aktiviert.
+        
+        Args:
+            base_name: Basis-Name der Textur (z.B. "terrain:plains:plains_grass_1")
+            world_x: World X-Koordinate für deterministische Rotation
+            world_y: World Y-Koordinate für deterministische Rotation
+            rotation_enabled: Ob Rotation aktiviert ist
+        
+        Returns:
+            (texture_id, (u0, v0, u1, v1)) tuple oder (None, None)
+        """
+        if not rotation_enabled:
+            # Rotation deaktiviert: Direkter Lookup
+            if base_name in self.texture_coords:
+                return base_name, self.texture_coords[base_name]
+            return None, None
+        
+        # Rotation aktiviert: Wähle Variante basierend auf Welt-Koordinaten
+        if world_x is not None and world_y is not None:
+            # Deterministische Rotation basierend auf Position
+            rotation_index = (world_x + world_y * 3) % 4
+        else:
+            # Fallback: Zufällige Rotation (nicht deterministisch)
+            import random
+            rotation_index = random.randint(0, 3)
+        
+        # Rotation-Varianten: 0° (original), 90°, 180°, 270°
+        rotation_suffixes = ["", "_r90", "_r180", "_r270"]
+        rotation_suffix = rotation_suffixes[rotation_index]
+        
+        # Versuche rotierte Variante
+        rotated_name = f"{base_name}{rotation_suffix}"
+        if rotated_name in self.texture_coords:
+            return rotated_name, self.texture_coords[rotated_name]
+        
+        # Fallback: Original ohne Rotation
+        if base_name in self.texture_coords:
+            return base_name, self.texture_coords[base_name]
+        
+        return None, None
+    
     def get_texture_coords(self, tile_id: str, world_x: int = None, world_y: int = None) -> Optional[tuple]:
         """
         Get UV coordinates for a tile_id in the texture atlas.
@@ -847,40 +813,24 @@ class UnifiedTextureManager:
         Returns:
             (u0, v0, u1, v1) tuple or None if not found
         """
-        # Debug: Log lookup attempt (only first few to avoid spam)
-        if not hasattr(self, '_texture_lookup_count'):
-            self._texture_lookup_count = 0
-        if self._texture_lookup_count < 10:
-            self._texture_lookup_count += 1
-            self._log("debug", f"get_texture_coords: tile_id={tile_id}, world_x={world_x}, world_y={world_y}")
-        
         # First, try to map tile_id to texture_mapping key (e.g., "core:grass" -> "terrain:plains")
         mapping_key = tile_id
         if tile_id not in self.texture_mapping:
             # Try tile_id mapping (from biomes.json)
             if hasattr(self, 'tile_id_to_mapping_key') and tile_id in self.tile_id_to_mapping_key:
                 mapping_key = self.tile_id_to_mapping_key[tile_id]
-                self._log("debug", f"Mapped tile_id {tile_id} -> {mapping_key}")
             else:
                 # Try direct lookup for non-mapped tiles
                 if tile_id in self.texture_coords:
-                    self._log("debug", f"Found tile {tile_id} in texture_coords (direct)")
                     return self.texture_coords[tile_id]
                 
                 # Try extracting from "core:grass" format -> "grass"
                 if ':' in tile_id:
                     _, tile_name = tile_id.split(':', 1)
                     if tile_name in self.texture_coords:
-                        self._log("debug", f"Found tile {tile_id} as {tile_name} in texture_coords")
                         return self.texture_coords[tile_name]
                 
-                # Last resort: try direct lookup with tile_id
-                available_tile_keys = [k for k in self.texture_coords.keys() 
-                                     if not k.startswith('decoration:') and not k.startswith('item:') 
-                                     and not k.startswith('tool:') and not (':' in k and k.count(':') >= 2)]
-                self._log("warning", f"Tile {tile_id} not found in texture_mapping or texture_coords.")
-                self._log("debug", f"  Available tile keys ({len(available_tile_keys)}): {available_tile_keys[:10]}...")
-                self._log("debug", f"  Tile-ID mapping available: {tile_id in getattr(self, 'tile_id_to_mapping_key', {})}")
+                # Not found
                 return None
         
         mapping = self.texture_mapping[mapping_key]
@@ -897,13 +847,9 @@ class UnifiedTextureManager:
             colorized_name = f"{mapping_key}:{base_texture}"
             coords = self._get_rotated_texture_coords(colorized_name, world_x, world_y, rotation_enabled)
             if coords is None:
-                self._log("debug", f"Colorized texture {colorized_name} not found, trying fallback")
                 # Try fallback to non-colorized base texture
                 if base_texture in self.texture_coords:
-                    self._log("debug", f"Using fallback non-colorized texture: {base_texture}")
                     return self._get_rotated_texture_coords(base_texture, world_x, world_y, rotation_enabled)
-                else:
-                    self._log("warning", f"Base texture {base_texture} not found in texture_coords for {mapping_key}")
             return coords
         
         # Organic growth requires world coordinates
@@ -951,14 +897,119 @@ class UnifiedTextureManager:
         colorized_name = f"{mapping_key}:{base_texture}"
         coords = self._get_rotated_texture_coords(colorized_name, world_x, world_y, rotation_enabled)
         if coords is None:
-            self._log("debug", f"Colorized texture {colorized_name} not found after pattern matching, trying fallback")
             # Fallback: Try non-colorized base texture
             if base_texture in self.texture_coords:
-                self._log("debug", f"Using fallback non-colorized base texture: {base_texture}")
                 return self._get_rotated_texture_coords(base_texture, world_x, world_y, rotation_enabled)
-            else:
-                self._log("warning", f"Base texture {base_texture} not found in texture_coords for {mapping_key} at ({world_x}, {world_y})")
         return coords
+    
+    def get_texture_id_and_coords(self, tile_id: str, world_x: int = None, world_y: int = None) -> Tuple[Optional[str], Optional[tuple]]:
+        """
+        Get texture ID and UV coordinates for a tile_id in the texture atlas.
+        Uses Organic Growth system if variance_system is configured.
+        
+        This method is similar to get_texture_coords(), but returns both the
+        full atlas texture ID (e.g., "terrain:plains:plains_grass_1_r90") and
+        the UV coordinates, which is needed for storing texture tags during
+        world generation.
+        
+        Args:
+            tile_id: Tile ID (e.g., "core:grass" or "terrain:plains")
+            world_x: World X coordinate for deterministic selection (optional)
+            world_y: World Y coordinate for deterministic selection (optional)
+            
+        Returns:
+            Tuple of (texture_id, uv_coords) where:
+            - texture_id: Full atlas texture ID (e.g., "terrain:plains:plains_grass_1_r90") or None
+            - uv_coords: (u0, v0, u1, v1) tuple or None
+        """
+        # First, try to map tile_id to texture_mapping key (e.g., "core:grass" -> "terrain:plains")
+        mapping_key = tile_id
+        if tile_id not in self.texture_mapping:
+            # Try tile_id mapping (from biomes.json)
+            if hasattr(self, 'tile_id_to_mapping_key') and tile_id in self.tile_id_to_mapping_key:
+                mapping_key = self.tile_id_to_mapping_key[tile_id]
+            else:
+                # Try direct lookup for non-mapped tiles
+                if tile_id in self.texture_coords:
+                    return tile_id, self.texture_coords[tile_id]
+                
+                # Try extracting from "core:grass" format -> "grass"
+                if ':' in tile_id:
+                    _, tile_name = tile_id.split(':', 1)
+                    if tile_name in self.texture_coords:
+                        return tile_name, self.texture_coords[tile_name]
+                
+                # Not found
+                return None, None
+        
+        mapping = self.texture_mapping[mapping_key]
+        base_texture = mapping.get("base_texture", "")
+        variance_system = mapping.get("variance_system", {})
+        rotation_enabled = variance_system.get("rotation_enabled", True)
+        growth_patterns = variance_system.get("growth_patterns", [])
+        variance_mode = variance_system.get("mode", "")
+        use_organic_growth = variance_mode == "organic_growth" and len(growth_patterns) > 0
+        
+        # Check if organic growth should be used
+        if not use_organic_growth:
+            # No organic growth configured, use base texture
+            colorized_name = f"{mapping_key}:{base_texture}"
+            texture_id, coords = self._get_rotated_texture_id_and_coords(colorized_name, world_x, world_y, rotation_enabled)
+            if coords is None:
+                # Try fallback to non-colorized base texture
+                if base_texture in self.texture_coords:
+                    return self._get_rotated_texture_id_and_coords(base_texture, world_x, world_y, rotation_enabled)
+            return texture_id, coords
+        
+        # Organic growth requires world coordinates
+        if world_x is None or world_y is None:
+            # Fallback: base_texture mit Rotation (no world coords available)
+            colorized_name = f"{mapping_key}:{base_texture}"
+            texture_id, coords = self._get_rotated_texture_id_and_coords(colorized_name, world_x, world_y, rotation_enabled)
+            if coords is None:
+                # Try fallback to non-colorized base texture
+                if base_texture in self.texture_coords:
+                    return self._get_rotated_texture_id_and_coords(base_texture, world_x, world_y, rotation_enabled)
+            return texture_id, coords
+        
+        # Organic Growth System: Prüfe jedes Pattern
+        # Sortiere Patterns nach noise_threshold absteigend, damit seltene Patterns zuerst geprüft werden
+        sorted_patterns = sorted(
+            growth_patterns, 
+            key=lambda p: p.get("noise_threshold", 0.6), 
+            reverse=True
+        )
+        
+        for pattern in sorted_patterns:
+            overlay_texture_name = pattern.get("overlay")
+            if not overlay_texture_name:
+                continue
+            
+            # Berechne Cluster-Wert
+            cluster_value = self._calculate_cluster_value(world_x, world_y, pattern)
+            noise_threshold = pattern.get("noise_threshold", 0.6)
+            
+            if cluster_value >= noise_threshold:
+                # Verwende diese Overlay-Variante mit Rotation
+                colorized_name = f"{mapping_key}:{overlay_texture_name}"
+                texture_id, coords = self._get_rotated_texture_id_and_coords(colorized_name, world_x, world_y, rotation_enabled)
+                if coords:
+                    return texture_id, coords
+                else:
+                    # Variant texture not found - try direct lookup without rotation
+                    if colorized_name in self.texture_coords:
+                        return colorized_name, self.texture_coords[colorized_name]
+                    elif overlay_texture_name in self.texture_coords:
+                        return overlay_texture_name, self.texture_coords[overlay_texture_name]
+        
+        # Kein Pattern matched: Verwende base_texture mit Rotation
+        colorized_name = f"{mapping_key}:{base_texture}"
+        texture_id, coords = self._get_rotated_texture_id_and_coords(colorized_name, world_x, world_y, rotation_enabled)
+        if coords is None:
+            # Fallback: Try non-colorized base texture
+            if base_texture in self.texture_coords:
+                return self._get_rotated_texture_id_and_coords(base_texture, world_x, world_y, rotation_enabled)
+        return texture_id, coords
     
     def get_decoration_texture_coords(self, sprite_name: str, mod_id: str = "core") -> Optional[tuple]:
         """
@@ -972,102 +1023,53 @@ class UnifiedTextureManager:
         Returns:
             (u0, v0, u1, v1) tuple or fallback texture coordinates if not found
         """
-        # Log lookup attempt
-        self._log("debug", f"UnifiedTextureManager.get_decoration_texture_coords: Looking up '{sprite_name}' (mod_id={mod_id})")
-        
         # Try multiple formats to handle different naming conventions
-        tried_formats = []
-        
         # Format 1: "decoration:mod_id/sprite_name" (standard format, supports nested paths)
         atlas_name = f"decoration:{mod_id}/{sprite_name}"
-        tried_formats.append(atlas_name)
         
         if atlas_name in self.texture_coords:
-            uv_coords = self.texture_coords[atlas_name]
-            self._log("debug", f"UnifiedTextureManager.get_decoration_texture_coords: Found '{sprite_name}': UV={uv_coords}")
-            return uv_coords
+            return self.texture_coords[atlas_name]
         
         # Format 2: Direct lookup in builder format "decoration/mod_id/sprite_name" (for debugging/migration)
         builder_name = f"decoration/{mod_id}/{sprite_name}"
-        tried_formats.append(builder_name)
         
         if builder_name in self.builder.uv_map:
             # Convert on-the-fly and cache
             uv_coords = self.builder.uv_map[builder_name]
             self.texture_coords[atlas_name] = tuple(uv_coords)
-            self._log("debug", f"Found decoration texture in builder format, converted: {builder_name} -> {atlas_name}")
             return tuple(uv_coords)
         
         # Format 3: Try without mod_id (fallback for old format)
         simple_name = f"decoration:core/{sprite_name}" if mod_id != "core" else None
         if simple_name and simple_name in self.texture_coords:
-            tried_formats.append(simple_name)
-            self._log("debug", f"Found decoration texture with core mod_id: {simple_name}")
             return self.texture_coords[simple_name]
         
         # Format 4: Try just sprite_name (for very old format)
         if sprite_name in self.texture_coords:
-            tried_formats.append(sprite_name)
-            self._log("debug", f"Found decoration texture by sprite_name only: {sprite_name}")
             return self.texture_coords[sprite_name]
         
         # Return fallback texture coordinates (pink 16x16)
         fallback_name = "decoration:fallback/fallback"
         if fallback_name in self.texture_coords:
-            self._log("warning", f"UnifiedTextureManager.get_decoration_texture_coords: Texture '{sprite_name}' not found, using fallback: {atlas_name} "
-                    f"(tried formats: {', '.join(tried_formats)})")
             return self.texture_coords[fallback_name]
         
-        # Last resort: log error with available keys
-        available = [k for k in self.texture_coords.keys() if 'decoration' in k]
-        self._log("error", f"UnifiedTextureManager.get_decoration_texture_coords: Texture '{sprite_name}' not found and fallback missing: {atlas_name} "
-                f"(sprite_name={sprite_name}, mod_id={mod_id}, tried formats: {', '.join(tried_formats)})")
-        self._log("debug", f"  Available decoration textures ({len(available)}): {available[:10]}")
         return None
     
     def _validate_uv_map(self):
         """
-        Validate UV map and log statistics.
-        Checks for missing textures and logs available alternatives.
+        Validate UV map.
+        Checks for missing textures and validates UV coordinates.
         """
-        total_textures = len(self.texture_coords)
-        decoration_textures = sum(1 for k in self.texture_coords.keys() if k.startswith("decoration:"))
-        tile_textures = sum(1 for k in self.texture_coords.keys() if not k.startswith("decoration:") and not k.startswith("item:") and not k.startswith("tool:") and ':' not in k)
-        item_textures = sum(1 for k in self.texture_coords.keys() if k.startswith("item:"))
-        tool_textures = sum(1 for k in self.texture_coords.keys() if k.startswith("tool:"))
-        colorized_textures = sum(1 for k in self.texture_coords.keys() if ':' in k and k.count(':') >= 2)
-        
-        self._log("info", f"UV-Map validation: {total_textures} total textures "
-                f"(Decorations: {decoration_textures}, Tiles: {tile_textures}, "
-                f"Items: {item_textures}, Tools: {tool_textures}, Colorized: {colorized_textures})")
-        
-        # Check for fallback texture
-        if "decoration:fallback/fallback" not in self.texture_coords:
-            self._log("warning", "Fallback decoration texture not found in atlas!")
-        
         # Validate UV coordinates are in range [0.0, 1.0]
-        invalid_uvs = []
         for texture_id, uv_coords in self.texture_coords.items():
             if len(uv_coords) != 4:
-                invalid_uvs.append((texture_id, "Invalid UV format"))
                 continue
             u0, v0, u1, v1 = uv_coords
             if not (0.0 <= u0 <= 1.0 and 0.0 <= v0 <= 1.0 and 0.0 <= u1 <= 1.0 and 0.0 <= v1 <= 1.0):
-                invalid_uvs.append((texture_id, f"UV out of range: ({u0}, {v0}, {u1}, {v1})"))
-        
-        if invalid_uvs:
-            self._log("warning", f"Found {len(invalid_uvs)} textures with invalid UV coordinates:")
-            for texture_id, error in invalid_uvs[:10]:  # Show first 10
-                self._log("warning", f"  - {texture_id}: {error}")
-            if len(invalid_uvs) > 10:
-                self._log("warning", f"  ... and {len(invalid_uvs) - 10} more")
-        else:
-            self._log("debug", "All UV coordinates are valid")
+                pass  # Invalid UV, but no logging
     
     def reload_textures(self):
         """Rebuild Atlas (z.B. nach Mod-Installation)."""
-        self._log("info", "Reloading textures...")
-        
         # Clear existing
         if self.texture_atlas:
             self.texture_atlas.release()
@@ -1090,10 +1092,7 @@ class UnifiedTextureManager:
             # Check if decoration textures are already in atlas
             has_decorations = any(key.startswith("decoration:") for key in self.texture_coords.keys())
             if has_decorations:
-                self._log("info", "Atlas already built with decoration textures, skipping rebuild")
                 return
-        
-        self._log("info", "Reloading decoration textures and rebuilding atlas...")
         
         # Delete texture cache file to force re-collection
         # This ensures DecorationRegistry changes are picked up
@@ -1101,9 +1100,8 @@ class UnifiedTextureManager:
         if cache_file.exists():
             try:
                 cache_file.unlink()
-                self._log("debug", "Deleted texture cache file to force re-collection")
             except Exception as e:
-                self._log("warning", f"Failed to delete texture cache: {e}")
+                pass
         
         # Release old atlas if it exists
         if self.texture_atlas:
@@ -1126,8 +1124,6 @@ class UnifiedTextureManager:
         
         # Rebuild atlas (will re-collect all textures including decorations)
         self._build_atlas()
-        
-        self._log("info", "Decoration textures reloaded and atlas rebuilt")
     
     def has_texture(self, tile_id: str) -> bool:
         """

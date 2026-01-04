@@ -3,6 +3,7 @@ ModernGL Renderer: GPU-beschleunigtes Rendering für Chunks und Sprites
 """
 import moderngl
 import numpy as np
+import queue
 from typing import List, Tuple, Optional
 from core import settings
 from view.chunk_vbo_pool import ChunkVboPool
@@ -39,8 +40,15 @@ class ModernGLRenderer:
         # Initialize texture manager (may fail if assets don't exist, that's OK)
         try:
             self.tile_texture_manager = UnifiedTextureManager(ctx, diagnostics=self.diagnostics)
-            if self.diagnostics and self.tile_texture_manager.texture_atlas:
-                self.diagnostics.info("ModernGLRenderer", f"Texture atlas initialized: {self.tile_texture_manager.atlas_size}x{self.tile_texture_manager.atlas_size}")
+            if self.tile_texture_manager.texture_atlas:
+                if self.diagnostics:
+                    self.diagnostics.info("ModernGLRenderer", 
+                        f"Texture atlas initialized: {self.tile_texture_manager.atlas_size}x{self.tile_texture_manager.atlas_size}, "
+                        f"textures={len(self.tile_texture_manager.texture_coords)}")
+            else:
+                if self.diagnostics:
+                    self.diagnostics.warning("ModernGLRenderer", 
+                        "Texture atlas is None after initialization - textures will not be available")
         except Exception as e:
             if self.diagnostics:
                 self.diagnostics.warning("ModernGLRenderer", f"Failed to initialize texture manager: {e}")
@@ -81,11 +89,19 @@ class ModernGLRenderer:
         self.last_camera_pos = (0.0, 0.0)  # Track camera changes (for reference, no invalidation needed)
         self.last_zoom = 1.0  # Track zoom changes (for reference, no invalidation needed)
         
+        # Upload-Queue: ChunkManager legt fertige Preps hier rein, Renderer konsumiert mit hartem Limit
+        import queue
+        self.pending_uploads = queue.Queue()  # Queue of (chunk_key, vertex_array) tuples
+        
         # Merged chunk buffer for batched rendering (single draw call)
         self._merged_chunk_vbo = None
         self._merged_chunk_vao = None
         self._merged_chunk_vertex_count = 0
         self._merged_chunks_hash = None  # Hash of chunk keys to detect changes
+        
+        # Region-based rebuild tracking
+        self.needs_region_rebuild = False  # Flag für vollständigen Rebuild beim Region-Wechsel
+        self._current_region_window = None  # Track aktuelles Region-Fenster
         
         # Incremental update tracking for merged buffer
         self._merged_chunk_map = {}  # (chunk_x, chunk_y) -> buffer_offset (in bytes)
@@ -94,7 +110,7 @@ class ModernGLRenderer:
         self._merged_vertex_size_bytes = self._calculate_vertex_size_bytes()  # Size of one chunk's vertices in bytes
         
         # Feature-Flag: Merged-Buffer Rendering
-        self.use_merged_chunk_buffer = True  # globaler Schalter
+        self.use_merged_chunk_buffer = True  # notwendig für rendering, da pipeline vollständig migriert
         self.merged_buffer_min_chunk_threshold = 40  # erst ab so vielen Chunks aktiv
         
         # Initialize tile color palette (before pool, as pool needs correct buffer size)
@@ -419,11 +435,11 @@ class ModernGLRenderer:
             self.screen_width, self.screen_height, camera_x, camera_y, zoom
         )
         
-        # Expand viewport bounds to match chunk padding (3 chunks)
+        # Expand viewport bounds to match chunk padding (4 chunks)
         # This ensures chunks loaded with padding are not clipped by the shader
         # NOTE: We need extra padding to account for chunk boundaries (chunks extend to chunk_x+1, chunk_y+1)
         chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
-        padding_chunks = 3
+        padding_chunks = 4
         padding_pixels = padding_chunks * chunk_size_pixels
         
         # Add extra padding to account for chunk boundaries (one full chunk extra on each side)
@@ -592,30 +608,9 @@ class ModernGLRenderer:
             vertex_array = self.prepared_chunk_vertices[chunk_key]
             vertex_count = len(vertex_array)
         else:
-            # Strikte Policy: Nur Notfall-Preps erlauben (max 2 pro Frame)
-            # Verhindert Spikes beim schnellen Scrollen
-            if not hasattr(self, '_emergency_prep_count'):
-                self._emergency_prep_count = 0
-            if self._emergency_prep_count >= 2:  # Max 2 Notfall-Preps pro Frame
-                # Chunk überspringen für diesen Frame - wird im nächsten Frame vorbereitet
-                return None
-            self._emergency_prep_count += 1
-            
-            # Prepare synchronously (new chunk or dirty chunk - textures might have changed)
-            # CRITICAL: Ensure textures are assigned before preparing vertices
-            # This prevents missing textures when chunks are loaded quickly
-            if hasattr(self, 'chunk_manager') and self.chunk_manager:
-                chunk = self.chunk_manager.loaded_chunks.get(chunk_key)
-                if chunk:
-                    # Ensure textures are assigned (thread-safe)
-                    if not self.chunk_manager._chunk_has_valid_textures(chunk):
-                        self.chunk_manager._assign_textures_to_chunk(chunk)
-            
-            vertex_array = self._prepare_chunk_vertices(chunk_x, chunk_y, tiles)
-            vertex_count = len(vertex_array)
-            self.prepared_chunk_vertices[chunk_key] = vertex_array
-            # Remove from dirty set after re-preparation
-            self.chunk_dirty.discard(chunk_key)
+            # Kein Emergency-Prep mehr: Chunk wird in diesem Frame nicht gerendert
+            # Wird im nächsten Frame gerendert, wenn prepared_chunk_vertices verfügbar ist
+            return None
         
         # Buffer aus Pool holen (mit Recycling)
         vbo, vao, pool_index = self.chunk_vbo_pool.get_vbo_for_chunk(chunk_key)
@@ -627,6 +622,86 @@ class ModernGLRenderer:
         
         return (vbo, vao, vertex_count)
     
+    def _process_pending_uploads(self, max_uploads_per_frame: int = 2) -> int:
+        """
+        Konsumiert Upload-Queue mit hartem Limit.
+        Erstellt/aktualisiert VBOs aus prepared vertices.
+        
+        Args:
+            max_uploads_per_frame: Maximal 3 Chunks pro Frame (aus Settings)
+        
+        Returns:
+            Anzahl hochgeladener Chunks
+        """
+        uploads_this_frame = 0
+        
+        while uploads_this_frame < max_uploads_per_frame:
+            if self.pending_uploads.empty():
+                break
+            
+            try:
+                chunk_key, vertex_array = self.pending_uploads.get_nowait()
+                
+            except queue.Empty:
+                break
+            
+            # VBO erstellen/aktualisieren (kein Vertex-Bau mehr hier)
+            if self._upload_chunk_vertices(chunk_key, vertex_array):
+                uploads_this_frame += 1
+        
+        return uploads_this_frame
+    
+    def _upload_chunk_vertices(self, chunk_key: Tuple[int, int], vertex_array: np.ndarray) -> bool:
+        """
+        Erstellt/aktualisiert VBO aus vertex_array.
+        Nutzt chunk_vbo_pool für Buffer-Management.
+        
+        Args:
+            chunk_key: (chunk_x, chunk_y) tuple
+            vertex_array: Prepared vertex array (numpy array)
+        
+        Returns:
+            True if upload successful, False otherwise
+        """
+        chunk_x, chunk_y = chunk_key
+        
+        
+        # Store in prepared_chunk_vertices cache
+        self.prepared_chunk_vertices[chunk_key] = vertex_array
+        
+        # If buffer exists and chunk is not dirty, update it
+        if chunk_key in self.chunk_buffers and chunk_key not in self.chunk_dirty:
+            vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
+            # Update existing buffer
+            self.chunk_vbo_pool.write_data(vbo, vertex_array)
+            # Update vertex count
+            self.chunk_buffers[chunk_key] = (vbo, vao, len(vertex_array), pool_index)
+            self.chunk_dirty.discard(chunk_key)
+            return True
+        
+        # If chunk is dirty and buffer exists, release old buffer
+        if chunk_key in self.chunk_buffers:
+            old_vbo, old_vao, old_vertex_count, old_pool_index = self.chunk_buffers[chunk_key]
+            # Release buffer back to pool if it came from pool
+            if old_pool_index is not None and old_pool_index >= 0:
+                self.chunk_vbo_pool.release_chunk(chunk_key)
+            else:
+                # Manually created buffer - release normally
+                old_vao.release()
+                old_vbo.release()
+            del self.chunk_buffers[chunk_key]
+        
+        # Get buffer from pool (with recycling)
+        vbo, vao, pool_index = self.chunk_vbo_pool.get_vbo_for_chunk(chunk_key)
+        self.chunk_vbo_pool.write_data(vbo, vertex_array)
+        vertex_count = len(vertex_array)
+        self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, pool_index)
+        
+        # Mark chunk as clean after upload
+        self.mark_chunk_clean(chunk_x, chunk_y)
+        
+        return True
+    
     def _prepare_chunk_vertices(self, chunk_x: int, chunk_y: int, tiles: List[List[dict]]) -> np.ndarray:
         """
         Prepare vertex data for chunk on CPU (can run asynchronously).
@@ -634,6 +709,9 @@ class ModernGLRenderer:
         
         This is the same logic as in _create_chunk_buffer(), but without GPU operations.
         """
+        chunk_key = (chunk_x, chunk_y)
+        
+        
         chunk_size = settings.CHUNK_SIZE
         tile_size = float(settings.TILE_SIZE)
         
@@ -648,6 +726,10 @@ class ModernGLRenderer:
         
         # UV cache per chunk (simplified: only tile_id as key)
         uv_cache = {}
+        
+        # Debug: Track texture usage
+        tiles_with_texture = 0
+        tiles_without_texture = 0
         
         for tile_y in range(chunk_size):
             for tile_x in range(chunk_size):
@@ -669,29 +751,71 @@ class ModernGLRenderer:
                 
                 # Get UV coordinates from atlas (with cache)
                 # NOTE: Cache key includes world coordinates because variants are selected deterministically
-                # based on world position (for organic growth and rotation)
+                # Direct texture_tag lookup (no organic growth recalculation)
                 uv_coords = None
                 has_texture = False
                 
-                if hasattr(self, 'tile_texture_manager') and self.tile_texture_manager is not None:
-                    cache_key = (tile_id, world_tile_x, world_tile_y)
-                    if cache_key not in uv_cache:
-                        if tile_id and self.tile_texture_manager.has_texture(tile_id):
-                            uv_cache[cache_key] = self.tile_texture_manager.get_texture_coords(tile_id, world_tile_x, world_tile_y)
-                        else:
-                            uv_cache[cache_key] = None
-                    uv_coords = uv_cache[cache_key]
+                texture_tag = tile.get('texture_tag')
+                
+                # Primary: Use texture_tag for direct lookup (fastest path)
+                if self.tile_texture_manager and texture_tag:
+                    # Direct O(1) lookup in texture_coords dictionary
+                    uv_coords = self.tile_texture_manager.texture_coords.get(texture_tag)
                     has_texture = uv_coords is not None
+                    
+                    # Debug: Log missing UVs for texture_tags (only via diagnostics)
+                    if texture_tag and uv_coords is None:
+                        if not hasattr(self, '_missing_uv_warning_count'):
+                            self._missing_uv_warning_count = 0
+                        if self._missing_uv_warning_count < 10:
+                            available_keys = list(self.tile_texture_manager.texture_coords.keys())[:10]
+                            if self.diagnostics:
+                                self.diagnostics.warning("ModernGLRenderer",
+                                    f"Missing UV for texture_tag='{texture_tag}'. "
+                                    f"Available keys (sample): {available_keys}")
+                            self._missing_uv_warning_count += 1
+                
+                # Fallback: If texture_tag is missing or not found, try tile_id lookup
+                if not has_texture and self.tile_texture_manager:
+                    tile_id = tile.get('tile_id') or tile.get('tileid', '')
+                    if tile_id:
+                        try:
+                            # Use get_texture_coords() as fallback (calculates texture_tag on-the-fly)
+                            fallback_uv_coords = self.tile_texture_manager.get_texture_coords(
+                                tile_id, world_tile_x, world_tile_y
+                            )
+                            if fallback_uv_coords:
+                                uv_coords = fallback_uv_coords
+                                has_texture = True
+                                # Optionally assign texture_tag for future use (but don't modify chunk data here)
+                                # This is just for rendering, chunk data should be updated elsewhere
+                        except Exception:
+                            pass  # Fallback failed, use color rendering
+                
+                # Tiles ohne Textur laufen automatisch in den Farb-Fallback (Farbpalette wird verwendet)
+                    
+                    # Debug: Track texture usage
+                    if has_texture:
+                        tiles_with_texture += 1
+                    else:
+                        tiles_without_texture += 1
                 
                 # Build texture coordinates
                 if has_texture and uv_coords:
                     u0, v0, u1, v1 = uv_coords
                     # OpenGL: (0,0) bottom-left, but PIL/our coords are top-left
-                    # So we flip V coordinates
+                    # texture_coords from TextureAtlasBuilder: (u0, v0, u1, v1) where v0=top, v1=bottom (PIL format)
+                    # So we flip V coordinates for OpenGL (v0=bottom, v1=top)
+                    # 
+                    # NOTE: If textures appear flipped/incorrect, test by temporarily removing the V-flip:
+                    # tex_coords = [
+                    #     (u0, v0), (u1, v0), (u1, v1),
+                    #     (u0, v0), (u1, v1), (u0, v1)
+                    # ]
                     tex_coords = [
-                        (u0, v1),  # Bottom-left (tex)
+                        (u0, v1),  # Bottom-left (tex) - flipped: v1 (bottom in PIL) -> bottom in OpenGL
                         (u1, v1),  # Bottom-right (tex)
-                        (u1, v0),  # Top-right (tex)
+                        (u1, v0),  # Top-right (tex) - flipped: v0 (top in PIL) -> top in OpenGL
                         (u0, v1),  # Bottom-left (tex)
                         (u1, v0),  # Top-right (tex)
                         (u0, v0),  # Top-left (tex)
@@ -732,7 +856,10 @@ class ModernGLRenderer:
                 idx += 6
         
         # Return only the used portion of the array
-        return vertices[:idx]
+        chunk_vertex_array = vertices[:idx]
+        
+        
+        return chunk_vertex_array
     
     def _bind_chunk_texture(self, tiles: List[List[dict]]):
         """
@@ -760,6 +887,62 @@ class ModernGLRenderer:
             except Exception as e:
                 if self.diagnostics:
                     self.diagnostics.error("ModernGLRenderer", f"Failed to bind texture atlas: {e}")
+    
+    def render_chunks_from_buffers(self, chunks_data: List[Tuple[int, int, List[List[dict]]]]):
+        """
+        Rendert Chunks nur aus vorhandenen VBOs.
+        Chunks ohne VBO werden übersprungen (werden im nächsten Frame hochgeladen).
+        
+        Args:
+            chunks_data: List of (chunk_x, chunk_y, tiles) tuples
+        """
+        if not chunks_data:
+            return
+        
+        rendered_chunks = []
+        
+        # GL State
+        self.ctx.enable(moderngl.BLEND)
+        self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        self.ctx.disable(moderngl.DEPTH_TEST)
+        self.ctx.disable(moderngl.CULL_FACE)
+        
+        # Bind texture atlas once for all chunks (if available)
+        if hasattr(self, 'tile_texture_manager') and self.tile_texture_manager is not None:
+            if self.tile_texture_manager.texture_atlas is not None:
+                try:
+                    self.tile_texture_manager.texture_atlas.use(0)
+                    if 'tile_texture' in self.chunk_program:
+                        self.chunk_program['tile_texture'].value = 0
+                except Exception as e:
+                    if self.diagnostics:
+                        self.diagnostics.error("ModernGLRenderer", f"Failed to bind texture atlas: {e}")
+        
+        # Shader-Uniforms sicherstellen
+        if self.chunk_program:
+            if hasattr(self, 'viewport_min_x'):
+                if 'viewport_min_x' in self.chunk_program:
+                    self.chunk_program['viewport_min_x'].value = float(self.viewport_min_x)
+                if 'viewport_max_x' in self.chunk_program:
+                    self.chunk_program['viewport_max_x'].value = float(self.viewport_max_x)
+                if 'viewport_min_y' in self.chunk_program:
+                    self.chunk_program['viewport_min_y'].value = float(self.viewport_min_y)
+                if 'viewport_max_y' in self.chunk_program:
+                    self.chunk_program['viewport_max_y'].value = float(self.viewport_max_y)
+        
+        # Render only chunks that have VBOs
+        for chunk_x, chunk_y, tiles in chunks_data:
+            chunk_key = (chunk_x, chunk_y)
+            
+            # Nur zeichnen, wenn VBO existiert
+            buffer = self.chunk_buffers.get(chunk_key)
+            if buffer is None:
+                continue  # noch nicht hochgeladen
+            
+            vbo, vao, vertex_count, pool_index = buffer
+            if vao and vertex_count > 0:
+                vao.render(moderngl.TRIANGLES, vertices=vertex_count)
+                rendered_chunks.append(chunk_key)
     
     def set_visible_chunks(self, visible_chunk_keys: set):
         """
@@ -819,6 +1002,21 @@ class ModernGLRenderer:
             )
     
     def render_chunks(self, chunks_data: List[Tuple[int, int, List[List[dict]]]], performance_monitor=None, max_new_chunks_per_frame: Optional[int] = None):
+        # Validate texture atlas is available
+        if not hasattr(self, 'tile_texture_manager') or self.tile_texture_manager is None:
+            if not hasattr(self, '_texture_manager_missing_warning'):
+                if self.diagnostics:
+                    self.diagnostics.warning("ModernGLRenderer", "tile_texture_manager is None - textures will not be rendered")
+                self._texture_manager_missing_warning = True
+            return
+        
+        if self.tile_texture_manager.texture_atlas is None:
+            if not hasattr(self, '_atlas_missing_warning'):
+                if self.diagnostics:
+                    self.diagnostics.warning("ModernGLRenderer", 
+                        f"Texture atlas is None - textures will not be rendered. "
+                        f"texture_coords={len(self.tile_texture_manager.texture_coords) if hasattr(self.tile_texture_manager, 'texture_coords') else 0}")
+                self._atlas_missing_warning = True
         """
         Render chunks using GPU (with caching - similar to Pygame surface cache)
         
@@ -827,40 +1025,13 @@ class ModernGLRenderer:
                 tiles: 15x15 grid of tile dictionaries with 'color' key
             performance_monitor: Optional PerformanceMonitor instance for timing
             max_new_chunks_per_frame: Optional[int] = None
-                Maximum number of new/dirty chunks to upload per frame.
-                If None, uses dynamic budget: max(20, len(chunks_data) // 4)
-                This ensures all chunks are loaded within 4 frames worst-case.
-                Prevents frame time spikes when loading many chunks at once.
+                Deprecated: No longer used, kept for compatibility
         """
         if not chunks_data:
             return
         
         # OPTIMIZATION Phase 4.2: GPU queries are now handled with CPU timing
         # No need to process pending queries since we're using CPU timing as approximation
-        
-        # Reset emergency prep counter for this frame
-        self._emergency_prep_count = 0
-        
-        # Dynamic upload budget: limit uploads to prevent frame time spikes
-        # Base budget scales with visible chunks, then adjusted by FPS
-        if max_new_chunks_per_frame is None:
-            # Dynamisches base_budget basierend auf Sichtweite
-            base_budget = min(len(chunks_data) // 10, 20)
-            if performance_monitor and performance_monitor.frame_times:
-                # Get last frame time in ms (frame_times stores values in ms)
-                frame_time = performance_monitor.frame_times[-1]
-                if frame_time > 25.0:  # Frame drops
-                    fps_multiplier = 0.5
-                elif frame_time < 12.0:  # Good performance
-                    fps_multiplier = 1.5
-                else:
-                    fps_multiplier = 1.0
-                base_budget = int(base_budget * fps_multiplier)
-            max_new_chunks_per_frame = min(3, max(1, base_budget))
-        
-        # Separate budgets for new vs dirty chunks
-        max_new_chunks = max_new_chunks_per_frame  # Für neue Chunks
-        max_dirty_chunks = max(1, max_new_chunks_per_frame // 2)  # Für dirty Chunks
         
         # DEBUG: Track what's happening
         skipped_chunks = []
@@ -893,9 +1064,27 @@ class ModernGLRenderer:
         # Bind texture atlas once for all chunks (if available)
         if hasattr(self, 'tile_texture_manager') and self.tile_texture_manager is not None:
             if self.tile_texture_manager.texture_atlas is not None:
-                self.tile_texture_manager.texture_atlas.use(0)
-                if 'tile_texture' in self.chunk_program:
-                    self.chunk_program['tile_texture'].value = 0
+                try:
+                    # Bind atlas to texture unit 0
+                    self.tile_texture_manager.texture_atlas.use(0)
+                    
+                    # Set uniform if available
+                    uniform_set = False
+                    if 'tile_texture' in self.chunk_program:
+                        self.chunk_program['tile_texture'].value = 0
+                        uniform_set = True
+                    
+                except Exception as e:
+                    if self.diagnostics:
+                        self.diagnostics.error("ModernGLRenderer", f"Failed to bind texture atlas: {e}")
+                        import traceback
+                        self.diagnostics.error("ModernGLRenderer", f"Traceback: {traceback.format_exc()}")
+            else:
+                # Atlas not initialized - log warning
+                if self.diagnostics:
+                    if not hasattr(self, '_atlas_warning_logged'):
+                        self.diagnostics.warning("ModernGLRenderer", "Texture atlas is None - textures will not be rendered")
+                        self._atlas_warning_logged = True
         
         # OPTIMIZATION Phase 4.2: GPU query for chunk rendering
         # ModernGL queries are used as context managers, not with begin()/end()
@@ -961,9 +1150,15 @@ class ModernGLRenderer:
                     f"({self.viewport_min_y:.1f},{self.viewport_max_y:.1f}), chunks={len(chunks_data)}"
                 )
         
-        # Initialize upload counters for monitoring (used in both merged and per-chunk paths)
-        new_chunks_uploaded = 0
-        dirty_chunks_uploaded = 0
+        # Initialize upload counters for monitoring
+        uploaded_chunks = []
+        new_chunks_uploaded = 0  # For compatibility with logging
+        dirty_chunks_uploaded = 0  # For compatibility with logging
+        
+        
+        # Phase 1: Process pending uploads (from ChunkManager's preparation queue)
+        # This consumes the upload queue that ChunkManager filled in tick_chunk_manager()
+        uploads_this_frame = self._process_pending_uploads(max_uploads_per_frame=2)
         
         if use_merged_buffer:
             try:
@@ -973,7 +1168,7 @@ class ModernGLRenderer:
                 chunks_before = len(self._merged_chunk_map)
                 self._build_merged_chunk_buffer(chunks_data)
                 chunks_after = len(self._merged_chunk_map)
-                # Approximate new chunks as difference in buffer size (not perfect, but good enough for monitoring)
+                # Track chunks that were added to buffer
                 new_chunks_uploaded = max(0, chunks_after - chunks_before)
                 
                 # Render all chunks in a single draw call using merged buffer
@@ -1006,74 +1201,9 @@ class ModernGLRenderer:
                     )
         
         if not use_merged_buffer:
-            # Fallback: per-chunk rendering (old method)
-            # Counters already initialized above
-            
-            # Separate new chunks from existing chunks
-            new_chunks = []
-            existing_chunks = []
-            for chunk_x, chunk_y, tiles in chunks_data:
-                chunk_key = (chunk_x, chunk_y)
-                if chunk_key not in self.chunk_buffers:
-                    new_chunks.append((chunk_x, chunk_y, tiles))
-                else:
-                    existing_chunks.append((chunk_x, chunk_y, tiles))
-            
-            # First pass: Process new chunks (prioritize them to prevent gray tiles)
-            for chunk_x, chunk_y, tiles in new_chunks:
-                chunk_key = (chunk_x, chunk_y)
-                # Stop if budget for new chunks is reached
-                if new_chunks_uploaded >= max_new_chunks:
-                    skipped_chunks.append((chunk_key, "new_budget_exceeded"))
-                    continue
-                
-                result = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
-                if result is None:
-                    # Chunk skipped (no prepared vertices, emergency prep limit reached)
-                    skipped_chunks.append((chunk_key, "no_prepared_vertices"))
-                    continue
-                
-                vbo, vao, vertex_count = result
-                new_chunks_uploaded += 1
-                uploaded_chunks.append(chunk_key)
-                
-                if vao and vertex_count > 0:
-                    vao.render(moderngl.TRIANGLES, vertices=vertex_count)
-                    rendered_chunks.append(chunk_key)
-            
-            # Second pass: Process existing chunks (with separate dirty budget)
-            for chunk_x, chunk_y, tiles in existing_chunks:
-                chunk_key = (chunk_x, chunk_y)
-                is_dirty = chunk_key in self.chunk_dirty
-                
-                if is_dirty:
-                    # Check dirty chunks budget
-                    if dirty_chunks_uploaded >= max_dirty_chunks:
-                        # Render with old buffer (no upload)
-                        if chunk_key in self.chunk_buffers:
-                            vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
-                            if vao and vertex_count > 0:
-                                vao.render(moderngl.TRIANGLES, vertices=vertex_count)
-                                rendered_chunks.append(chunk_key)
-                        continue
-                    
-                    # Upload dirty chunk
-                    result = self._create_chunk_buffer(chunk_x, chunk_y, tiles)
-                    if result is None:
-                        # Chunk skipped (no prepared vertices, emergency prep limit reached)
-                        skipped_chunks.append((chunk_key, "no_prepared_vertices"))
-                        continue
-                    
-                    vbo, vao, vertex_count = result
-                    dirty_chunks_uploaded += 1
-                    uploaded_chunks.append(chunk_key)
-                else:
-                    # Chunk ist nicht dirty - verwende existierenden Buffer
-                    vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
-                
-                if vao and vertex_count > 0:
-                    vao.render(moderngl.TRIANGLES, vertices=vertex_count)
-                    rendered_chunks.append(chunk_key)
+            # Phase 2: Render only from existing VBOs (per-chunk path)
+            # Chunks without VBOs are skipped (will be uploaded in next frame)
+            self.render_chunks_from_buffers(chunks_data)
         
         # OPTIMIZATION Phase 4.2: For now, use CPU timing as approximation
         # TODO: Implement proper GPU query usage with context managers when needed
@@ -1092,8 +1222,7 @@ class ModernGLRenderer:
             self.diagnostics.debug(
                 "ModernGLRenderer",
                 f"Render: {len(rendered_chunks)} rendered, {len(uploaded_chunks)} uploaded, "
-                f"{len(skipped_chunks)} skipped. Budget: {max_new_chunks_per_frame}, "
-                f"Total chunks: {len(chunks_data)}"
+                f"{len(skipped_chunks)} skipped. Total chunks: {len(chunks_data)}"
             )
             if skipped_chunks:
                 self.diagnostics.warning(
@@ -1103,15 +1232,14 @@ class ModernGLRenderer:
         
         # Monitoring: Log upload stats every 120 frames
         if self.diagnostics:
-            if not hasattr(self, '_budget_log_counter'):
-                self._budget_log_counter = 0
-            self._budget_log_counter += 1
-            if self._budget_log_counter % 120 == 0:
+            if not hasattr(self, '_upload_log_counter'):
+                self._upload_log_counter = 0
+            self._upload_log_counter += 1
+            if self._upload_log_counter % 120 == 0:
                 self.diagnostics.debug(
                     "ModernGLRenderer",
-                    f"Chunk uploads/frame: new={new_chunks_uploaded}, dirty={dirty_chunks_uploaded}, "
-                    f"skipped={len(skipped_chunks)}, total_visible={len(chunks_data)}, "
-                    f"budget_new={max_new_chunks}, budget_dirty={max_dirty_chunks}"
+                    f"Chunk uploads/frame: uploaded={len(uploaded_chunks)}, "
+                    f"skipped={len(skipped_chunks)}, total_visible={len(chunks_data)}"
                 )
         
         # Periodisches Logging (z.B. alle 5 Sekunden bei 60 FPS = 300 Frames)
@@ -1134,343 +1262,166 @@ class ModernGLRenderer:
         if performance_monitor:
             performance_monitor.record_chunk_render_time(chunk_render_time)
     
-    def _build_merged_chunk_buffer(self, chunks_data: List[Tuple[int, int, List[List[dict]]]]):
+    def rebuild_region_buffer(self, chunks_data: List[Tuple[int, int, List[List[dict]]]]):
         """
-        Build or incrementally update merged VBO containing all visible chunks for batched rendering.
-        
-        Uses incremental updates: VBO is allocated once at maximum size, then only changed
-        chunks are updated using write(offset, data) instead of recreating the entire buffer.
+        Vollständiger Rebuild des Merged-Buffers für ein neues Region-Fenster.
+        Wird nur beim Region-Wechsel aufgerufen.
         
         Args:
             chunks_data: List of (chunk_x, chunk_y, tiles) tuples
         """
-        # Calculate hash of chunk keys to detect changes
-        chunk_keys_set = set((chunk_x, chunk_y) for chunk_x, chunk_y, _ in chunks_data)
-        chunk_keys = tuple(sorted(chunk_keys_set))
-        chunks_hash = hash(chunk_keys)
+        if self._merged_chunk_vbo is None:
+            self._initialize_merged_buffer()
         
-        # Check if we need to update: either chunks changed or some are dirty
-        chunks_changed = self._merged_chunks_hash != chunks_hash
-        has_dirty_chunks = bool(self.chunk_dirty)
+        # Alle Chunks mit prepared vertices sammeln
+        vertex_chunks = []
+        chunk_keys = []
+        chunks_without_vertices = []
+        chunks_with_vertices = []
         
-        # Reuse existing merged buffer if chunks haven't changed AND no chunks are dirty
-        # BUT: Always rebuild if chunks changed (new chunks need to be written)
-        if not chunks_changed and not has_dirty_chunks and self._merged_chunk_vbo is not None:
+        for chunk_x, chunk_y, tiles in chunks_data:
+            key = (chunk_x, chunk_y)
+            va = self.prepared_chunk_vertices.get(key)
+            if va is not None:
+                vertex_chunks.append(va)
+                chunk_keys.append(key)
+                chunks_with_vertices.append(key)
+            else:
+                chunks_without_vertices.append(key)
+        
+        # Debug: Log chunks without prepared vertices (only via diagnostics)
+        if chunks_without_vertices:
+            if not hasattr(self, '_rebuild_missing_vertices_logged'):
+                if self.diagnostics:
+                    self.diagnostics.warning("ModernGLRenderer",
+                        f"rebuild_region_buffer: {len(chunks_without_vertices)} chunks without prepared vertices: {chunks_without_vertices[:10]}")
+                self._rebuild_missing_vertices_logged = True
+        
+        if not vertex_chunks:
+            self._merged_chunk_vertex_count = 0
+            self._merged_chunk_map = {}
+            self._merged_chunk_order = []
+            # Debug: Log empty rebuild
+            if not hasattr(self, '_rebuild_empty_logged'):
+                print(f"[ModernGLRenderer] rebuild_region_buffer: No prepared vertices found for {len(chunks_data)} chunks")
+                if self.diagnostics:
+                    self.diagnostics.warning("ModernGLRenderer",
+                        f"rebuild_region_buffer: No prepared vertices found for {len(chunks_data)} chunks")
+                self._rebuild_empty_logged = True
             return
+        
+        # Alle Vertices konkatenieren
+        vertices = np.concatenate(vertex_chunks, axis=0)
+        
+        # Validate vertex data structure
+        if len(vertices.shape) != 2 or vertices.shape[1] != 6:
+            if self.diagnostics:
+                self.diagnostics.error("ModernGLRenderer", 
+                    f"ERROR: Invalid vertex shape: {vertices.shape}, expected (N, 6)")
+            return
+        
+        # Buffer komplett neu schreiben
+        self._merged_chunk_vbo.write(vertices.tobytes())
+        self._merged_chunk_vertex_count = len(vertices)
+        
+        # Chunk-Map aktualisieren: Offset-Berechnung basiert auf echter Vertexanzahl
+        # sizeof(vertex) = vertices.dtype.itemsize * vertices.shape[1]
+        # vertices.shape = (num_vertices, num_components) z.B. (N, 6) für 6 floats pro Vertex
+        # float32 = 4 bytes, also vertex_size_bytes = 4 * 6 = 24 bytes pro Vertex
+        vertex_size_bytes = vertices.dtype.itemsize * vertices.shape[1] if len(vertices.shape) > 1 else vertices.dtype.itemsize
+        
+        self._merged_chunk_map = {}
+        self._merged_chunk_order = chunk_keys
+        offset = 0
+        for i, key in enumerate(chunk_keys):
+            self._merged_chunk_map[key] = offset
+            # Echte Vertexanzahl * sizeof(vertex), nicht Worst-Case
+            chunk_vertex_count = len(vertex_chunks[i])
+            offset += chunk_vertex_count * vertex_size_bytes
+        
+        # Logging für Debugging
+        if self.diagnostics:
+            self.diagnostics.info("ModernGLRenderer",
+                f"rebuild_region_buffer: chunks_in_buffer={len(chunk_keys)}, "
+                f"vertex_count={self._merged_chunk_vertex_count}, "
+                f"total_bytes={offset}")
+    
+    def _build_merged_chunk_buffer(self, chunks_data: List[Tuple[int, int, List[List[dict]]]]):
+        """
+        Build or incrementally update merged VBO containing all visible chunks for batched rendering.
+        
+        Uses region-based rebuild: Full rebuild on region switch, incremental updates for dirty chunks.
+        
+        Args:
+            chunks_data: List of (chunk_x, chunk_y, tiles) tuples
+        """
+        import time
+        from core import settings
         
         # Initialize buffer if it doesn't exist
         if self._merged_chunk_vbo is None:
             self._initialize_merged_buffer()
         
-        # Determine which chunks need to be added/removed/updated
-        current_chunks_set = set(self._merged_chunk_order)
-        chunks_to_add = chunk_keys_set - current_chunks_set
-        chunks_to_remove = current_chunks_set - chunk_keys_set
-        chunks_to_update = chunk_keys_set & current_chunks_set  # Chunks that are in both sets
+        # Check if region rebuild is needed
+        if self.needs_region_rebuild:
+            # Vollständiger Rebuild beim Region-Wechsel
+            self.rebuild_region_buffer(chunks_data)
+            self.needs_region_rebuild = False
+            return
         
-        # Remove chunks that are no longer visible
-        # NOTE: If chunks are removed, buffer offsets will change, so we'll need to rewrite all chunks
-        for chunk_key in chunks_to_remove:
-            if chunk_key in self._merged_chunk_map:
-                # Mark slot as empty (we'll reuse it for new chunks)
-                del self._merged_chunk_map[chunk_key]
-                self._merged_chunk_order.remove(chunk_key)
+        # Inkrementelle Updates für dirty chunks
+        chunk_keys_set = set((chunk_x, chunk_y) for chunk_x, chunk_y, _ in chunks_data)
+        dirty_patches_count = 0
+        chunks_missing_vertices = []
+        chunks_not_in_buffer = []
         
-        # Rebuild chunk order list (sorted for consistency)
-        new_chunk_order = sorted(chunk_keys_set)
+        # Check for new chunks that need to be added to buffer
+        new_chunks = []
+        for chunk_key in chunk_keys_set:
+            if chunk_key in self.prepared_chunk_vertices and chunk_key not in self._merged_chunk_map:
+                new_chunks.append(chunk_key)
         
-        # Find max chunk_x for rightmost chunk debugging
-        max_chunk_x = max(cx for cx, _ in chunk_keys_set) if chunk_keys_set else None
+        # If there are new chunks, we need a full rebuild
+        if new_chunks:
+            # Trigger full rebuild to include new chunks
+            self.needs_region_rebuild = True
+            self.rebuild_region_buffer(chunks_data)
+            self.needs_region_rebuild = False
+            return
         
-        # Update or add chunks
-        chunk_size = settings.CHUNK_SIZE
-        tile_size = float(settings.TILE_SIZE)
-        total_vertex_count = 0
+        if self.chunk_dirty:
+            # Nur dirty chunks aktualisieren
+            for chunk_key in self.chunk_dirty & chunk_keys_set:
+                if chunk_key in self.prepared_chunk_vertices:
+                    vertex_array = self.prepared_chunk_vertices[chunk_key]
+                    offset = self._merged_chunk_map.get(chunk_key)
+                    if offset is not None:
+                        # Einfaches Update: Offset aus Map, direkt schreiben
+                        self._merged_chunk_vbo.write(vertex_array.tobytes(), offset=offset)
+                        dirty_patches_count += 1
+                    else:
+                        chunks_not_in_buffer.append(chunk_key)
+                else:
+                    chunks_missing_vertices.append(chunk_key)
         
-        # Optimize: Only write chunks that actually need updating
-        # Simplified logic: If chunks changed, process all chunks (full rebuild)
-        # Otherwise, only process dirty chunks
-        if chunks_changed:
-            # Chunks changed: Full rebuild needed (buffer offsets may have changed)
-            # Apply budget to limit chunks written per frame
-            max_chunks_to_rewrite = min(7, max(3, len(chunk_keys_set) // 8))
-            chunks_to_process = set(list(sorted(chunk_keys_set))[:max_chunks_to_rewrite])
-            # Mark remaining chunks as dirty for next frame
-            if len(chunk_keys_set) > max_chunks_to_rewrite:
-                remaining_chunks = set(list(sorted(chunk_keys_set))[max_chunks_to_rewrite:])
-                self.chunk_dirty.update(remaining_chunks)
-        else:
-            # No chunks changed: Only process dirty chunks
-            chunks_to_process = self.chunk_dirty & chunk_keys_set
-            # Apply budget for dirty chunks
-            if len(chunks_to_process) > 7:
-                chunks_list = list(chunks_to_process)[:7]
-                chunks_to_process = set(chunks_list)
-                # Mark remaining dirty chunks for next frame
-                remaining_dirty = self.chunk_dirty - chunks_to_process
-                self.chunk_dirty = remaining_dirty
-        
-        skipped_chunks = []
-        processed_chunks = []
-        
-        # Create index map for O(1) lookup instead of O(n) index() calls
-        index_map = {key: i for i, key in enumerate(new_chunk_order)}
-        
-        for chunk_key in new_chunk_order:
-            # Skip chunks that don't need updating (only if chunks haven't changed)
-            if not chunks_changed and chunk_key not in chunks_to_process and chunk_key in current_chunks_set:
-                # Reuse existing vertex count for unchanged chunks
-                # We need to calculate it from the chunk data to maintain total_vertex_count
-                chunk_data = next((c for c in chunks_data if (c[0], c[1]) == chunk_key), None)
-                if chunk_data:
-                    _, _, tiles = chunk_data
-                    # Calculate vertex count (chunk_size * chunk_size * 6 vertices per tile)
-                    # But only if chunk is actually in the buffer map
-                    if chunk_key in self._merged_chunk_map:
-                        total_vertex_count += chunk_size * chunk_size * 6
-                    skipped_chunks.append((chunk_key, "unchanged"))
-                continue
-            # Find chunk data
-            chunk_data = next((c for c in chunks_data if (c[0], c[1]) == chunk_key), None)
-            if not chunk_data:
-                skipped_chunks.append((chunk_key, "no_data"))
-                continue
+        # Debug: Log chunks missing vertices in dirty update (only via diagnostics)
+        if chunks_missing_vertices and not hasattr(self, '_dirty_missing_vertices_logged'):
+            if self.diagnostics:
+                self.diagnostics.warning("ModernGLRenderer",
+                    f"_build_merged_chunk_buffer: {len(chunks_missing_vertices)} dirty chunks without prepared vertices")
+            self._dirty_missing_vertices_logged = True
             
-            chunk_x, chunk_y, tiles = chunk_data
-            chunk_key = (chunk_x, chunk_y)
-            
-            # Strikte Prüfung: Nur Chunks mit prepared vertices verarbeiten
-            if chunk_key not in self.prepared_chunk_vertices:
-                skipped_chunks.append((chunk_key, "no_prepared_vertices"))
-                continue
-            
-            # Verwende prepared vertices statt tiles direkt
-            vertex_array = self.prepared_chunk_vertices[chunk_key]
-            
-            # Edge-Case: Leere Chunks überspringen
-            if len(vertex_array) == 0:
-                # Leerer Chunk: Vertexanzahl trotzdem zählen (für total_vertex_count)
-                total_vertex_count += chunk_size * chunk_size * 6
-                skipped_chunks.append((chunk_key, "empty_vertices"))
-                continue
-            
-            # Use prepared vertices directly (no need to build from tiles)
-            # vertex_array is already prepared and ready to use
-            chunk_vertex_array = vertex_array
-            
-            # Validierung: Leere Vertex-Arrays überspringen
-            if len(chunk_vertex_array) == 0:
-                # Keine Vertices für diesen Chunk - Vertexanzahl trotzdem zählen
-                total_vertex_count += chunk_size * chunk_size * 6
-                skipped_chunks.append((chunk_key, "empty_vertices"))
-                continue
-            
-            # Calculate world position for buffer offset calculation and debugging
-            chunk_world_x = chunk_x * chunk_size * tile_size
-            chunk_world_y = chunk_y * chunk_size * tile_size
-            chunk_world_max_x = chunk_world_x + chunk_size * tile_size
-            chunk_world_max_y = chunk_world_y + chunk_size * tile_size
-            
-            # Calculate buffer offset for this chunk
-            # IMPORTANT: Use the index in new_chunk_order to ensure correct offset
-            # even when chunks are removed/added
-            # CRITICAL: Use actual vertex count per chunk, not max_vertex_size_bytes
-            # Each chunk has exactly chunk_size * chunk_size * 6 vertices
-            chunk_index = index_map[chunk_key]  # O(1) lookup instead of O(n)
-            actual_vertices_per_chunk = chunk_size * chunk_size * 6
-            floats_per_vertex = 6  # 2 position + 1 color_index + 2 texcoord + 1 use_texture
-            bytes_per_float = 4
-            actual_chunk_size_bytes = actual_vertices_per_chunk * floats_per_vertex * bytes_per_float
-            buffer_offset = chunk_index * actual_chunk_size_bytes
-            
-            # Debug: Log buffer offset and NDC calculation for rightmost chunks
-            if self.diagnostics and hasattr(self, 'viewport_max_x') and isinstance(self.viewport_max_x, (int, float)):
-                chunk_world_max_x = chunk_world_x + chunk_size * tile_size
-                viewport_max_x_float = float(self.viewport_max_x)
-                
-                # Log for rightmost chunks (chunk_x == max_chunk_x)
-                if max_chunk_x is not None and chunk_x == max_chunk_x:
-                    if not hasattr(self, '_rightmost_chunk_debug_counter'):
-                        self._rightmost_chunk_debug_counter = 0
-                    self._rightmost_chunk_debug_counter += 1
-                    
-                    # Log first 10 rightmost chunks or every 60 frames
-                    should_log = (self._rightmost_chunk_debug_counter <= 10 or 
-                                 self._rightmost_chunk_debug_counter % 60 == 0)
-                    
-                    if should_log:
-                        # Calculate NDC for rightmost vertex to verify it's within [-1, 1]
-                        viewport_width = viewport_max_x_float - self.viewport_min_x
-                        if viewport_width > 0:
-                            ndc_x = 2.0 * (chunk_world_max_x - self.viewport_min_x) / viewport_width - 1.0
-                            self.diagnostics.debug(
-                                "ModernGLRenderer",
-                                f"Rightmost chunk {chunk_key}: chunk_index={chunk_index}, "
-                                f"buffer_offset={buffer_offset}, chunk_world_max_x={chunk_world_max_x:.1f}, "
-                                f"viewport=({self.viewport_min_x:.1f},{viewport_max_x_float:.1f}), "
-                                f"viewport_width={viewport_width:.1f}, vertices={len(chunk_vertex_array)}, "
-                                f"ndc_x={ndc_x:.3f} (should be < 1.0)"
-                            )
-            
-            # Buffer-Overflow-Prüfung
-            max_buffer_size = self._merged_max_chunks * self._merged_vertex_size_bytes
-            data_size = len(chunk_vertex_array.tobytes())
-            if buffer_offset + data_size > max_buffer_size:
-                if self.diagnostics:
-                    if not hasattr(self, '_buffer_overflow_warnings'):
-                        self._buffer_overflow_warnings = set()
-                    if chunk_key not in self._buffer_overflow_warnings:
-                        self._buffer_overflow_warnings.add(chunk_key)
-                        self.diagnostics.warning(
-                            "ModernGLRenderer",
-                            f"Buffer overflow detected for chunk {chunk_key}: "
-                            f"offset={buffer_offset}, size={data_size}, max={max_buffer_size}, "
-                            f"chunk_index={chunk_index}, total_chunks={len(new_chunk_order)}"
-                        )
-                # Überspringen dieses Chunks, aber Vertexanzahl zählen
-                total_vertex_count += len(chunk_vertex_array)
-                continue
-            
-            # Update buffer at specific offset (incremental update)
-            self._merged_chunk_vbo.write(chunk_vertex_array.tobytes(), offset=buffer_offset)
-            
-            # Update mapping
-            self._merged_chunk_map[chunk_key] = buffer_offset
-            # Use actual vertex count from array (chunk_vertex_array has shape (n_vertices, 6))
-            actual_vertex_count = len(chunk_vertex_array)  # This is the number of vertices (each vertex is 6 floats)
-            total_vertex_count += actual_vertex_count
-            processed_chunks.append(chunk_key)
-        
-        # Update tracking
-        # CRITICAL: When chunks are removed, we must update the order completely
-        # because offsets change for ALL chunks. We process in batches to stay within budget.
-        if chunks_changed and chunks_to_remove:
-            # Chunks were removed: we're processing in batches over multiple frames
-            # Update order to new order, but only chunks that were processed have correct data
-            # Chunks not yet processed will be skipped in rendering (they have wrong offsets)
-            self._merged_chunk_order = new_chunk_order
-            # Mark which chunks have been processed and have correct offsets
-            if not hasattr(self, '_chunks_with_correct_offsets'):
-                self._chunks_with_correct_offsets = set()
-            # Add processed chunks to set of chunks with correct offsets
-            self._chunks_with_correct_offsets.update(processed_chunks)
-            # Remove chunks that are no longer visible
-            self._chunks_with_correct_offsets = self._chunks_with_correct_offsets & chunk_keys_set
-        else:
-            # Normal case: all chunks processed, update order completely
-            self._merged_chunk_order = new_chunk_order
-            # All chunks have correct offsets
-            if hasattr(self, '_chunks_with_correct_offsets'):
-                self._chunks_with_correct_offsets = chunk_keys_set
-            else:
-                self._chunks_with_correct_offsets = chunk_keys_set
-        
-        # Calculate actual vertex count from chunks that have correct offsets
-        # CRITICAL: Only render chunks that were processed (have correct offsets)
-        if chunks_changed and chunks_to_remove and len(processed_chunks) < len(chunk_keys_set):
-            # Partial rewrite: only render processed chunks
-            chunks_with_correct_offsets = self._chunks_with_correct_offsets & chunk_keys_set
-            self._merged_chunk_vertex_count = len(chunks_with_correct_offsets) * chunk_size * chunk_size * 6
-        else:
-            # Full rewrite or no removals: render all chunks in buffer
-            chunks_in_buffer = len(self._merged_chunk_map)
-            expected_vertex_count = chunks_in_buffer * chunk_size * chunk_size * 6
-            if abs(total_vertex_count - expected_vertex_count) > 100:
-                if self.diagnostics:
-                    self.diagnostics.warning(
-                        "ModernGLRenderer",
-                        f"Vertex count mismatch: total_vertex_count={total_vertex_count}, "
-                        f"expected_vertex_count={expected_vertex_count}, chunks_in_buffer={chunks_in_buffer}, "
-                        f"using expected_vertex_count"
-                    )
-                self._merged_chunk_vertex_count = expected_vertex_count
-            else:
-                self._merged_chunk_vertex_count = total_vertex_count
-        self._merged_chunks_hash = chunks_hash
-        
-        # Debug: Log vertex count calculation
-        if self.diagnostics:
-            chunks_in_buffer = len(self._merged_chunk_map)
-            expected_vertex_count = chunks_in_buffer * chunk_size * chunk_size * 6
-            if abs(total_vertex_count - expected_vertex_count) > 100:
-                self.diagnostics.warning(
-                    "ModernGLRenderer",
-                    f"Vertex count mismatch: total_vertex_count={total_vertex_count}, "
-                    f"expected_vertex_count={expected_vertex_count}, chunks_in_buffer={chunks_in_buffer}"
-                )
-        
-        # Debug: Log which chunks were actually written to buffer
-        if self.diagnostics:
-            if not hasattr(self, '_merged_buffer_debug_counter'):
-                self._merged_buffer_debug_counter = 0
-            self._merged_buffer_debug_counter += 1
-            if self._merged_buffer_debug_counter <= 5 or self._merged_buffer_debug_counter % 60 == 0:
-                written_chunks = sorted(self._merged_chunk_map.keys())
-                if written_chunks:
-                    chunk_x_range = [cx for cx, _ in written_chunks]
-                    chunk_y_range = [cy for _, cy in written_chunks]
-                    
-                    # Group skipped chunks by reason
-                    skipped_by_reason = {}
-                    for chunk_key, reason in skipped_chunks:
-                        if reason not in skipped_by_reason:
-                            skipped_by_reason[reason] = []
-                        skipped_by_reason[reason].append(chunk_key)
-                    
-                    skip_info = ""
-                    if skipped_by_reason:
-                        skip_details = ", ".join([f"{reason}:{len(chunks)}" for reason, chunks in skipped_by_reason.items()])
-                        skip_info = f", skipped={len(skipped_chunks)} ({skip_details})"
-                    
-                    # Calculate chunk world bounds to verify they're within viewport
-                    chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
-                    min_chunk_world_x = min(chunk_x_range) * chunk_size_pixels
-                    max_chunk_world_x = (max(chunk_x_range) + 1) * chunk_size_pixels
-                    min_chunk_world_y = min(chunk_y_range) * chunk_size_pixels
-                    max_chunk_world_y = (max(chunk_y_range) + 1) * chunk_size_pixels
-                    
-                    viewport_info = ""
-                    if hasattr(self, 'viewport_min_x'):
-                        viewport_info = (
-                            f", viewport=({self.viewport_min_x:.1f},{self.viewport_max_x:.1f},"
-                            f"{self.viewport_min_y:.1f},{self.viewport_max_y:.1f}), "
-                            f"chunk_world=({min_chunk_world_x:.1f},{max_chunk_world_x:.1f},"
-                            f"{min_chunk_world_y:.1f},{max_chunk_world_y:.1f})"
-                        )
-                    
-                    # Calculate chunk world bounds to verify they're within viewport
-                    chunk_size_pixels = settings.CHUNK_SIZE * settings.TILE_SIZE
-                    min_chunk_world_x = min(chunk_x_range) * chunk_size_pixels
-                    max_chunk_world_x = (max(chunk_x_range) + 1) * chunk_size_pixels
-                    min_chunk_world_y = min(chunk_y_range) * chunk_size_pixels
-                    max_chunk_world_y = (max(chunk_y_range) + 1) * chunk_size_pixels
-                    
-                    self.diagnostics.debug(
-                        "ModernGLRenderer",
-                        f"_build_merged_chunk_buffer: wrote {len(written_chunks)} chunks to buffer, "
-                        f"chunk_x_range=[{min(chunk_x_range)}..{max(chunk_x_range)}], "
-                        f"chunk_y_range=[{min(chunk_y_range)}..{max(chunk_y_range)}], "
-                        f"total_vertex_count={total_vertex_count}, "
-                        f"input_chunks={len(chunks_data)}, processed={len(processed_chunks)}"
-                        f"{skip_info}"
-                        f"{viewport_info}"
-                    )
-                    
-                    # Debug: Check if rightmost chunks are in buffer
-                    if hasattr(self, 'viewport_max_x') and isinstance(self.viewport_max_x, (int, float)):
-                        rightmost_chunks = [ck for ck in written_chunks if ck[0] == max(chunk_x_range)]
-                        if rightmost_chunks:
-                            viewport_max_x_float = float(self.viewport_max_x)
-                            self.diagnostics.debug(
-                                "ModernGLRenderer",
-                                f"Rightmost chunks in buffer: {rightmost_chunks}, "
-                                f"chunk_world_max_x={max_chunk_world_x:.1f}, viewport_max_x={viewport_max_x_float:.1f}, "
-                                f"within_viewport={max_chunk_world_x <= viewport_max_x_float}"
-                            )
+            # Logging für Debugging
+            if self.diagnostics and dirty_patches_count > 0:
+                self.diagnostics.debug("ModernGLRenderer",
+                    f"dirty_patches_per_frame: {dirty_patches_count}")
         
         # Clear dirty flags for chunks that were updated
-        if has_dirty_chunks:
-            self.chunk_dirty.clear()
+        if dirty_patches_count > 0:
+            # Mark updated chunks as clean
+            for chunk_key in self.chunk_dirty & chunk_keys_set:
+                if chunk_key in self.prepared_chunk_vertices and chunk_key in self._merged_chunk_map:
+                    self.chunk_dirty.discard(chunk_key)
     
     def _render_test_quad_ndc(self):
         """Render a test quad directly in NDC coordinates (bypasses all transformations)"""
@@ -1582,6 +1533,12 @@ class ModernGLRenderer:
         This will force all chunks to be re-uploaded on next render.
         """
         self._invalidate_all_chunk_buffers()
+        # Set region rebuild flag for merged buffer
+        if hasattr(self, 'needs_region_rebuild'):
+            self.needs_region_rebuild = True
+            if self.diagnostics:
+                self.diagnostics.info("ModernGLRenderer",
+                    "Renderer reset: needs_region_rebuild=True")
     
     def invalidate_chunk(self, chunk_x: int, chunk_y: int):
         """Invalidate cached buffer for a chunk (call when chunk changes)"""

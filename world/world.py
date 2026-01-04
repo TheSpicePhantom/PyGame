@@ -11,7 +11,7 @@ from world.decoration_registry import DecorationRegistry
 class World:
     """Verwaltet die Spielwelt mit dynamischen Chunks und prozeduralem Terrain"""
     
-    def __init__(self, all_sprites, resource_sprites, world_name: str = "Unnamed World", seed=None, performance_monitor=None, diagnostics=None): 
+    def __init__(self, all_sprites, resource_sprites, world_name: str = "Unnamed World", seed=None, performance_monitor=None, diagnostics=None, texture_manager=None): 
         self.all_sprites = all_sprites
         self.resource_sprites = resource_sprites
         self.world_name = world_name
@@ -76,7 +76,11 @@ class World:
         # Now create the actual terrain generator with the correct seed
         # Set world_height for smooth latitude calculation (prevents hard cuts)
         world_height_tiles = settings.WORLD_SIZE_CHUNKS * settings.CHUNK_SIZE
-        self.terrain_gen = TerrainGenerator(seed=final_seed)
+        self.terrain_gen = TerrainGenerator(
+            seed=final_seed,
+            texture_manager=texture_manager,  # Use texture_manager if provided, otherwise None
+            diagnostics=self.diagnostics
+        )
         self.terrain_gen.world_height = float(world_height_tiles)
         
         # Update chunk manager to use the correct terrain generator
@@ -258,6 +262,19 @@ class World:
     def refresh_visible_chunks(self, player_pos):
         """Refresh chunk loading after screen size change"""
         self.chunk_manager.refresh_visible_chunks(player_pos)
+    
+    def set_texture_manager(self, texture_manager):
+        """
+        Set texture manager for terrain generator (for texture tag assignment).
+        Should be called after renderer is initialized.
+        
+        Args:
+            texture_manager: UnifiedTextureManager instance
+        """
+        if self.terrain_gen:
+            self.terrain_gen.texture_manager = texture_manager
+            if self.diagnostics:
+                self.diagnostics.info("World", "Texture manager set for terrain generator")
     
     def cleanup(self):
         """
