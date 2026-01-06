@@ -87,7 +87,7 @@ import os
 import json
 import threading
 import time
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Iterator
 import asyncio
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List
@@ -299,9 +299,113 @@ class RegionManager:
         """Get chunk index in region table (0-24)"""
         return local_y * self.REGION_SIZE_CHUNKS + local_x
     
+    @staticmethod
+    def chunk_to_region(chunk_x: int, chunk_y: int) -> Tuple[int, int, int, int]:
+        """
+        Convert chunk coordinates to region coordinates and local chunk coordinates.
+        
+        Args:
+            chunk_x: Global chunk X coordinate
+            chunk_y: Global chunk Y coordinate
+        
+        Returns:
+            (region_x, region_y, local_x, local_y) tuple
+        """
+        region_x = chunk_x // RegionManager.REGION_SIZE_CHUNKS
+        region_y = chunk_y // RegionManager.REGION_SIZE_CHUNKS
+        local_x = chunk_x % RegionManager.REGION_SIZE_CHUNKS
+        local_y = chunk_y % RegionManager.REGION_SIZE_CHUNKS
+        return (region_x, region_y, local_x, local_y)
+    
+    @staticmethod
+    def region_to_chunks(region_x: int, region_y: int) -> Iterator[Tuple[int, int]]:
+        """
+        Iterate over all chunk coordinates in a region.
+        
+        Args:
+            region_x: Region X coordinate
+            region_y: Region Y coordinate
+        
+        Yields:
+            (chunk_x, chunk_y) tuples for all 25 chunks in the region
+        """
+        for local_y in range(RegionManager.REGION_SIZE_CHUNKS):
+            for local_x in range(RegionManager.REGION_SIZE_CHUNKS):
+                chunk_x = region_x * RegionManager.REGION_SIZE_CHUNKS + local_x
+                chunk_y = region_y * RegionManager.REGION_SIZE_CHUNKS + local_y
+                yield (chunk_x, chunk_y)
+    
     def _get_region_filename(self, region_x: int, region_y: int) -> Path:
         """Get filename for a region"""
         return self.regions_dir / f"r.{region_x}.{region_y}.mcr"
+    
+    def region_exists(self, region_x: int, region_y: int) -> bool:
+        """
+        Check if a region file exists.
+        
+        Args:
+            region_x: Region X coordinate
+            region_y: Region Y coordinate
+        
+        Returns:
+            True if region file exists, False otherwise
+        """
+        region_file = self._get_region_filename(region_x, region_y)
+        return region_file.exists()
+    
+    def load_chunk(self, chunk_x: int, chunk_y: int, seed: Optional[int] = None) -> Optional[Dict]:
+        """
+        Load chunk data from region file (synchronous high-level API).
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+            seed: Optional expected world seed for validation
+        
+        Returns:
+            Chunk data dictionary with 'chunk_x', 'chunk_y', 'seed', 'tiles', or None if chunk doesn't exist
+        
+        Raises:
+            ChunkCorruptedError: If chunk data is corrupted
+            SeedMismatchError: If seed doesn't match
+        """
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        try:
+            return loop.run_until_complete(self.load_chunk_data(chunk_x, chunk_y, seed))
+        except ChunkNotFoundError:
+            return None
+        except (ChunkCorruptedError, SeedMismatchError):
+            raise
+    
+    def save_chunk(self, chunk_x: int, chunk_y: int, chunk_data: Dict, seed: Optional[int] = None):
+        """
+        Save chunk data to region file (synchronous high-level API).
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+            chunk_data: Chunk data dictionary with 'tiles' (2D list of tile dictionaries)
+            seed: Optional world seed for validation
+        """
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        tiles = chunk_data.get('tiles', [])
+        chunk_seed = seed if seed is not None else chunk_data.get('seed')
+        if chunk_seed is None:
+            raise ValueError("Seed must be provided either as parameter or in chunk_data")
+        
+        loop.run_until_complete(self.save_chunk_data(chunk_x, chunk_y, tiles, chunk_seed))
     
     def _create_new_region_file(self, region_x: int, region_y: int) -> bool:
         """

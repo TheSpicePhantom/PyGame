@@ -7,6 +7,7 @@ import math
 import time
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List, Set
+from dataclasses import dataclass, field
 from core import settings
 from core.zoom_utils import calculate_visible_world_size
 import threading
@@ -27,6 +28,26 @@ try:
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
+
+
+@dataclass
+class RegionWindowState:
+    """Manages the active region window state for prefetching."""
+    center_region: Optional[Tuple[int, int]] = None
+    prefetch_radius: int = 1  # 1 = 3x3 window
+    cooldown_seconds: float = 9.0
+    active_regions: Set[Tuple[int, int]] = field(default_factory=set)
+    
+    def get_window_regions(self) -> Set[Tuple[int, int]]:
+        """Calculate all regions in the window."""
+        if self.center_region is None:
+            return set()
+        region_x, region_y = self.center_region
+        regions = set()
+        for dx in range(-self.prefetch_radius, self.prefetch_radius + 1):
+            for dy in range(-self.prefetch_radius, self.prefetch_radius + 1):
+                regions.add((region_x + dx, region_y + dy))
+        return regions
 
 
 class Chunk:
@@ -173,15 +194,13 @@ class ChunkManager:
         self.loaded_chunks: Dict[Tuple[int, int], Chunk] = {}
         self.player_chunk_pos = None  # Changed from (0, 0) to None to force initial load
         self.chunk_load_times: Dict[Tuple[int, int], float] = {}  # Track when chunks were loaded (for cooldown)
-        self.chunk_unload_cooldown: float = 9.0  # Seconds before chunk can be unloaded after leaving visible area (9s for smooth preload/cooldown ring, reduces disk loads)
         
         # Region prefetch tracking
         self._last_camera_region: Optional[Tuple[int, int]] = None  # Last region camera was in (region_x, region_y)
         self._prefetched_regions: set = set()  # Set of regions that have been prefetched
         
-        # 3x3 Region window tracking for full region prebaking
-        self._active_region_window: Optional[Tuple[int, int]] = None  # Center region of 3x3 window
-        self._active_regions: Set[Tuple[int, int]] = set()  # All 9 active regions
+        # Region window state (replaces _active_region_window, _active_regions, chunk_unload_cooldown)
+        self.region_window = RegionWindowState()
         self._use_region_window_prefetch: bool = True  # Flag: Use 3x3 window instead of old prefetch
         
         # Setup save directories using world name
@@ -487,12 +506,24 @@ class ChunkManager:
     
     def set_renderer(self, renderer):
         """
-        Set the renderer instance for dirty flag management.
+        Set renderer for chunk vertex preparation callbacks.
         
         Args:
-            renderer: ModernGLRenderer instance (or None to remove)
+            renderer: ModernGLRenderer instance with queue_chunk_vertices() method
         """
         self.renderer = renderer
+    
+    def _notify_chunk_ready(self, chunk_x: int, chunk_y: int, chunk: Chunk):
+        """
+        Notify renderer that a chunk is ready for vertex preparation.
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+            chunk: Chunk instance with tiles
+        """
+        if self.renderer and hasattr(self.renderer, 'queue_chunk_vertices'):
+            self.renderer.queue_chunk_vertices(chunk_x, chunk_y, chunk.tiles)
     
     def modify_tile(self, chunk_x: int, chunk_y: int, local_x: int, local_y: int, new_tile_data: dict):
         """
@@ -819,7 +850,7 @@ class ChunkManager:
                 time_since_load = current_time - load_time
                 
                 # Only unload if chunk has been loaded for at least cooldown seconds
-                if time_since_load >= self.chunk_unload_cooldown:
+                if time_since_load >= self.region_window.cooldown_seconds:
                     chunks_to_unload.append(chunk_key)
                     
                     # Chunk will be unloaded (no debug output needed)
@@ -831,8 +862,7 @@ class ChunkManager:
     def _get_region_coords(self, chunk_x: int, chunk_y: int) -> Tuple[int, int]:
         """Convert chunk coordinates to region coordinates"""
         from world.region_manager import RegionManager
-        region_x = chunk_x // RegionManager.REGION_SIZE_CHUNKS
-        region_y = chunk_y // RegionManager.REGION_SIZE_CHUNKS
+        region_x, region_y, _, _ = RegionManager.chunk_to_region(chunk_x, chunk_y)
         return (region_x, region_y)
     
     def _update_region_prefetch(self, camera_x: float, camera_y: float,
@@ -872,9 +902,9 @@ class ChunkManager:
         # Use 3x3 region window prefetch (replaces old prefetch logic)
         if self._use_region_window_prefetch:
             # Check if we need to shift the 3x3 window
-            if self._active_region_window != current_region:
+            if self.region_window.center_region != current_region:
                 self._update_region_window(current_region)
-                self._active_region_window = current_region
+                self.region_window.center_region = current_region
             # Skip old prefetch logic when region window is active
             return
         
@@ -992,8 +1022,7 @@ class ChunkManager:
         # Check if region file exists (this loads header into cache)
         # We don't need to do anything else - just checking existence loads the header
         try:
-            region_file = self.region_manager._get_region_filename(region_x, region_y)
-            if not region_file.exists():
+            if not self.region_manager.region_exists(region_x, region_y):
                 return  # Region doesn't exist yet, skip
         except Exception:
             return  # Error accessing region, skip
@@ -1051,25 +1080,14 @@ class ChunkManager:
         Args:
             center_region: Center region coordinates (region_x, region_y)
         """
-        region_x, region_y = center_region
-        
-        # Calculate 3x3 region window
-        new_regions = set()
-        for dx in range(-1, 2):
-            for dy in range(-1, 2):
-                new_regions.add((region_x + dx, region_y + dy))
-        
-        # Logging bei Fenster-Shift
-        if self.diagnostics and self._use_region_window_prefetch:
-            if self._active_region_window != center_region:
-                self.diagnostics.info(
-                    "ChunkManager",
-                    f"Shift region window to {center_region}, regions: {sorted(new_regions)}"
-                )
+        # Calculate region window using RegionWindowState
+        old_center = self.region_window.center_region
+        self.region_window.center_region = center_region
+        new_regions = self.region_window.get_window_regions()
         
         # Find regions to add and remove
-        regions_to_add = new_regions - self._active_regions
-        regions_to_remove = self._active_regions - new_regions
+        regions_to_add = new_regions - self.region_window.active_regions
+        regions_to_remove = self.region_window.active_regions - new_regions
         
         # Load all chunks in new regions
         for region in regions_to_add:
@@ -1080,10 +1098,10 @@ class ChunkManager:
             self._unload_region_chunks(region)
         
         # Update active regions
-        self._active_regions = new_regions
+        self.region_window.active_regions = new_regions
         
         # Region-Wechsel erkennen und Rebuild-Flag setzen
-        if self._active_region_window != center_region:
+        if old_center != center_region:
             # Region-Wechsel erkannt
             if hasattr(self, 'renderer') and self.renderer:
                 self.renderer.needs_region_rebuild = True
@@ -1106,7 +1124,7 @@ class ChunkManager:
         # Calculate priority based on distance from center
         # NOTE: request_chunk_load() applies REGION_PREFETCH_PRIORITY_OFFSET (50) to priority > 0
         # So priority 0 = center (no offset, highest), priority 1 = adjacent (+50 offset), priority 2 = corner (+50 offset)
-        center_region = self._active_region_window
+        center_region = self.region_window.center_region
         if center_region:
             dx = abs(region_x - center_region[0])
             dy = abs(region_y - center_region[1])
@@ -1115,20 +1133,13 @@ class ChunkManager:
             priority = 1  # Default priority
         
         # Ensure region header is loaded (triggers header cache)
-        try:
-            region_file = self.region_manager._get_region_filename(region_x, region_y)
-            if region_file.exists():
-                # Header will be cached by RegionManager
-                self.region_manager._get_cached_header(region_x, region_y)
-        except Exception:
-            pass  # Region doesn't exist yet, skip
+        # Note: Header will be cached automatically when region is accessed via load_chunk/save_chunk
+        # No need to pre-load header here
+        pass
         
         # Load all 25 chunks in region asynchronously
         # PriorityQueue in request_chunk_load() ensures correct ordering
-        for local_y in range(RegionManager.REGION_SIZE_CHUNKS):
-            for local_x in range(RegionManager.REGION_SIZE_CHUNKS):
-                chunk_x = region_x * RegionManager.REGION_SIZE_CHUNKS + local_x
-                chunk_y = region_y * RegionManager.REGION_SIZE_CHUNKS + local_y
+        for chunk_x, chunk_y in RegionManager.region_to_chunks(region_x, region_y):
                 
                 # Check world bounds
                 if not (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
@@ -1145,6 +1156,45 @@ class ChunkManager:
                 # This ensures center region chunks (priority=0) load first, then adjacent (priority=1+50), then corners (priority=2+50)
                 self.request_chunk_load(chunk_x, chunk_y, priority=priority)
     
+    def set_active_region_window(self, center_region: Tuple[int, int], prefetch_radius: int = 1):
+        """
+        Set the active region window (3x3 by default) around center region.
+        Loads all chunks in new regions and unloads chunks outside window.
+        
+        Args:
+            center_region: Center region coordinates (region_x, region_y)
+            prefetch_radius: Radius of regions to prefetch (1 = 3x3 window)
+        """
+        self.region_window.prefetch_radius = prefetch_radius
+        self._update_region_window(center_region)
+    
+    def prefetch_region(self, region: Tuple[int, int], priority: int = 1):
+        """
+        Prefetch all chunks in a region.
+        
+        Args:
+            region: Region coordinates (region_x, region_y)
+            priority: Load priority (0 = highest, higher = lower priority)
+        """
+        self._pre_bake_full_region(region)
+    
+    def unload_region(self, region: Tuple[int, int], force: bool = False):
+        """
+        Unload all chunks in a region (with cooldown unless forced).
+        
+        Args:
+            region: Region coordinates (region_x, region_y)
+            force: If True, unload immediately ignoring cooldown
+        """
+        if force:
+            # Force unload: temporarily set cooldown to 0
+            old_cooldown = self.region_window.cooldown_seconds
+            self.region_window.cooldown_seconds = 0.0
+            self._unload_region_chunks(region)
+            self.region_window.cooldown_seconds = old_cooldown
+        else:
+            self._unload_region_chunks(region)
+    
     def _unload_region_chunks(self, region: Tuple[int, int]):
         """
         Unload all chunks in a region that's outside the 3x3 window.
@@ -1159,10 +1209,7 @@ class ChunkManager:
         current_time = time.time()
         
         # Unload all chunks in this region
-        for local_y in range(RegionManager.REGION_SIZE_CHUNKS):
-            for local_x in range(RegionManager.REGION_SIZE_CHUNKS):
-                chunk_x = region_x * RegionManager.REGION_SIZE_CHUNKS + local_x
-                chunk_y = region_y * RegionManager.REGION_SIZE_CHUNKS + local_y
+        for chunk_x, chunk_y in RegionManager.region_to_chunks(region_x, region_y):
                 chunk_key = (chunk_x, chunk_y)
                 
                 if chunk_key not in self.loaded_chunks:
@@ -1172,7 +1219,7 @@ class ChunkManager:
                 load_time = self.chunk_load_times.get(chunk_key, current_time)
                 time_since_load = current_time - load_time
                 
-                if time_since_load >= self.chunk_unload_cooldown:
+                if time_since_load >= self.region_window.cooldown_seconds:
                     # unload_chunk() already calls renderer.release_chunk_buffer() to free GPU memory
                     self.unload_chunk(chunk_x, chunk_y)
 
@@ -1212,6 +1259,10 @@ class ChunkManager:
                     self.loaded_chunks[key] = loaded_chunk
                     # Track when chunk was loaded (for cooldown before unloading)
                     self.chunk_load_times[key] = current_time
+                    
+                    # Notify renderer that chunk is ready
+                    self._notify_chunk_ready(chunk_x, chunk_y, loaded_chunk)
+                    
                     return loaded_chunk
             
             # File doesn't exist - generate new chunk synchronously
@@ -1222,6 +1273,9 @@ class ChunkManager:
             self.populate_chunk(chunk)
             
             self.loaded_chunks[key] = chunk
+            
+            # Notify renderer that chunk is ready
+            self._notify_chunk_ready(chunk_x, chunk_y, chunk)
             
             # Track when chunk was loaded (for cooldown before unloading)
             self.chunk_load_times[key] = current_time
@@ -1940,13 +1994,10 @@ class ChunkManager:
                     chunk_keys.add((chunk_x, chunk_y))
         
         # Add chunks from active region window (3x3 regions)
-        if self._active_regions:
+        if self.region_window.active_regions:
             from world.region_manager import RegionManager
-            for region_x, region_y in self._active_regions:
-                for local_y in range(RegionManager.REGION_SIZE_CHUNKS):
-                    for local_x in range(RegionManager.REGION_SIZE_CHUNKS):
-                        chunk_x = region_x * RegionManager.REGION_SIZE_CHUNKS + local_x
-                        chunk_y = region_y * RegionManager.REGION_SIZE_CHUNKS + local_y
+            for region_x, region_y in self.region_window.active_regions:
+                for chunk_x, chunk_y in RegionManager.region_to_chunks(region_x, region_y):
                         if (0 <= chunk_x < settings.WORLD_SIZE_CHUNKS and
                             0 <= chunk_y < settings.WORLD_SIZE_CHUNKS):
                             chunk_keys.add((chunk_x, chunk_y))
@@ -2248,6 +2299,9 @@ class ChunkManager:
                 # Record load timestamp for global rate limiting
                 with self._load_rate_lock:
                     self._load_timestamps.append(time.perf_counter())
+                
+                # Notify renderer that chunk is ready for vertex preparation
+                self._notify_chunk_ready(chunk_x, chunk_y, chunk)
                 
                 # Put result in results queue
                 self.chunk_load_results.put((chunk_x, chunk_y, chunk))
@@ -2982,13 +3036,10 @@ class ChunkManager:
         
         # Build set of active chunk keys if region window is active (for prioritization only)
         active_chunk_keys = set()
-        if self._active_regions:
+        if self.region_window.active_regions:
             from world.region_manager import RegionManager
-            for region_x, region_y in self._active_regions:
-                for local_y in range(RegionManager.REGION_SIZE_CHUNKS):
-                    for local_x in range(RegionManager.REGION_SIZE_CHUNKS):
-                        chunk_x = region_x * RegionManager.REGION_SIZE_CHUNKS + local_x
-                        chunk_y = region_y * RegionManager.REGION_SIZE_CHUNKS + local_y
+            for region_x, region_y in self.region_window.active_regions:
+                for chunk_x, chunk_y in RegionManager.region_to_chunks(region_x, region_y):
                         active_chunk_keys.add((chunk_x, chunk_y))
         
         for chunk_key, chunk in self.loaded_chunks.items():

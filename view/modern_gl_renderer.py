@@ -622,6 +622,24 @@ class ModernGLRenderer:
         
         return (vbo, vao, vertex_count)
     
+    def queue_chunk_vertices(self, chunk_x: int, chunk_y: int, tiles: List[List[dict]]):
+        """
+        Queue chunk for vertex preparation (called by ChunkManager when chunk is loaded).
+        
+        Args:
+            chunk_x: Chunk X coordinate
+            chunk_y: Chunk Y coordinate
+            tiles: 2D list of tile dictionaries
+        """
+        chunk_key = (chunk_x, chunk_y)
+        
+        # Prepare vertices for this chunk
+        vertex_array = self._prepare_chunk_vertices(chunk_x, chunk_y, tiles)
+        
+        if vertex_array is not None:
+            # Queue for upload to GPU
+            self.pending_uploads.put((chunk_key, vertex_array))
+    
     def _process_pending_uploads(self, max_uploads_per_frame: int = 2) -> int:
         """
         Konsumiert Upload-Queue mit hartem Limit.
