@@ -83,6 +83,7 @@ def get_chunk_load_distance():
 # Chunk processing time budget (in milliseconds per frame)
 CHUNK_UPLOAD_BUDGET_MS = 3.5  # Maximum time allowed for chunk uploads per frame (reduced to prevent frame spikes)
 CHUNK_UPLOAD_MIN_PER_FRAME = 2  # Minimum chunks to process per frame (reduced for smoother frame times)
+CHUNK_UPLOAD_MAX_PER_FRAME = 1  # Maximum chunks to upload per frame (reduced to prevent frame spikes)
 
 # Chunk load rate limiting (HARD CAPS to prevent IO spikes)
 CHUNK_LOAD_RATE_LIMIT = 60  # Maximum disk loads per second globally (conservative: prevents bursts)

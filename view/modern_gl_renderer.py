@@ -45,16 +45,27 @@ class ModernGLRenderer:
                     self.diagnostics.info("ModernGLRenderer", 
                         f"Texture atlas initialized: {self.tile_texture_manager.atlas_size}x{self.tile_texture_manager.atlas_size}, "
                         f"textures={len(self.tile_texture_manager.texture_coords)}")
+                
+                # Validate atlas and log results
+                self.tile_texture_manager.log_atlas_validation()
+                
+                # Check water textures specifically
+                self.tile_texture_manager.log_water_texture_check()
             else:
                 if self.diagnostics:
-                    self.diagnostics.warning("ModernGLRenderer", 
+                    self.diagnostics.error("ModernGLRenderer", 
                         "Texture atlas is None after initialization - textures will not be available")
+                print("\n[ERROR] Texture atlas is None after initialization!")
+                print("This means textures cannot be rendered. Check the logs above for details.\n")
         except Exception as e:
             if self.diagnostics:
-                self.diagnostics.warning("ModernGLRenderer", f"Failed to initialize texture manager: {e}")
+                self.diagnostics.error("ModernGLRenderer", f"Failed to initialize texture manager: {e}")
+                import traceback
+                self.diagnostics.error("ModernGLRenderer", traceback.format_exc())
             else:
                 import traceback
                 traceback.print_exc()
+            print(f"\n[ERROR] Failed to initialize texture manager: {e}\n")
             self.tile_texture_manager = None
         
         # Decoration textures are now loaded via UnifiedTextureManager (integrated into atlas)
@@ -640,18 +651,43 @@ class ModernGLRenderer:
             # Queue for upload to GPU
             self.pending_uploads.put((chunk_key, vertex_array))
     
-    def _process_pending_uploads(self, max_uploads_per_frame: int = 2) -> int:
+    def _process_pending_uploads(self, max_uploads_per_frame: Optional[int] = None) -> int:
         """
         Konsumiert Upload-Queue mit hartem Limit.
         Erstellt/aktualisiert VBOs aus prepared vertices.
         
         Args:
-            max_uploads_per_frame: Maximal 3 Chunks pro Frame (aus Settings)
+            max_uploads_per_frame: Maximal Chunks pro Frame (aus Settings, default: CHUNK_UPLOAD_MAX_PER_FRAME)
         
         Returns:
             Anzahl hochgeladener Chunks
         """
+        if max_uploads_per_frame is None:
+            max_uploads_per_frame = settings.CHUNK_UPLOAD_MAX_PER_FRAME
+        
         uploads_this_frame = 0
+        bytes_uploaded_this_frame = 0
+        
+        # Initialize frame statistics
+        if not hasattr(self, '_frame_upload_stats'):
+            self._frame_upload_stats = {
+                'total_uploads': 0,
+                'total_vertices': 0,
+                'total_bytes': 0,
+                'total_time_ms': 0.0,
+                'max_upload_time_ms': 0.0,
+                'max_upload_bytes': 0
+            }
+        
+        # Reset frame statistics
+        self._frame_upload_stats = {
+            'total_uploads': 0,
+            'total_vertices': 0,
+            'total_bytes': 0,
+            'total_time_ms': 0.0,
+            'max_upload_time_ms': 0.0,
+            'max_upload_bytes': 0
+        }
         
         while uploads_this_frame < max_uploads_per_frame:
             if self.pending_uploads.empty():
@@ -664,12 +700,26 @@ class ModernGLRenderer:
                 break
             
             # VBO erstellen/aktualisieren (kein Vertex-Bau mehr hier)
-            if self._upload_chunk_vertices(chunk_key, vertex_array):
+            upload_result = self._upload_chunk_vertices(chunk_key, vertex_array)
+            if upload_result and upload_result.get('success', False):
                 uploads_this_frame += 1
+                # Update frame statistics from upload result
+                self._frame_upload_stats['total_uploads'] += 1
+                self._frame_upload_stats['total_vertices'] += upload_result.get('vertex_count', 0)
+                self._frame_upload_stats['total_bytes'] += upload_result.get('byte_size', 0)
+                self._frame_upload_stats['total_time_ms'] += upload_result.get('upload_time_ms', 0.0)
+                if upload_result.get('upload_time_ms', 0.0) > self._frame_upload_stats['max_upload_time_ms']:
+                    self._frame_upload_stats['max_upload_time_ms'] = upload_result.get('upload_time_ms', 0.0)
+                if upload_result.get('byte_size', 0) > self._frame_upload_stats['max_upload_bytes']:
+                    self._frame_upload_stats['max_upload_bytes'] = upload_result.get('byte_size', 0)
+        
+        # Log frame statistics if uploads occurred
+        if self._frame_upload_stats['total_uploads'] > 0:
+            self._log_frame_upload_stats()
         
         return uploads_this_frame
     
-    def _upload_chunk_vertices(self, chunk_key: Tuple[int, int], vertex_array: np.ndarray) -> bool:
+    def _upload_chunk_vertices(self, chunk_key: Tuple[int, int], vertex_array: np.ndarray) -> dict:
         """
         Erstellt/aktualisiert VBO aus vertex_array.
         Nutzt chunk_vbo_pool für Buffer-Management.
@@ -679,23 +729,47 @@ class ModernGLRenderer:
             vertex_array: Prepared vertex array (numpy array)
         
         Returns:
-            True if upload successful, False otherwise
+            Dictionary with upload statistics: {
+                'success': bool,
+                'vertex_count': int,
+                'byte_size': int,
+                'upload_time_ms': float
+            }
         """
+        import time
         chunk_x, chunk_y = chunk_key
         
+        # Measure upload time
+        upload_start_time = time.perf_counter()
+        
+        # Calculate statistics
+        vertex_count = len(vertex_array)
+        byte_size = vertex_array.nbytes
         
         # Store in prepared_chunk_vertices cache
         self.prepared_chunk_vertices[chunk_key] = vertex_array
         
         # If buffer exists and chunk is not dirty, update it
         if chunk_key in self.chunk_buffers and chunk_key not in self.chunk_dirty:
-            vbo, vao, vertex_count, pool_index = self.chunk_buffers[chunk_key]
+            vbo, vao, old_vertex_count, pool_index = self.chunk_buffers[chunk_key]
             # Update existing buffer
             self.chunk_vbo_pool.write_data(vbo, vertex_array)
             # Update vertex count
             self.chunk_buffers[chunk_key] = (vbo, vao, len(vertex_array), pool_index)
             self.chunk_dirty.discard(chunk_key)
-            return True
+            
+            # Measure upload time
+            upload_time_ms = (time.perf_counter() - upload_start_time) * 1000.0
+            
+            # Log upload statistics
+            self._log_upload_statistics(chunk_key, vertex_count, byte_size, upload_time_ms)
+            
+            return {
+                'success': True,
+                'vertex_count': vertex_count,
+                'byte_size': byte_size,
+                'upload_time_ms': upload_time_ms
+            }
         
         # If chunk is dirty and buffer exists, release old buffer
         if chunk_key in self.chunk_buffers:
@@ -715,10 +789,77 @@ class ModernGLRenderer:
         vertex_count = len(vertex_array)
         self.chunk_buffers[chunk_key] = (vbo, vao, vertex_count, pool_index)
         
+        # Measure upload time
+        upload_time_ms = (time.perf_counter() - upload_start_time) * 1000.0
+        
         # Mark chunk as clean after upload
         self.mark_chunk_clean(chunk_x, chunk_y)
         
-        return True
+        # Log upload statistics
+        self._log_upload_statistics(chunk_key, vertex_count, byte_size, upload_time_ms)
+        
+        return {
+            'success': True,
+            'vertex_count': vertex_count,
+            'byte_size': byte_size,
+            'upload_time_ms': upload_time_ms
+        }
+    
+    def _log_upload_statistics(self, chunk_key: Tuple[int, int], vertex_count: int, byte_size: int, upload_time_ms: float):
+        """
+        Log upload statistics for a single chunk upload.
+        Only logs if upload exceeds thresholds or diagnostics is enabled.
+        
+        Args:
+            chunk_key: (chunk_x, chunk_y) tuple
+            vertex_count: Number of vertices uploaded
+            byte_size: Size in bytes
+            upload_time_ms: Upload time in milliseconds
+        """
+        # Performance warnings
+        if upload_time_ms > 50.0:
+            if self.diagnostics:
+                self.diagnostics.warning("ModernGLRenderer",
+                    f"Slow upload: chunk {chunk_key} took {upload_time_ms:.2f}ms "
+                    f"({vertex_count} vertices, {byte_size / 1024:.2f} KB)")
+        
+        if byte_size > 1024 * 1024:  # > 1MB
+            if self.diagnostics:
+                self.diagnostics.warning("ModernGLRenderer",
+                    f"Large upload: chunk {chunk_key} is {byte_size / (1024 * 1024):.2f} MB "
+                    f"({vertex_count} vertices, {upload_time_ms:.2f}ms)")
+        
+        # Optional: Log all uploads if diagnostics is enabled and verbose mode
+        # (commented out to avoid spam, uncomment if needed for debugging)
+        # if self.diagnostics:
+        #     self.diagnostics.debug("ModernGLRenderer",
+        #         f"Upload: chunk {chunk_key}, {vertex_count} vertices, "
+        #         f"{byte_size / 1024:.2f} KB, {upload_time_ms:.2f}ms")
+    
+    def _log_frame_upload_stats(self):
+        """
+        Log aggregated upload statistics for the current frame.
+        """
+        stats = self._frame_upload_stats
+        if stats['total_uploads'] == 0:
+            return
+        
+        # Check if total time exceeds budget
+        if stats['total_time_ms'] > settings.CHUNK_UPLOAD_BUDGET_MS:
+            if self.diagnostics:
+                self.diagnostics.warning("ModernGLRenderer",
+                    f"Upload budget exceeded: {stats['total_time_ms']:.2f}ms > {settings.CHUNK_UPLOAD_BUDGET_MS}ms "
+                    f"({stats['total_uploads']} uploads, {stats['total_vertices']} vertices, "
+                    f"{stats['total_bytes'] / (1024 * 1024):.2f} MB)")
+        
+        # Log frame statistics (only via diagnostics to avoid console spam)
+        if self.diagnostics:
+            self.diagnostics.info("ModernGLRenderer",
+                f"Frame upload stats: {stats['total_uploads']} uploads, "
+                f"{stats['total_vertices']} vertices, "
+                f"{stats['total_bytes'] / 1024:.2f} KB, "
+                f"{stats['total_time_ms']:.2f}ms total, "
+                f"max: {stats['max_upload_time_ms']:.2f}ms / {stats['max_upload_bytes'] / 1024:.2f} KB")
     
     def _prepare_chunk_vertices(self, chunk_x: int, chunk_y: int, tiles: List[List[dict]]) -> np.ndarray:
         """
@@ -1176,7 +1317,7 @@ class ModernGLRenderer:
         
         # Phase 1: Process pending uploads (from ChunkManager's preparation queue)
         # This consumes the upload queue that ChunkManager filled in tick_chunk_manager()
-        uploads_this_frame = self._process_pending_uploads(max_uploads_per_frame=2)
+        uploads_this_frame = self._process_pending_uploads()
         
         if use_merged_buffer:
             try:

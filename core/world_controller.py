@@ -109,6 +109,31 @@ class WorldController:
             except Exception as e:
                 if self.diagnostics:
                     self.diagnostics.warning("WorldController", f"Failed to reload decoration textures: {e}")
+        else:
+            # Texture manager is None - try to initialize it now
+            if self.modern_gl_renderer and not self.modern_gl_renderer.tile_texture_manager:
+                if self.diagnostics:
+                    self.diagnostics.warning("WorldController", "Texture manager is None, attempting late initialization...")
+                try:
+                    from view.unified_texture_manager import UnifiedTextureManager
+                    self.modern_gl_renderer.tile_texture_manager = UnifiedTextureManager(
+                        self.modern_gl_renderer.ctx, 
+                        diagnostics=self.diagnostics
+                    )
+                    if self.modern_gl_renderer.tile_texture_manager.texture_atlas:
+                        texture_manager = self.modern_gl_renderer.tile_texture_manager
+                        if self.diagnostics:
+                            self.diagnostics.info("WorldController", "Texture manager initialized successfully (late initialization)")
+                        # Validate and log
+                        self.modern_gl_renderer.tile_texture_manager.log_atlas_validation()
+                    else:
+                        if self.diagnostics:
+                            self.diagnostics.error("WorldController", "Late texture manager initialization failed - atlas is None")
+                except Exception as e:
+                    if self.diagnostics:
+                        self.diagnostics.error("WorldController", f"Late texture manager initialization failed: {e}")
+                        import traceback
+                        self.diagnostics.error("WorldController", traceback.format_exc())
         
         # Welt erstellen - texture_manager wird direkt übergeben, damit texture_tags beim Generieren gesetzt werden
         self.world = World(

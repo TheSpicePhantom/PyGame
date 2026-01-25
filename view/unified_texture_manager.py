@@ -79,6 +79,13 @@ class UnifiedTextureManager:
         # Build atlas
         self._build_atlas()
     
+    def _log(self, level: str, message: str):
+        """Log message with diagnostics or print fallback."""
+        if self.diagnostics:
+            getattr(self.diagnostics, level)("UnifiedTextureManager", message)
+        else:
+            print(f"[UnifiedTextureManager] {message}")
+    
     def _load_texture_mapping(self):
         """Load texture mapping configuration from JSON file."""
         if not self.mapping_file.exists():
@@ -155,6 +162,11 @@ class UnifiedTextureManager:
         
         # 4. Build atlas (includes base textures, colorized textures, and rotations)
         if not self.builder.build_atlas(texture_references):
+            self._log("error", "Atlas build failed - texture_atlas will be None")
+            if self.diagnostics:
+                import traceback
+                self.diagnostics.error("UnifiedTextureManager", 
+                    f"Atlas build failed. Failed textures: {len(self.builder.failed_textures)}")
             return
         
         # 5. Convert UV map to texture_coords (with proper key format)
@@ -1061,12 +1073,248 @@ class UnifiedTextureManager:
         Checks for missing textures and validates UV coordinates.
         """
         # Validate UV coordinates are in range [0.0, 1.0]
+        invalid_uvs = []
         for texture_id, uv_coords in self.texture_coords.items():
             if len(uv_coords) != 4:
                 continue
             u0, v0, u1, v1 = uv_coords
             if not (0.0 <= u0 <= 1.0 and 0.0 <= v0 <= 1.0 and 0.0 <= u1 <= 1.0 and 0.0 <= v1 <= 1.0):
-                pass  # Invalid UV, but no logging
+                invalid_uvs.append(texture_id)
+        
+        if invalid_uvs:
+            self._log("warning", f"Found {len(invalid_uvs)} textures with invalid UV coordinates")
+    
+    def validate_texture_atlas(self) -> dict:
+        """
+        Validiert den Texture-Atlas und prüft, ob alle benötigten Texturen vorhanden sind.
+        
+        Returns:
+            Dictionary mit Validierungs-Ergebnissen:
+            {
+                'atlas_exists': bool,
+                'atlas_size': int,
+                'total_textures': int,
+                'failed_textures': int,
+                'missing_tile_textures': list,
+                'missing_decoration_textures': list,
+                'validation_passed': bool
+            }
+        """
+        result = {
+            'atlas_exists': self.texture_atlas is not None,
+            'atlas_size': self.atlas_size,
+            'total_textures': len(self.texture_coords),
+            'failed_textures': len(self.builder.failed_textures) if hasattr(self.builder, 'failed_textures') else 0,
+            'missing_tile_textures': [],
+            'missing_decoration_textures': [],
+            'validation_passed': True
+        }
+        
+        if not result['atlas_exists']:
+            result['validation_passed'] = False
+            return result
+        
+        # Prüfe Tile-Texturen aus texture_mapping
+        if self.texture_mapping:
+            for tile_id, mapping in self.texture_mapping.items():
+                base_texture = mapping.get("base_texture", "")
+                if base_texture:
+                    # Prüfe colorized texture
+                    colorized_name = f"{tile_id}:{base_texture}"
+                    if colorized_name not in self.texture_coords:
+                        # Prüfe non-colorized fallback
+                        if base_texture not in self.texture_coords:
+                            result['missing_tile_textures'].append(f"{tile_id} (base: {base_texture})")
+                    
+                    # Prüfe Overlay-Texturen
+                    variance_system = mapping.get("variance_system", {})
+                    growth_patterns = variance_system.get("growth_patterns", [])
+                    for pattern in growth_patterns:
+                        overlay = pattern.get("overlay")
+                        if overlay:
+                            overlay_colorized = f"{tile_id}:{overlay}"
+                            if overlay_colorized not in self.texture_coords and overlay not in self.texture_coords:
+                                result['missing_tile_textures'].append(f"{tile_id} (overlay: {overlay})")
+        
+        # Prüfe Decoration-Texturen (wenn DecorationRegistry verfügbar)
+        try:
+            from world.decoration_registry import DecorationRegistry
+            decorations = DecorationRegistry.get_all()
+            if decorations:
+                for decoration_id, deco_config in decorations.items():
+                    mod_id = deco_config.get('mod_id', 'core')
+                    sprites = deco_config.get('sprites', {})
+                    for sprite_key, sprite_name in sprites.items():
+                        if sprite_name:
+                            atlas_name = f"decoration:{mod_id}/{sprite_name}"
+                            if atlas_name not in self.texture_coords:
+                                result['missing_decoration_textures'].append(f"{decoration_id}:{sprite_name}")
+        except ImportError:
+            pass  # DecorationRegistry nicht verfügbar
+        
+        # Validation failed if there are missing textures
+        if result['missing_tile_textures'] or result['missing_decoration_textures']:
+            result['validation_passed'] = False
+        
+        return result
+    
+    def log_atlas_validation(self):
+        """Loggt Atlas-Validierung in die Konsole."""
+        validation = self.validate_texture_atlas()
+        
+        print("\n" + "=" * 80)
+        print("TEXTURE ATLAS VALIDATION")
+        print("=" * 80)
+        print(f"Atlas exists: {validation['atlas_exists']}")
+        print(f"Atlas size: {validation['atlas_size']}x{validation['atlas_size']}")
+        print(f"Total textures in atlas: {validation['total_textures']}")
+        print(f"Failed texture loads: {validation['failed_textures']}")
+        
+        if validation['missing_tile_textures']:
+            print(f"\n⚠️  Missing tile textures ({len(validation['missing_tile_textures'])}):")
+            for missing in validation['missing_tile_textures'][:20]:  # Limit to first 20
+                print(f"  - {missing}")
+            if len(validation['missing_tile_textures']) > 20:
+                print(f"  ... and {len(validation['missing_tile_textures']) - 20} more")
+        
+        if validation['missing_decoration_textures']:
+            print(f"\n⚠️  Missing decoration textures ({len(validation['missing_decoration_textures'])}):")
+            for missing in validation['missing_decoration_textures'][:20]:  # Limit to first 20
+                print(f"  - {missing}")
+            if len(validation['missing_decoration_textures']) > 20:
+                print(f"  ... and {len(validation['missing_decoration_textures']) - 20} more")
+        
+        if validation['failed_textures'] > 0:
+            print(f"\n⚠️  Failed texture loads: {validation['failed_textures']}")
+            if hasattr(self.builder, 'failed_textures'):
+                failed_list = list(self.builder.failed_textures)[:10]
+                for failed in failed_list:
+                    print(f"  - {failed}")
+                if len(self.builder.failed_textures) > 10:
+                    print(f"  ... and {len(self.builder.failed_textures) - 10} more")
+        
+        if validation['validation_passed']:
+            print("\n✓ Atlas validation PASSED")
+        else:
+            print("\n✗ Atlas validation FAILED")
+        
+        print("=" * 80 + "\n")
+        
+        return validation
+    
+    def check_water_textures(self) -> dict:
+        """
+        Prüft speziell, ob water_deep und water_shallow korrekt zugewiesen sind.
+        
+        Returns:
+            Dictionary mit Prüf-Ergebnissen
+        """
+        result = {
+            'water_shallow_in_atlas': False,
+            'water_deep_in_atlas': False,
+            'water_shallow_mapping': False,
+            'water_deep_mapping': False,
+            'water_shallow_texture_coords': None,
+            'water_deep_texture_coords': None,
+            'water_shallow_colorized': False,
+            'water_deep_colorized': False,
+            'issues': []
+        }
+        
+        # Prüfe ob Texturen im Atlas sind
+        if "tile/core/water_shallow" in self.texture_coords:
+            result['water_shallow_in_atlas'] = True
+            result['water_shallow_texture_coords'] = self.texture_coords["tile/core/water_shallow"]
+        else:
+            result['issues'].append("water_shallow not in texture_coords")
+        
+        if "tile/core/water_deep" in self.texture_coords:
+            result['water_deep_in_atlas'] = True
+            result['water_deep_texture_coords'] = self.texture_coords["tile/core/water_deep"]
+        else:
+            result['issues'].append("water_deep not in texture_coords")
+        
+        # Prüfe texture_mapping
+        if "water:shallow" in self.texture_mapping:
+            result['water_shallow_mapping'] = True
+            mapping = self.texture_mapping["water:shallow"]
+            base_texture = mapping.get("base_texture", "")
+            if base_texture == "water_shallow":
+                # Prüfe ob colorized texture existiert
+                colorized_name = f"water:shallow:{base_texture}"
+                if colorized_name in self.texture_coords:
+                    result['water_shallow_colorized'] = True
+                else:
+                    result['issues'].append(f"water:shallow colorized texture '{colorized_name}' not found")
+            else:
+                result['issues'].append(f"water:shallow base_texture is '{base_texture}', expected 'water_shallow'")
+        else:
+            result['issues'].append("water:shallow not in texture_mapping")
+        
+        if "water:deep" in self.texture_mapping:
+            result['water_deep_mapping'] = True
+            mapping = self.texture_mapping["water:deep"]
+            base_texture = mapping.get("base_texture", "")
+            if base_texture == "water_deep":
+                # Prüfe ob colorized texture existiert
+                colorized_name = f"water:deep:{base_texture}"
+                if colorized_name in self.texture_coords:
+                    result['water_deep_colorized'] = True
+                else:
+                    result['issues'].append(f"water:deep colorized texture '{colorized_name}' not found")
+            else:
+                result['issues'].append(f"water:deep base_texture is '{base_texture}', expected 'water_deep'")
+        else:
+            result['issues'].append("water:deep not in texture_mapping")
+        
+        # Prüfe get_texture_coords für beide
+        shallow_coords = self.get_texture_coords("water:shallow")
+        deep_coords = self.get_texture_coords("water:deep")
+        
+        result['water_shallow_lookup'] = shallow_coords is not None
+        result['water_deep_lookup'] = deep_coords is not None
+        
+        if shallow_coords is None:
+            result['issues'].append("get_texture_coords('water:shallow') returns None")
+        if deep_coords is None:
+            result['issues'].append("get_texture_coords('water:deep') returns None")
+        
+        return result
+    
+    def log_water_texture_check(self):
+        """Loggt Water-Texture-Prüfung in die Konsole."""
+        check = self.check_water_textures()
+        
+        print("\n" + "=" * 80)
+        print("WATER TEXTURE ASSIGNMENT CHECK")
+        print("=" * 80)
+        
+        print(f"\nwater_shallow:")
+        print(f"  In atlas: {check['water_shallow_in_atlas']}")
+        print(f"  In texture_mapping: {check['water_shallow_mapping']}")
+        print(f"  Colorized texture exists: {check['water_shallow_colorized']}")
+        print(f"  get_texture_coords() works: {check['water_shallow_lookup']}")
+        if check['water_shallow_texture_coords']:
+            print(f"  UV coords: {check['water_shallow_texture_coords']}")
+        
+        print(f"\nwater_deep:")
+        print(f"  In atlas: {check['water_deep_in_atlas']}")
+        print(f"  In texture_mapping: {check['water_deep_mapping']}")
+        print(f"  Colorized texture exists: {check['water_deep_colorized']}")
+        print(f"  get_texture_coords() works: {check['water_deep_lookup']}")
+        if check['water_deep_texture_coords']:
+            print(f"  UV coords: {check['water_deep_texture_coords']}")
+        
+        if check['issues']:
+            print(f"\n⚠️  Issues found ({len(check['issues'])}):")
+            for issue in check['issues']:
+                print(f"  - {issue}")
+        else:
+            print("\n✓ All water textures correctly assigned")
+        
+        print("=" * 80 + "\n")
+        
+        return check
     
     def reload_textures(self):
         """Rebuild Atlas (z.B. nach Mod-Installation)."""

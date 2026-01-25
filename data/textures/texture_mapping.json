@@ -109,6 +109,10 @@
     "water:shallow": {
       "base_texture": "water_shallow",
       "base_path": "assets"
+    },
+    "water:deep": {
+      "base_texture": "water_deep",
+      "base_path": "assets"
     }
   }
 }

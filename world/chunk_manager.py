@@ -69,6 +69,10 @@ class Chunk:
         # This allows fast lookup of decorations at specific tile positions
         self.decoration_lookup = {}  # Dict[Tuple[int, int], None] - None is placeholder, actual decoration is in tile['decoration']
         
+        # Dirty tracking for save optimization
+        self._content_hash: Optional[int] = None  # Hash of chunk content (None if invalid)
+        self._is_dirty: bool = False  # Flag indicating chunk has been modified
+        
         # Build initial decoration lookup from tiles
         self._rebuild_decoration_lookup()
 
@@ -171,6 +175,47 @@ class Chunk:
         # Invalidate decoration cache in WorldRenderer if available
         if world_renderer:
             world_renderer.invalidate_decoration_cache(self.chunk_x, self.chunk_y)
+    
+    def mark_dirty(self):
+        """
+        Mark chunk as dirty (content has been modified).
+        Invalidates the content hash.
+        """
+        self._is_dirty = True
+        self._content_hash = None
+    
+    def is_dirty(self) -> bool:
+        """
+        Check if chunk is dirty (has been modified since last save).
+        
+        Returns:
+            True if chunk has been modified, False otherwise
+        """
+        return self._is_dirty
+    
+    def update_hash_if_needed(self, region_manager, seed: int):
+        """
+        Update content hash if chunk is dirty.
+        Uses the same serialization as the save path for consistency.
+        
+        Args:
+            region_manager: RegionManager instance for serialization
+            seed: World seed for serialization
+        """
+        if not self._is_dirty:
+            return
+        
+        # Use the same serialization as the save path
+        serialized_bytes = region_manager.serialize_chunk(
+            self.chunk_x, 
+            self.chunk_y, 
+            self.tiles, 
+            seed
+        )
+        
+        # Calculate hash from serialized bytes
+        self._content_hash = hash(serialized_bytes)
+        self._is_dirty = False
 
 
 class ChunkManager:
@@ -557,6 +602,9 @@ class ChunkManager:
         
         # Update tile data
         chunk.tiles[local_y][local_x] = new_tile_data
+        
+        # Mark chunk as dirty (for save tracking)
+        chunk.mark_dirty()
         
         # Mark chunk as dirty in renderer (if available)
         if self.renderer is not None:
@@ -1272,6 +1320,9 @@ class ChunkManager:
             # Populate chunk with decorations (deterministic based on tile raster)
             self.populate_chunk(chunk)
             
+            # Set hash after generation (chunk will be saved, so mark as clean after save)
+            # Note: Hash will be set after successful save in _save_chunk_to_file_sync
+            
             self.loaded_chunks[key] = chunk
             
             # Notify renderer that chunk is ready
@@ -1403,6 +1454,9 @@ class ChunkManager:
             finally:
                 loop.close()
             
+            # Update hash after successful save
+            chunk.update_hash_if_needed(self.region_manager, seed)
+            
             # Record chunk save time
             save_time = time.perf_counter() - save_start_time
             if self.performance_monitor:
@@ -1453,6 +1507,13 @@ class ChunkManager:
                 with self._save_lock:
                     if chunk_key not in self.loaded_chunks or chunk_key in self.pending_saves:
                         self.save_queue.task_done()
+                        continue
+                    
+                    # Check if chunk is actually dirty (skip if not modified)
+                    if not chunk.is_dirty():
+                        self.save_queue.task_done()
+                        # Remove from dirty_chunks set if it was there
+                        self.dirty_chunks.discard(chunk_key)
                         continue
                     
                     # Mark as saving (thread-safe)
@@ -1565,6 +1626,10 @@ class ChunkManager:
             if chunk_key in self.pending_saves or chunk_key in self.dirty_chunks:
                 return
             
+            # Double-check: Skip if chunk is not actually dirty
+            if not chunk.is_dirty():
+                return
+            
             # Mark as dirty (thread-safe)
             self.dirty_chunks.add(chunk_key)
         
@@ -1615,6 +1680,11 @@ class ChunkManager:
             tiles = chunk_data['tiles']
             chunk = Chunk(chunk_x, chunk_y, tiles)
             
+            # Set hash after loading (chunk is clean, not dirty)
+            serialized_bytes = self.region_manager.serialize_chunk(chunk_x, chunk_y, tiles, seed)
+            chunk._content_hash = hash(serialized_bytes)
+            chunk._is_dirty = False
+            
             # Assign missing texture_tag values for tiles that don't have them
             # This handles old chunks that were created before the texture_tag system
             if self.terrain_gen and self.terrain_gen.texture_manager:
@@ -1645,15 +1715,16 @@ class ChunkManager:
                                     pass  # Skip if texture assignment fails
                 
                 # Mark chunk as dirty if we assigned texture_tags (needs to be saved)
-                    if missing_texture_tags > 0:
-                        if self.diagnostics:
-                            if not hasattr(self, '_texture_tag_assignments_logged'):
-                                self._texture_tag_assignments_logged = 0
-                            self._texture_tag_assignments_logged += 1
-                            if self._texture_tag_assignments_logged <= 10:
-                                self.diagnostics.info("ChunkManager",
-                                    f"Assigned {missing_texture_tags} missing texture_tags to chunk {chunk_key}")
-                        # Mark chunk as dirty so it gets saved with texture_tags
+                if missing_texture_tags > 0:
+                    if self.diagnostics:
+                        if not hasattr(self, '_texture_tag_assignments_logged'):
+                            self._texture_tag_assignments_logged = 0
+                        self._texture_tag_assignments_logged += 1
+                        if self._texture_tag_assignments_logged <= 10:
+                            self.diagnostics.info("ChunkManager",
+                                f"Assigned {missing_texture_tags} missing texture_tags to chunk {chunk_key}")
+                    # Mark chunk as dirty so it gets saved with texture_tags
+                    chunk.mark_dirty()
                     self._save_chunk_to_file(chunk)
             
             # Track chunk loaded from disk (IO operation)
@@ -1701,6 +1772,11 @@ class ChunkManager:
                     # Load from JSON and migrate to region format
                     tiles = json_data["tiles"]
                     chunk = Chunk(chunk_x, chunk_y, tiles)
+                    
+                    # Set hash after loading from legacy JSON
+                    serialized_bytes = self.region_manager.serialize_chunk(chunk_x, chunk_y, tiles, seed)
+                    chunk._content_hash = hash(serialized_bytes)
+                    chunk._is_dirty = False
                     
                     # Migrate to region format (save in new format) - async call
                     migration_start_time = time.perf_counter()
@@ -1759,6 +1835,7 @@ class ChunkManager:
                             return None
                     else:
                         return None
+                        
                 except Exception as e:
                     # Other errors - log but don't spam console
                     error_str = str(e)
@@ -1767,7 +1844,7 @@ class ChunkManager:
                     time.sleep(0.01 * (attempt + 1))
         
         # All retries failed - return None (chunk will be loaded from memory or generated)
-        return None
+            return None
 
     def unload_chunk(self, chunk_x: int, chunk_y: int):
         """
@@ -2110,10 +2187,29 @@ class ChunkManager:
         for coords in chunks_to_unload:
             self.unload_chunk(*coords)
 
-    def save_all_chunks(self):
-        """Save all currently loaded chunks to disk"""
-        for chunk in self.loaded_chunks.values():
-            self._save_chunk_to_file(chunk)
+    def save_all_chunks(self, force: bool = False):
+        """
+        Save all currently loaded chunks to disk.
+        
+        Args:
+            force: If True, save all chunks even if not dirty (for shutdown).
+                   If False, only save dirty chunks (for regular autosaves).
+        """
+        if force:
+            # Force save: save all chunks regardless of dirty state
+            for chunk in self.loaded_chunks.values():
+                self._save_chunk_to_file(chunk)
+        else:
+            # Regular autosave: only save dirty chunks
+            with self._save_lock:
+                dirty_chunk_keys = list(self.dirty_chunks)
+            
+            for chunk_key in dirty_chunk_keys:
+                if chunk_key in self.loaded_chunks:
+                    chunk = self.loaded_chunks[chunk_key]
+                    # Double-check chunk is still dirty before saving
+                    if chunk.is_dirty():
+                        self._save_chunk_to_file(chunk)
 
     def delete_save(self):
         """Delete entire save slot (WARNING: Cannot be undone!)"""
@@ -2575,6 +2671,10 @@ class ChunkManager:
                         stats['by_biome'][biome_id] = 0
                     stats['by_biome'][biome_id] += 1
         
+        # Mark chunk as dirty if we actually placed decorations
+        if stats['decorations_placed'] > 0:
+            chunk.mark_dirty()
+        
         # Verify we actually placed decorations (for biomes that should have them)
         expected_decorations = self._estimate_expected_decorations(chunk)
         if expected_decorations > 0 and stats['decorations_placed'] < expected_decorations * 0.5 and retry_count < MAX_RETRIES:
@@ -2793,6 +2893,7 @@ class ChunkManager:
         
         # Mark chunk as dirty if we assigned texture_tags (needs to be saved)
         if texture_tags_assigned > 0:
+            chunk.mark_dirty()
             # Chunk will be saved automatically when it's unloaded or during auto-save
             pass
     
@@ -3596,17 +3697,33 @@ class ChunkManager:
             padding_chunks=2
         )
     
-    def save_all_chunks(self):
+    def save_all_chunks(self, force: bool = False):
         """
-        Save all loaded chunks (thread-safe, simplified approach)
-        Marks all chunks as dirty and adds them to the save queue.
-        """
-        with self._save_lock:
-            chunks_to_save = list(self.loaded_chunks.values())
+        Save all loaded chunks (thread-safe, simplified approach).
         
-        # Add all chunks to save queue (non-blocking)
-        for chunk in chunks_to_save:
-            self._save_chunk_to_file(chunk)
+        Args:
+            force: If True, save all chunks even if not dirty (for shutdown).
+                   If False, only save dirty chunks (for regular autosaves).
+        """
+        if force:
+            # Force save: save all chunks regardless of dirty state
+            with self._save_lock:
+                chunks_to_save = list(self.loaded_chunks.values())
+            
+            # Add all chunks to save queue (non-blocking)
+            for chunk in chunks_to_save:
+                self._save_chunk_to_file(chunk)
+        else:
+            # Regular autosave: only save dirty chunks
+            with self._save_lock:
+                dirty_chunk_keys = list(self.dirty_chunks)
+            
+            for chunk_key in dirty_chunk_keys:
+                if chunk_key in self.loaded_chunks:
+                    chunk = self.loaded_chunks[chunk_key]
+                    # Double-check chunk is still dirty before saving
+                    if chunk.is_dirty():
+                        self._save_chunk_to_file(chunk)
     
     def shutdown(self):
         """
@@ -3647,7 +3764,7 @@ class ChunkManager:
                     self.diagnostics.warning("ChunkManager", f"Error shutting down ThreadPool: {e}")
         
         # Save all loaded chunks before shutdown (ensures no data loss)
-        self.save_all_chunks()
+        self.save_all_chunks(force=True)
         
         # Calculate timeout based on queue size (50ms per chunk + buffer)
         queue_size = self.save_queue.qsize()
